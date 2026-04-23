@@ -1,0 +1,23 @@
+{
+  "name": "mqtt-worker-service",
+  "version": "1.0.0",
+  "description": "MQTT Worker for Smart Home backend",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "ioredis": "^5.4.1",
+    "mongodb": "^6.8.0",
+    "mqtt": "^5.7.0",
+    "pg": "^8.12.0",
+    "pino": "^9.3.2",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  }
+}
