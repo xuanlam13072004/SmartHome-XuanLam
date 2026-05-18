@@ -7,6 +7,9 @@ const { createRedisClient } = require('./infra/redisClient');
 const { createMqttClient } = require('./infra/mqttClient');
 const { createMongoClient } = require('./infra/mongoClient');
 const { createPostgresPool } = require('./infra/postgresPool');
+const { startCommandConsumer } = require('./workers/commandConsumer');
+const { startTelemetrySubscriber } = require('./workers/telemetrySubscriber');
+const { startHealthMonitor } = require('./monitoring/healthMonitor');
 
 const logger = pino({
     name: config.SERVICE_NAME,
@@ -19,7 +22,10 @@ const state = {
     mongoClient: null,
     pgPool: null,
     heartbeatTimer: null,
+    healthTimer: null,
     shuttingDown: false,
+    commandConsumerTask: null,
+    telemetrySubscriberTask: null,
 };
 
 async function connectRedis() {
@@ -98,6 +104,10 @@ async function shutdown(signal) {
         clearInterval(state.heartbeatTimer);
     }
 
+    if (state.healthTimer) {
+        clearInterval(state.healthTimer);
+    }
+
     const closeTasks = [];
 
     if (state.mqttClient) {
@@ -132,6 +142,27 @@ async function start() {
     await connectPostgres();
 
     startHeartbeat();
+
+    // Start workers (non-blocking, run in background)
+    const clients = {
+        redis: state.redis,
+        mqttClient: state.mqttClient,
+        mongoClient: state.mongoClient,
+        pgPool: state.pgPool,
+    };
+
+    state.commandConsumerTask = startCommandConsumer(clients, config, logger).catch((err) => {
+        logger.fatal({ err }, 'Command consumer fatal error');
+        process.exit(1);
+    });
+
+    state.telemetrySubscriberTask = startTelemetrySubscriber(state.mqttClient, clients, config, logger).catch((err) => {
+        logger.fatal({ err }, 'Telemetry subscriber fatal error');
+        process.exit(1);
+    });
+
+    state.healthTimer = startHealthMonitor(clients, config, logger);
+
     logger.info('Worker is ready');
 }
 

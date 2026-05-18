@@ -27,6 +27,9 @@ const envSchema = z.object({
     REDIS_CACHE_OWNER_PREFIX: z.string().default('owner_of:'),
     REDIS_CACHE_DEVICE_PREFIX: z.string().default('device:'),
     REDIS_CACHE_TTL_SECONDS: z.coerce.number().positive().default(3600),
+    REDIS_CLAIM_IDLE_MS: z.coerce.number().positive().default(60000),
+    REDIS_CLAIM_COUNT: z.coerce.number().positive().default(50),
+    REDIS_CLAIM_INTERVAL_MS: z.coerce.number().positive().default(5000),
 
     // MQTT
     MQTT_BROKER_URL: z.string().url().default('mqtt://localhost:1883'),
@@ -34,6 +37,7 @@ const envSchema = z.object({
     MQTT_USERNAME: z.string().optional().default(''),
     MQTT_PASSWORD: z.string().optional().default(''),
     MQTT_QOS: z.coerce.number().int().min(0).max(2).default(1),
+    MQTT_SHARED_GROUP: z.string().optional().default(''),
     MQTT_CONTROL_TOPIC: z.string().default('smarthome/{owner_id}/{device_id}/control'),
     MQTT_TELEMETRY_TOPIC: z.string().default('smarthome/+/+/telemetry'),
     MQTT_ACK_TOPIC: z.string().default('smarthome/+/+/ack'),
@@ -52,11 +56,18 @@ const envSchema = z.object({
     MONGO_DB_NAME: z.string().default('SmartHomeDB'),
     MONGO_DEVICES_COLLECTION: z.string().default('devices'),
     MONGO_TELEMETRY_COLLECTION: z.string().default('telemetry_logs'),
+    TELEMETRY_BATCH_SIZE: z.coerce.number().positive().default(200),
+    TELEMETRY_BATCH_FLUSH_MS: z.coerce.number().positive().default(1000),
+    TELEMETRY_BUFFER_MAX: z.coerce.number().positive().default(5000),
+    TELEMETRY_DEDUPE_TTL_SECONDS: z.coerce.number().positive().default(300),
+    REDIS_DEDUPE_PREFIX: z.string().default('dedupe:'),
 
     // Worker behavior
     COMMAND_TIMEOUT_SECONDS: z.coerce.number().positive().default(15),
     COMMAND_RETRY_LIMIT: z.coerce.number().nonnegative().default(2),
+    COMMAND_MAX_RETRY: z.coerce.number().nonnegative().default(5),
     HEARTBEAT_INTERVAL_SECONDS: z.coerce.number().positive().default(30),
+    HEALTHCHECK_INTERVAL_MS: z.coerce.number().positive().default(10000),
 });
 
 /**
