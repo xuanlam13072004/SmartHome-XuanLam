@@ -18,8 +18,12 @@ const envSchema = z.object({
 
     MONGO_URI: z.string().url(),
     MONGO_DB_NAME: z.string().default('SmartHomeDB'),
+    MONGO_DEVICES_COLLECTION: z.string().default('devices'),
 
     REDIS_URL: z.string().url(),
+    REDIS_COMMAND_STREAM: z.string().default('device.commands'),
+    REDIS_CACHE_OWNER_PREFIX: z.string().default('owner_of:'),
+    REDIS_CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
 });
 
 const parseResult = envSchema.safeParse(process.env);

@@ -15,6 +15,11 @@ const jwtPlugin: FastifyPluginAsync = async (app: FastifyInstance) => {
             expiresIn: env.JWT_EXPIRES_IN,
         },
     });
+
+    // Decorator dùng cho route protected
+    app.decorate('authenticate', async (request, _reply) => {
+        await request.jwtVerify();
+    });
 };
 
 export default fp(jwtPlugin, {

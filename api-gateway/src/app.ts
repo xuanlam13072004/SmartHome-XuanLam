@@ -3,6 +3,7 @@ import postgresPlugin from './plugins/postgres';
 import redisPlugin from './plugins/redis';
 import mongoPlugin from './plugins/mongo';
 import authRoutes from './modules/auth/routes';
+import deviceRoutes from './modules/device/routes';
 import jwtPlugin from './plugins/jwt';
 import errorHandlerPlugin from './plugins/errorHandler';
 import validationPlugin from './plugins/validation';
@@ -19,6 +20,12 @@ export function buildApp(): FastifyInstance {
         logger: true,
     });
 
+    // Register global error handler
+    app.register(errorHandlerPlugin);
+
+    // Register validation plugin (Zod)
+    app.register(validationPlugin);
+
     // Register PostgreSQL plugin (fail fast nếu DB lỗi)
     app.register(postgresPlugin);
 
@@ -31,17 +38,14 @@ export function buildApp(): FastifyInstance {
     // Register JWT plugin (auth + protected routes)
     app.register(jwtPlugin);
 
-    // Register global error handler
-    app.register(errorHandlerPlugin);
-
-    // Register validation plugin (Zod)
-    app.register(validationPlugin);
-
     // Register rate limit plugin
     app.register(rateLimitPlugin);
 
     // Register Auth module routes
     app.register(authRoutes);
+
+    // Register Device module routes
+    app.register(deviceRoutes);
 
     // Health check cho load balancer / k8s
     app.get('/health', async () => {

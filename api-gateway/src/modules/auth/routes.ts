@@ -49,6 +49,18 @@ const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         const result = await logoutSession(app, body);
         return { success: true, ...result };
     });
+
+    app.get('/auth/me', {
+        preHandler: [app.authenticate],
+    }, async (request) => {
+        return {
+            success: true,
+            user: {
+                id: request.user.userId,
+                email: request.user.email,
+            },
+        };
+    });
 };
 
 export default authRoutes;
