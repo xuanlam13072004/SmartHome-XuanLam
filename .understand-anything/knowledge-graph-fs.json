@@ -1,0 +1,3840 @@
+{
+  "version": "1.0.0",
+  "project": {
+    "name": "SmartHome-XuanLam",
+    "languages": [
+      "TypeScript",
+      "JavaScript"
+    ],
+    "frameworks": [
+      "Node.js",
+      "Express/Fastify"
+    ],
+    "description": "Hệ thống Backend Microservices cho Smart Home",
+    "analyzedAt": "2026-05-28T00:00:00.000Z",
+    "gitCommitHash": "unknown"
+  },
+  "nodes": [
+    {
+      "id": "dir:api-gateway",
+      "type": "module",
+      "name": "api-gateway",
+      "filePath": "api-gateway",
+      "summary": "Thu muc api-gateway trong cay thu muc du an",
+      "title": "api-gateway",
+      "tags": [
+        "directory"
+      ]
+    },
+    {
+      "id": "dir:api-gateway/src",
+      "type": "module",
+      "name": "src",
+      "filePath": "api-gateway/src",
+      "summary": "Thu muc src trong cay thu muc du an",
+      "title": "src",
+      "tags": [
+        "directory"
+      ]
+    },
+    {
+      "id": "dir:api-gateway/src/modules",
+      "type": "module",
+      "name": "modules",
+      "filePath": "api-gateway/src/modules",
+      "summary": "Thu muc modules trong cay thu muc du an",
+      "title": "modules",
+      "tags": [
+        "directory"
+      ]
+    },
+    {
+      "id": "dir:api-gateway/src/modules/auth",
+      "type": "module",
+      "name": "auth",
+      "filePath": "api-gateway/src/modules/auth",
+      "summary": "Thu muc auth trong cay thu muc du an",
+      "title": "auth",
+      "tags": [
+        "directory"
+      ]
+    },
+    {
+      "id": "dir:",
+      "type": "module",
+      "name": "/",
+      "filePath": "",
+      "summary": "Thu muc / trong cay thu muc du an",
+      "title": "/",
+      "tags": [
+        "directory"
+      ]
+    },
+    {
+      "id": "dir:api-gateway/src/modules/device",
+      "type": "module",
+      "name": "device",
+      "filePath": "api-gateway/src/modules/device",
+      "summary": "Thu muc device trong cay thu muc du an",
+      "title": "device",
+      "tags": [
+        "directory"
+      ]
+    },
+    {
+      "id": "dir:api-gateway/src/plugins",
+      "type": "module",
+      "name": "plugins",
+      "filePath": "api-gateway/src/plugins",
+      "summary": "Thu muc plugins trong cay thu muc du an",
+      "title": "plugins",
+      "tags": [
+        "directory"
+      ]
+    },
+    {
+      "id": "dir:api-gateway/src/types",
+      "type": "module",
+      "name": "types",
+      "filePath": "api-gateway/src/types",
+      "summary": "Thu muc types trong cay thu muc du an",
+      "title": "types",
+      "tags": [
+        "directory"
+      ]
+    },
+    {
+      "id": "dir:mqtt-worker-service",
+      "type": "module",
+      "name": "mqtt-worker-service",
+      "filePath": "mqtt-worker-service",
+      "summary": "Thu muc mqtt-worker-service trong cay thu muc du an",
+      "title": "mqtt-worker-service",
+      "tags": [
+        "directory"
+      ]
+    },
+    {
+      "id": "dir:mqtt-worker-service/src",
+      "type": "module",
+      "name": "src",
+      "filePath": "mqtt-worker-service/src",
+      "summary": "Thu muc src trong cay thu muc du an",
+      "title": "src",
+      "tags": [
+        "directory"
+      ]
+    },
+    {
+      "id": "dir:mqtt-worker-service/src/infra",
+      "type": "module",
+      "name": "infra",
+      "filePath": "mqtt-worker-service/src/infra",
+      "summary": "Thu muc infra trong cay thu muc du an",
+      "title": "infra",
+      "tags": [
+        "directory"
+      ]
+    },
+    {
+      "id": "dir:.understand-anything",
+      "type": "module",
+      "name": ".understand-anything",
+      "filePath": ".understand-anything",
+      "summary": "Thu muc .understand-anything trong cay thu muc du an",
+      "title": ".understand-anything",
+      "tags": [
+        "directory"
+      ]
+    },
+    {
+      "id": "dir:api-gateway/src/config",
+      "type": "module",
+      "name": "config",
+      "filePath": "api-gateway/src/config",
+      "summary": "Thu muc config trong cay thu muc du an",
+      "title": "config",
+      "tags": [
+        "directory"
+      ]
+    },
+    {
+      "id": "dir:mqtt-worker-service/src/config",
+      "type": "module",
+      "name": "config",
+      "filePath": "mqtt-worker-service/src/config",
+      "summary": "Thu muc config trong cay thu muc du an",
+      "title": "config",
+      "tags": [
+        "directory"
+      ]
+    },
+    {
+      "id": "dir:mqtt-worker-service/src/monitoring",
+      "type": "module",
+      "name": "monitoring",
+      "filePath": "mqtt-worker-service/src/monitoring",
+      "summary": "Thu muc monitoring trong cay thu muc du an",
+      "title": "monitoring",
+      "tags": [
+        "directory"
+      ]
+    },
+    {
+      "id": "dir:mqtt-worker-service/src/services",
+      "type": "module",
+      "name": "services",
+      "filePath": "mqtt-worker-service/src/services",
+      "summary": "Thu muc services trong cay thu muc du an",
+      "title": "services",
+      "tags": [
+        "directory"
+      ]
+    },
+    {
+      "id": "dir:mqtt-worker-service/src/workers",
+      "type": "module",
+      "name": "workers",
+      "filePath": "mqtt-worker-service/src/workers",
+      "summary": "Thu muc workers trong cay thu muc du an",
+      "title": "workers",
+      "tags": [
+        "directory"
+      ]
+    },
+    {
+      "id": "config:api-gateway/.env.example",
+      "type": "config",
+      "name": ".env.example",
+      "filePath": "api-gateway/.env.example",
+      "language": "dotenv",
+      "summary": "Mau bien moi truong cho API Gateway, gom tham so JWT va ket noi DB.",
+      "description": "Khai bao NODE_ENV/PORT/HOST va cac bien lien quan JWT, PostgreSQL, MongoDB, Redis; dung lam mau cau hinh khi khoi tao moi truong.",
+      "tags": [
+        "config",
+        "env",
+        "api-gateway"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "config:api-gateway/package.json",
+      "type": "config",
+      "name": "package.json",
+      "filePath": "api-gateway/package.json",
+      "language": "json",
+      "summary": "Manifest npm cho dich vu api-gateway voi scripts va dependencies chinh.",
+      "description": "Khai bao scripts dev/build/start; dependencies gom Fastify, @fastify/jwt, @fastify/rate-limit, argon2, dotenv, ioredis, mongodb, pg, zod; devDependencies gom TypeScript, tsx va @types/node.",
+      "tags": [
+        "config",
+        "npm",
+        "api-gateway"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "config:api-gateway/package-lock.json",
+      "type": "config",
+      "name": "package-lock.json",
+      "filePath": "api-gateway/package-lock.json",
+      "language": "json",
+      "summary": "Lockfile npm v3 co dinh phien ban dependency cua api-gateway.",
+      "description": "Luu thong tin resolved, integrity va dependency tree cho toan bo goi, bao gom optional/platform-specific packages.",
+      "tags": [
+        "config",
+        "npm",
+        "lockfile",
+        "api-gateway"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "config:api-gateway/tsconfig.json",
+      "type": "config",
+      "name": "tsconfig.json",
+      "filePath": "api-gateway/tsconfig.json",
+      "language": "json",
+      "summary": "Cau hinh trinh bien dich TypeScript cho api-gateway.",
+      "description": "Dat target ES2020, module Node16, strict, esModuleInterop; outDir dist, rootDir src; include file .ts va type declarations trong src/types.",
+      "tags": [
+        "config",
+        "typescript",
+        "api-gateway"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:api-gateway/src/modules/auth/routes.ts",
+      "type": "file",
+      "title": "Routes xac thuc",
+      "filePath": "api-gateway/src/modules/auth/routes.ts",
+      "language": "typescript",
+      "summary": "Khai bao cac endpoint auth va gan schema/handler co ban.",
+      "complexity": "simple",
+      "tags": [
+        "fastify",
+        "auth",
+        "routes"
+      ],
+      "name": "routes.ts"
+    },
+    {
+      "id": "file:api-gateway/src/modules/auth/schemas.ts",
+      "type": "file",
+      "title": "Schema xac thuc",
+      "filePath": "api-gateway/src/modules/auth/schemas.ts",
+      "language": "typescript",
+      "summary": "Dinh nghia Zod schema cho register/login/refresh/logout.",
+      "complexity": "simple",
+      "tags": [
+        "zod",
+        "schema",
+        "auth"
+      ],
+      "exportedSymbols": [
+        "registerSchema",
+        "loginSchema",
+        "refreshSchema",
+        "logoutSchema"
+      ],
+      "name": "schemas.ts"
+    },
+    {
+      "id": "file:api-gateway/src/modules/auth/service.ts",
+      "type": "file",
+      "title": "Auth service",
+      "filePath": "api-gateway/src/modules/auth/service.ts",
+      "language": "typescript",
+      "summary": "Xu ly nghiep vu dang ky, dang nhap, refresh token va logout.",
+      "complexity": "moderate",
+      "tags": [
+        "auth",
+        "postgres",
+        "jwt",
+        "argon2"
+      ],
+      "exportedSymbols": [
+        "registerUser",
+        "loginUser",
+        "refreshSession",
+        "logoutSession"
+      ],
+      "name": "service.ts"
+    },
+    {
+      "id": "endpoint:api-gateway/src/modules/auth/routes.ts:GET /auth/health",
+      "type": "endpoint",
+      "title": "Healthcheck auth",
+      "filePath": "api-gateway/src/modules/auth/routes.ts",
+      "summary": "Tra ve trang thai module auth.",
+      "complexity": "simple",
+      "tags": [
+        "health",
+        "auth"
+      ],
+      "name": "routes.ts"
+    },
+    {
+      "id": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/register",
+      "type": "endpoint",
+      "title": "Dang ky tai khoan",
+      "filePath": "api-gateway/src/modules/auth/routes.ts",
+      "summary": "Tao tai khoan moi va tra ve thong tin nguoi dung.",
+      "complexity": "moderate",
+      "tags": [
+        "auth",
+        "register"
+      ],
+      "name": "routes.ts"
+    },
+    {
+      "id": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/login",
+      "type": "endpoint",
+      "title": "Dang nhap",
+      "filePath": "api-gateway/src/modules/auth/routes.ts",
+      "summary": "Xac thuc mat khau, cap access_token va refresh_token.",
+      "complexity": "moderate",
+      "tags": [
+        "auth",
+        "login",
+        "rateLimit"
+      ],
+      "name": "routes.ts"
+    },
+    {
+      "id": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/refresh",
+      "type": "endpoint",
+      "title": "Refresh token",
+      "filePath": "api-gateway/src/modules/auth/routes.ts",
+      "summary": "Cap access_token va refresh_token moi khi session hop le.",
+      "complexity": "moderate",
+      "tags": [
+        "auth",
+        "refresh"
+      ],
+      "name": "routes.ts"
+    },
+    {
+      "id": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/logout",
+      "type": "endpoint",
+      "title": "Dang xuat",
+      "filePath": "api-gateway/src/modules/auth/routes.ts",
+      "summary": "Vo hieu hoa session dang hoat dong.",
+      "complexity": "simple",
+      "tags": [
+        "auth",
+        "logout"
+      ],
+      "name": "routes.ts"
+    },
+    {
+      "id": "endpoint:api-gateway/src/modules/auth/routes.ts:GET /auth/me",
+      "type": "endpoint",
+      "title": "Thong tin nguoi dung hien tai",
+      "filePath": "api-gateway/src/modules/auth/routes.ts",
+      "summary": "Tra ve id va email tu JWT da xac thuc.",
+      "complexity": "simple",
+      "tags": [
+        "auth",
+        "profile",
+        "jwt"
+      ],
+      "name": "routes.ts"
+    },
+    {
+      "id": "schema:api-gateway/src/modules/auth/schemas.ts:registerSchema",
+      "type": "schema",
+      "title": "Schema dang ky",
+      "filePath": "api-gateway/src/modules/auth/schemas.ts",
+      "summary": "Kiem tra username/email/password va full_name tuy chon.",
+      "complexity": "simple",
+      "tags": [
+        "zod",
+        "register"
+      ],
+      "name": "schemas.ts"
+    },
+    {
+      "id": "schema:api-gateway/src/modules/auth/schemas.ts:loginSchema",
+      "type": "schema",
+      "title": "Schema dang nhap",
+      "filePath": "api-gateway/src/modules/auth/schemas.ts",
+      "summary": "Kiem tra email va password.",
+      "complexity": "simple",
+      "tags": [
+        "zod",
+        "login"
+      ],
+      "name": "schemas.ts"
+    },
+    {
+      "id": "schema:api-gateway/src/modules/auth/schemas.ts:refreshSchema",
+      "type": "schema",
+      "title": "Schema refresh",
+      "filePath": "api-gateway/src/modules/auth/schemas.ts",
+      "summary": "Kiem tra session_id va refresh_token.",
+      "complexity": "simple",
+      "tags": [
+        "zod",
+        "refresh"
+      ],
+      "name": "schemas.ts"
+    },
+    {
+      "id": "schema:api-gateway/src/modules/auth/schemas.ts:logoutSchema",
+      "type": "schema",
+      "title": "Schema logout",
+      "filePath": "api-gateway/src/modules/auth/schemas.ts",
+      "summary": "Kiem tra session_id va refresh_token.",
+      "complexity": "simple",
+      "tags": [
+        "zod",
+        "logout"
+      ],
+      "name": "schemas.ts"
+    },
+    {
+      "id": "function:api-gateway/src/modules/auth/service.ts:nowPlusSeconds",
+      "type": "function",
+      "title": "Tinh thoi diem het han",
+      "filePath": "api-gateway/src/modules/auth/service.ts",
+      "summary": "Cong them so giay vao thoi gian hien tai de tao ngay het han.",
+      "complexity": "simple",
+      "tags": [
+        "time",
+        "utility"
+      ],
+      "name": "service.ts"
+    },
+    {
+      "id": "function:api-gateway/src/modules/auth/service.ts:normalizeEmail",
+      "type": "function",
+      "title": "Chuan hoa email",
+      "filePath": "api-gateway/src/modules/auth/service.ts",
+      "summary": "Trim va chuyen email ve chu thuong.",
+      "complexity": "simple",
+      "tags": [
+        "utility",
+        "email"
+      ],
+      "name": "service.ts"
+    },
+    {
+      "id": "function:api-gateway/src/modules/auth/service.ts:generateRefreshToken",
+      "type": "function",
+      "title": "Tao refresh token",
+      "filePath": "api-gateway/src/modules/auth/service.ts",
+      "summary": "Sinh chuoi hex tu crypto.randomBytes.",
+      "complexity": "simple",
+      "tags": [
+        "token",
+        "crypto"
+      ],
+      "name": "service.ts"
+    },
+    {
+      "id": "function:api-gateway/src/modules/auth/service.ts:registerUser",
+      "type": "function",
+      "title": "Dang ky nguoi dung",
+      "filePath": "api-gateway/src/modules/auth/service.ts",
+      "summary": "Kiem tra trung lap, hash mat khau va tao ban ghi accounts.",
+      "complexity": "moderate",
+      "tags": [
+        "auth",
+        "accounts",
+        "argon2"
+      ],
+      "name": "service.ts"
+    },
+    {
+      "id": "function:api-gateway/src/modules/auth/service.ts:loginUser",
+      "type": "function",
+      "title": "Dang nhap nguoi dung",
+      "filePath": "api-gateway/src/modules/auth/service.ts",
+      "summary": "Xac thuc mat khau, tao JWT va session refresh.",
+      "complexity": "complex",
+      "tags": [
+        "auth",
+        "jwt",
+        "session"
+      ],
+      "name": "service.ts"
+    },
+    {
+      "id": "function:api-gateway/src/modules/auth/service.ts:refreshSession",
+      "type": "function",
+      "title": "Lam moi session",
+      "filePath": "api-gateway/src/modules/auth/service.ts",
+      "summary": "Xac thuc refresh_token va cap token moi.",
+      "complexity": "moderate",
+      "tags": [
+        "auth",
+        "refresh",
+        "session"
+      ],
+      "name": "service.ts"
+    },
+    {
+      "id": "function:api-gateway/src/modules/auth/service.ts:logoutSession",
+      "type": "function",
+      "title": "Dang xuat session",
+      "filePath": "api-gateway/src/modules/auth/service.ts",
+      "summary": "Kiem tra refresh_token va vo hieu hoa session.",
+      "complexity": "moderate",
+      "tags": [
+        "auth",
+        "logout",
+        "session"
+      ],
+      "name": "service.ts"
+    },
+    {
+      "id": "table:accounts",
+      "type": "table",
+      "title": "Bang accounts",
+      "summary": "Luu thong tin tai khoan nguoi dung va password_hash.",
+      "complexity": "simple",
+      "tags": [
+        "postgres",
+        "accounts"
+      ],
+      "name": "accounts"
+    },
+    {
+      "id": "table:user_sessions",
+      "type": "table",
+      "title": "Bang user_sessions",
+      "summary": "Luu session refresh token va trang thai hoat dong.",
+      "complexity": "simple",
+      "tags": [
+        "postgres",
+        "sessions"
+      ],
+      "name": "user_sessions"
+    },
+    {
+      "id": "file:api-gateway/src/modules/device/roles.ts",
+      "type": "file",
+      "name": "roles.ts",
+      "title": "Device role allowlist",
+      "path": "api-gateway/src/modules/device/roles.ts",
+      "language": "TypeScript",
+      "fileCategory": "code",
+      "summary": "Khai báo danh sách role thiết bị hợp lệ và type guard cho kiểm tra role.",
+      "description": "Định nghĩa `ALLOWED_ROLES` bằng `as const`, suy ra `DeviceRole` từ mảng và cung cấp `isAllowedRole` để xác thực chuỗi role trước khi dùng ở tầng service.",
+      "tags": [
+        "device",
+        "roles",
+        "typing",
+        "validation"
+      ],
+      "languageNotes": "`as const` biến mảng literal thành union type để dùng cho kiểm tra và lọc giá trị.",
+      "languageLesson": "Type guard (`role is DeviceRole`) giúp TypeScript narrow kiểu an toàn trong nhánh logic.",
+      "complexity": "simple"
+    },
+    {
+      "id": "file:api-gateway/src/modules/device/routes.ts",
+      "type": "file",
+      "name": "routes.ts",
+      "title": "Device API routes",
+      "path": "api-gateway/src/modules/device/routes.ts",
+      "language": "TypeScript",
+      "fileCategory": "code",
+      "summary": "Đăng ký các endpoint thiết bị: list, claim, unpair, command, state.",
+      "description": "Khai báo Fastify routes với `app.authenticate` và `validationSchema` cho từng endpoint, sau đó gọi service tương ứng để xử lý nghiệp vụ thiết bị.",
+      "tags": [
+        "Fastify",
+        "routes",
+        "device",
+        "authentication",
+        "validation"
+      ],
+      "languageNotes": "`FastifyPluginAsync` cho phép đóng gói route theo module và truyền `FastifyInstance` vào scope.",
+      "languageLesson": "Tách route và service giúp handler gọn, giảm lặp và dễ kiểm thử logic nghiệp vụ.",
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:api-gateway/src/modules/device/schemas.ts",
+      "type": "file",
+      "name": "schemas.ts",
+      "title": "Device validation schemas",
+      "path": "api-gateway/src/modules/device/schemas.ts",
+      "language": "TypeScript",
+      "fileCategory": "code",
+      "summary": "Zod schemas cho MAC, claim, unpair, command và truy vấn state.",
+      "description": "Định nghĩa regex MAC, schema params/body cho claim/unpair/command và enum hành động `ON/OFF/SET_TEMP`, dùng chung trong route validation.",
+      "tags": [
+        "Zod",
+        "validation",
+        "schema",
+        "device"
+      ],
+      "languageNotes": "Zod hỗ trợ `regex`, `enum`, `record` để ràng buộc payload linh hoạt.",
+      "languageLesson": "Tách schema params/body giúp tái sử dụng và đồng nhất rule giữa các endpoint.",
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:api-gateway/src/modules/device/service.ts",
+      "type": "file",
+      "name": "service.ts",
+      "title": "Device service logic",
+      "path": "api-gateway/src/modules/device/service.ts",
+      "language": "TypeScript",
+      "fileCategory": "code",
+      "summary": "Xử lý nghiệp vụ thiết bị: claim, unpair, list, send command, lấy state.",
+      "description": "Thao tác transaction PostgreSQL cho claim/unpair, lưu metadata thiết bị, ghi command vào bảng và Redis stream, đồng bộ device shadow trên MongoDB và cache owner bằng Redis.",
+      "tags": [
+        "device",
+        "service",
+        "PostgreSQL",
+        "Redis",
+        "MongoDB",
+        "command"
+      ],
+      "languageNotes": "Sử dụng `BEGIN/COMMIT/ROLLBACK` và `finally` để đảm bảo giải phóng connection.",
+      "languageLesson": "Bọc cập nhật cache/shadow trong `try/catch` riêng để không làm hỏng giao dịch chính khi hệ phụ trợ lỗi.",
+      "complexity": "complex"
+    },
+    {
+      "id": "file:api-gateway/src/plugins/errorHandler.ts",
+      "type": "file",
+      "name": "errorHandler.ts",
+      "title": "Fastify error handler",
+      "path": "api-gateway/src/plugins/errorHandler.ts",
+      "language": "TypeScript",
+      "fileCategory": "code",
+      "summary": "Plugin xu ly loi tap trung, thong nhat response va ghi log theo muc do.",
+      "description": "Plugin nay dang ky `setErrorHandler` de chuan hoa JSON response cho tat ca loi, gan `requestId`/path/method vao meta va log theo severity (warn cho 4xx, error cho 5xx).",
+      "tags": [
+        "Fastify",
+        "error handling",
+        "logging",
+        "plugin"
+      ],
+      "languageNotes": "`setErrorHandler` cho phep tu dinh nghia payload tra ve va tu quan ly status code.",
+      "languageLesson": "Gom format loi ve mot noi giup client de xu ly va giam trung lap trong route.",
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:api-gateway/src/plugins/jwt.ts",
+      "type": "file",
+      "name": "jwt.ts",
+      "title": "JWT auth plugin",
+      "path": "api-gateway/src/plugins/jwt.ts",
+      "language": "TypeScript",
+      "fileCategory": "code",
+      "summary": "Dang ky @fastify/jwt va cung cap decorator `authenticate` cho route bao ve.",
+      "description": "Plugin nay dang ky JWT voi `secret` va `expiresIn` tu env, sau do `decorate` ham `authenticate` de goi `request.jwtVerify()` cho cac route can bao ve.",
+      "tags": [
+        "Fastify",
+        "JWT",
+        "authentication",
+        "decorator"
+      ],
+      "languageNotes": "`app.decorate` tao method runtime va co the duoc type-augment trong .d.ts.",
+      "languageLesson": "Tach `authenticate` vao plugin giup route su dung gon, dong thoi de kiem thu hon.",
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:api-gateway/src/plugins/mongo.ts",
+      "type": "file",
+      "name": "mongo.ts",
+      "title": "MongoDB connector",
+      "path": "api-gateway/src/plugins/mongo.ts",
+      "language": "TypeScript",
+      "fileCategory": "code",
+      "summary": "Ket noi MongoDB, ping kiem tra va gan client/db vao FastifyInstance.",
+      "description": "Plugin tao `MongoClient`, thuc hien `connect` va `ping`, sau do `decorate` app voi `{ client, db }` va dong ket noi trong hook `onClose`.",
+      "tags": [
+        "MongoDB",
+        "Fastify",
+        "connection",
+        "lifecycle"
+      ],
+      "languageNotes": "`onClose` la hook phu hop de cleanup ket noi truoc khi app tat.",
+      "languageLesson": "Ping sau khi connect giup fail fast neu DB khong reachable.",
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:api-gateway/src/plugins/postgres.ts",
+      "type": "file",
+      "name": "postgres.ts",
+      "title": "PostgreSQL pool",
+      "path": "api-gateway/src/plugins/postgres.ts",
+      "language": "TypeScript",
+      "fileCategory": "code",
+      "summary": "Tao Pool PostgreSQL, ping de xac nhan va gan pool vao app.",
+      "description": "Plugin tao `Pool` tu env (co SSL tuy theo `PG_SSL`), thuc hien `SELECT 1` de kiem tra ket noi, `decorate` app voi `pg` va `end()` trong `onClose`.",
+      "tags": [
+        "PostgreSQL",
+        "connection pool",
+        "Fastify",
+        "infra"
+      ],
+      "languageNotes": "`Pool` giup tai su dung ket noi va giam chi phi tao/doi socket.",
+      "languageLesson": "Fail fast bang query ping giup phat hien loi cau hinh som.",
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:api-gateway/src/plugins/rateLimit.ts",
+      "type": "file",
+      "name": "rateLimit.ts",
+      "title": "Rate limit setup",
+      "path": "api-gateway/src/plugins/rateLimit.ts",
+      "language": "TypeScript",
+      "fileCategory": "code",
+      "summary": "Dang ky @fastify/rate-limit voi che do ap dung theo route.",
+      "description": "Plugin dang ky rate limit voi `global: false` de chi ap dung cho route can bao ve va tu dong them cac header thong tin rate limit.",
+      "tags": [
+        "rate limit",
+        "Fastify",
+        "security",
+        "plugin"
+      ],
+      "languageNotes": "`global: false` cho phep bat rate limit theo tung route thong qua config route.",
+      "languageLesson": "Header rate limit giup client tu dieu chinh tan suat request.",
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:api-gateway/src/plugins/redis.ts",
+      "type": "file",
+      "name": "redis.ts",
+      "title": "Redis connector",
+      "path": "api-gateway/src/plugins/redis.ts",
+      "language": "TypeScript",
+      "fileCategory": "code",
+      "summary": "Ket noi Redis, ping kiem tra va gan client vao FastifyInstance.",
+      "description": "Plugin tao `Redis` client voi `maxRetriesPerRequest: null`, xu ly event `error`, ping de xac nhan ket noi, `decorate` app voi `redis` va dong ket noi trong `onClose`.",
+      "tags": [
+        "Redis",
+        "Fastify",
+        "connection",
+        "observability"
+      ],
+      "languageNotes": "Bat event `error` de log se giup quan sat tinh trang ket noi Redis.",
+      "languageLesson": "Dung `quit()` truoc `disconnect()` giup shutdown sach va tranh mat lenh.",
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:api-gateway/src/plugins/validation.ts",
+      "type": "file",
+      "name": "validation.ts",
+      "title": "Zod validation helper",
+      "path": "api-gateway/src/plugins/validation.ts",
+      "language": "TypeScript",
+      "fileCategory": "code",
+      "summary": "Cung cap `validate` helper va hook preHandler de kiem tra request bang Zod.",
+      "description": "Plugin them `app.validate(schema, data)` de parse du lieu, chuyen `ZodError` thanh loi 400 co `details`, va co `preHandler` tu dong validate `body/query/params` neu route khai bao `validationSchema`.",
+      "tags": [
+        "Zod",
+        "validation",
+        "Fastify",
+        "hook"
+      ],
+      "languageNotes": "`preHandler` chay truoc handler, thuan tien de reject request sai dinh dang.",
+      "languageLesson": "Gom validate vao plugin giup hien thi loi nhat quan va de tai su dung.",
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:api-gateway/src/types/fastify.d.ts",
+      "type": "file",
+      "name": "fastify.d.ts",
+      "title": "Fastify type augmentation",
+      "path": "api-gateway/src/types/fastify.d.ts",
+      "language": "TypeScript Declaration",
+      "fileCategory": "code",
+      "summary": "Mở rộng module Fastify để gắn thêm các client hạ tầng vào FastifyInstance.",
+      "description": "File này khai báo module augmentation cho `fastify`, bổ sung `pg`, `redis` và `mongo` (client + db) vào `FastifyInstance` để các plugin có thể tiêm dependency theo kiểu typed.",
+      "tags": [
+        "Fastify",
+        "module augmentation",
+        "typing",
+        "infra"
+      ],
+      "languageNotes": "Dùng `declare module 'fastify'` để mở rộng type mà không cần sửa type gốc.",
+      "languageLesson": "Trong .d.ts, chỉ nên khai báo type/shape; không có runtime side effects.",
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:api-gateway/src/types/jwt.d.ts",
+      "type": "file",
+      "name": "jwt.d.ts",
+      "title": "JWT auth typings",
+      "path": "api-gateway/src/types/jwt.d.ts",
+      "language": "TypeScript Declaration",
+      "fileCategory": "code",
+      "summary": "Bổ sung `authenticate` vào FastifyInstance và `user` vào FastifyRequest.",
+      "description": "Module augmentation này thêm phương thức `authenticate` để dùng trong route hook và thêm `request.user` với `userId` và `email` (optional) sau khi xác thực JWT.",
+      "tags": [
+        "Fastify",
+        "JWT",
+        "authentication",
+        "module augmentation"
+      ],
+      "languageNotes": "Kiểu của `request.user` giúp tránh ép kiểu thủ công ở từng handler.",
+      "languageLesson": "Khai báo interface mở rộng cho `FastifyRequest` giúp type inference xuyên suốt vòng đời request.",
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:api-gateway/src/types/validation.d.ts",
+      "type": "file",
+      "name": "validation.d.ts",
+      "title": "Validation typings",
+      "path": "api-gateway/src/types/validation.d.ts",
+      "language": "TypeScript Declaration",
+      "fileCategory": "code",
+      "summary": "Thêm hàm `validate` vào FastifyInstance để kiểm tra dữ liệu bằng Zod.",
+      "description": "File này mở rộng `FastifyInstance` với `validate(schema, data)` trả về `Promise<unknown>`, đồng bộ với cách plugin validation được dùng ở runtime.",
+      "tags": [
+        "Fastify",
+        "Zod",
+        "validation",
+        "module augmentation"
+      ],
+      "languageNotes": "`ZodSchema` là type chung cho các schema của Zod, phù hợp để wrap hàm validate.",
+      "languageLesson": "Tách type augmentation cho plugin giúp giữ app.ts sạch và tăng khả năng tái sử dụng.",
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:mqtt-worker-service/src/infra/mongoClient.js",
+      "type": "file",
+      "name": "mongoClient.js",
+      "title": "MongoDB client factory",
+      "path": "mqtt-worker-service/src/infra/mongoClient.js",
+      "language": "JavaScript",
+      "fileCategory": "code",
+      "summary": "Tao MongoDB client, kiem tra ket noi bang ping va tra ve instance de dung chung.",
+      "description": "File nay dinh nghia `createMongoClient` nhan `mongoUri`, `dbName` va `logger`, tao `MongoClient`, gan event de log trang thai, ket noi va ping truoc khi tra ve client.",
+      "tags": [
+        "MongoDB",
+        "connection",
+        "factory",
+        "infra"
+      ],
+      "languageNotes": "Su kien `topologyOpening`/`topologyClosed` giup theo doi suc khoe ket noi MongoDB.",
+      "languageLesson": "Tach logic ket noi vao mot module giup index.js nhe hon va de test hon.",
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:mqtt-worker-service/src/infra/mqttClient.js",
+      "type": "file",
+      "name": "mqttClient.js",
+      "title": "MQTT client factory",
+      "path": "mqtt-worker-service/src/infra/mqttClient.js",
+      "language": "JavaScript",
+      "fileCategory": "code",
+      "summary": "Tao MQTT client voi options co ban va log cac su kien ket noi/reconnect.",
+      "description": "Module nay cung cap `createMqttClient` nhan `brokerUrl`, credential va `logger`, thiet lap `connectTimeout`/`reconnectPeriod`, sau do tao client va gan handler cho `connect`, `error`, `reconnect`, `close`.",
+      "tags": [
+        "MQTT",
+        "connection",
+        "reconnect",
+        "infra"
+      ],
+      "languageNotes": "`reconnectPeriod` dieu khien tan suat tu dong reconnect khi mat ket noi.",
+      "languageLesson": "Log su kien MQTT som giup theo doi chat luong ket noi va debug retry.",
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:mqtt-worker-service/src/infra/postgresPool.js",
+      "type": "file",
+      "name": "postgresPool.js",
+      "title": "PostgreSQL pool factory",
+      "path": "mqtt-worker-service/src/infra/postgresPool.js",
+      "language": "JavaScript",
+      "fileCategory": "code",
+      "summary": "Tao `pg` Pool, ping ket noi va tra ve pool cho cac worker su dung.",
+      "description": "File nay dinh nghia `createPostgresPool` nhan config (host, port, database, user, password, ssl) va `logger`, tao `Pool`, chay `SELECT 1` de xac nhan ket noi, sau do tra ve pool.",
+      "tags": [
+        "PostgreSQL",
+        "connection pool",
+        "infra",
+        "health check"
+      ],
+      "languageNotes": "`ssl: { rejectUnauthorized: false }` phu hop khi dung SSL tuong thich self-signed.",
+      "languageLesson": "Query ping sau khi tao pool giup phat hien loi cau hinh som (fail fast).",
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:mqtt-worker-service/src/infra/redisClient.js",
+      "type": "file",
+      "name": "redisClient.js",
+      "title": "Redis client factory",
+      "path": "mqtt-worker-service/src/infra/redisClient.js",
+      "language": "JavaScript",
+      "fileCategory": "code",
+      "summary": "Tao Redis client, bat event log trang thai va tra ve instance cho he thong.",
+      "description": "Module nay tao `Redis` client tu `redisUrl`, thiet lap `maxRetriesPerRequest` va `enableReadyCheck`, gan handler cho cac su kien `connect`, `ready`, `error`, `reconnecting`, `close`, roi tra ve client.",
+      "tags": [
+        "Redis",
+        "connection",
+        "observability",
+        "infra"
+      ],
+      "languageNotes": "`enableReadyCheck` giup chi danh dau ready khi Redis san sang nhan lenh.",
+      "languageLesson": "Gan handler su kien co ban giup theo doi lifecycle cua Redis trong production.",
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:.gitignore",
+      "type": "file",
+      "name": ".gitignore",
+      "title": "Git ignore rules",
+      "path": ".gitignore",
+      "language": "Git Config",
+      "fileCategory": "config",
+      "summary": "Danh sach mau ignore cho env, node_modules, IDE, OS, build, log va temp.",
+      "description": "File nay gom cac pattern de loai tru file moi truong, thu muc build, log va file tam khoi git, giup repo sach va giam noise khi commit.",
+      "tags": [
+        "git",
+        "ignore",
+        "config",
+        "repo hygiene"
+      ],
+      "languageNotes": "Cac pattern trong .gitignore ho tro glob va thu muc voi dau / o cuoi.",
+      "languageLesson": "Ignore dung thu muc build/log giup giam conflict va giam kich thuoc repo.",
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:.understand-anything/.understandignore",
+      "type": "file",
+      "name": ".understandignore",
+      "title": "Understand-anything ignore rules",
+      "path": ".understand-anything/.understandignore",
+      "language": "Understand Anything Config",
+      "fileCategory": "config",
+      "summary": "Template ignore cho cong cu phan tich, dua tren .gitignore va mau gợi y.",
+      "description": "File nay ghi huong dan va cac pattern mau de loai tru file/thu muc khoi qua trinh phan tich, giup giam nhieu va tang toc do scan.",
+      "tags": [
+        "understand-anything",
+        "ignore",
+        "config",
+        "analysis"
+      ],
+      "languageNotes": "Cu phap tuong tu .gitignore, ho tro # comment va ! de force-include.",
+      "languageLesson": "Loai bo tai nguyen khong lien quan giup ket qua graph gon va de doc.",
+      "complexity": "simple"
+    },
+    {
+      "id": "file:.understand-anything/config.json",
+      "type": "file",
+      "name": "config.json",
+      "title": "Understand-anything config",
+      "path": ".understand-anything/config.json",
+      "language": "Understand Anything Config",
+      "fileCategory": "config",
+      "summary": "Cau hinh outputLanguage cho Understand Anything.",
+      "description": "File JSON nho nay thiet lap `outputLanguage` la `vi` de cac mo ta va nhan duoc sinh bang tieng Viet.",
+      "tags": [
+        "understand-anything",
+        "config",
+        "localization"
+      ],
+      "languageNotes": "Day la JSON don gian, phu hop de luu preference cu the cho tool.",
+      "languageLesson": "Dat language trong config giup ket qua phan tich nhat quan giua cac batch.",
+      "complexity": "simple"
+    },
+    {
+      "id": "file:api-gateway/src/app.ts",
+      "type": "file",
+      "name": "app.ts",
+      "title": "Fastify app bootstrap",
+      "path": "api-gateway/src/app.ts",
+      "language": "TypeScript",
+      "fileCategory": "code",
+      "summary": "Tao Fastify instance, register plugin, route va endpoint health.",
+      "description": "Ham `buildApp` tao app voi logger, dang ky cac plugin infra (Postgres/Redis/Mongo/JWT/validation/rate-limit) va module routes, sau do add `/health` cho health check.",
+      "tags": [
+        "Fastify",
+        "bootstrap",
+        "plugins",
+        "routes"
+      ],
+      "languageNotes": "Thu tu `register` anh huong den hook va decorator co san cho route.",
+      "languageLesson": "Tach `buildApp` giup test va reuse app truoc khi listen.",
+      "complexity": "simple"
+    },
+    {
+      "id": "file:api-gateway/src/config/env.ts",
+      "type": "file",
+      "name": "env.ts",
+      "title": "API Gateway env schema",
+      "path": "api-gateway/src/config/env.ts",
+      "language": "TypeScript",
+      "fileCategory": "code",
+      "summary": "Khai bao schema Zod cho env va fail fast neu config sai.",
+      "description": "File nay dinh nghia `envSchema` gom JWT, PostgreSQL, MongoDB, Redis va validate `process.env`, log loi va exit neu sai, sau do export `env` da parse.",
+      "tags": [
+        "config",
+        "zod",
+        "env",
+        "validation"
+      ],
+      "languageNotes": "`z.coerce.number()` cho phep doc so tu string env va validate ngay.",
+      "languageLesson": "Validate env som giup tranh loi runtime kho debug trong production.",
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:api-gateway/src/index.ts",
+      "type": "file",
+      "name": "index.ts",
+      "title": "API Gateway entrypoint",
+      "path": "api-gateway/src/index.ts",
+      "language": "TypeScript",
+      "fileCategory": "code",
+      "summary": "Entry point khoi dong app, listen host/port va log khi san sang.",
+      "description": "File nay load dotenv, import `env` va `buildApp`, sau do goi `app.listen` trong `start()` va xu ly loi bang log + exit.",
+      "tags": [
+        "entrypoint",
+        "Fastify",
+        "bootstrap",
+        "dotenv"
+      ],
+      "languageNotes": "`dotenv/config` tu dong nap .env truoc khi doc `process.env`.",
+      "languageLesson": "Gom logic start vao ham async de de test va xu ly error tap trung.",
+      "complexity": "simple"
+    },
+    {
+      "id": "file:mqtt-worker-service/.env.example",
+      "type": "file",
+      "name": ".env.example",
+      "title": "MQTT worker env template",
+      "path": "mqtt-worker-service/.env.example",
+      "language": "Dotenv",
+      "fileCategory": "config",
+      "summary": "Mau bien moi truong cho mqtt-worker-service, gom Redis/MQTT/DB va behavior.",
+      "description": "File nay cung cap day du bien cau hinh cho Redis stream, MQTT topics, PostgreSQL, MongoDB va thong so retry/heartbeat cua worker.",
+      "tags": [
+        "config",
+        "env",
+        "mqtt-worker"
+      ],
+      "languageNotes": "Dinh dang KEY=VALUE de de copy sang .env khi khoi tao moi truong.",
+      "languageLesson": "Dung file mau giup dong doi dong bo config va giam loi thieu bien.",
+      "complexity": "simple"
+    },
+    {
+      "id": "file:mqtt-worker-service/package.json",
+      "type": "file",
+      "name": "package.json",
+      "title": "MQTT worker manifest",
+      "path": "mqtt-worker-service/package.json",
+      "language": "JSON",
+      "fileCategory": "config",
+      "summary": "Manifest npm cho mqtt-worker-service voi scripts start/dev va dependencies chinh.",
+      "description": "Khai bao entry `src/index.js`, scripts `start` va `dev`, dependencies gom dotenv, ioredis, mongodb, mqtt, pg, pino, zod va devDependency nodemon.",
+      "tags": [
+        "config",
+        "npm",
+        "mqtt-worker"
+      ],
+      "languageNotes": "Truong `type: commonjs` cho biet module loader su dung require/exports.",
+      "languageLesson": "Khai bao script ro rang giup chay moi truong dev va prod nhat quan.",
+      "complexity": "simple"
+    },
+    {
+      "id": "file:mqtt-worker-service/src/config/env.js",
+      "type": "file",
+      "name": "env.js",
+      "title": "Worker env schema",
+      "path": "mqtt-worker-service/src/config/env.js",
+      "language": "JavaScript",
+      "fileCategory": "code",
+      "summary": "Khai bao schema Zod cho config worker va export object config da parse.",
+      "description": "Module nay dinh nghia `envSchema` voi cac nhom Redis, MQTT, PostgreSQL, MongoDB va behavior; validate `process.env`, log loi va exit neu sai, sau do export `config`.",
+      "tags": [
+        "config",
+        "zod",
+        "env",
+        "mqtt-worker"
+      ],
+      "languageNotes": "`z.coerce.number()` giup chuyen string env thanh number co validate.",
+      "languageLesson": "Fail fast khi config sai giup worker khong chay trong trang thai loi am.",
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:mqtt-worker-service/src/index.js",
+      "type": "file",
+      "name": "index.js",
+      "title": "MQTT worker bootstrap",
+      "path": "mqtt-worker-service/src/index.js",
+      "language": "JavaScript",
+      "fileCategory": "code",
+      "summary": "Khoi dong worker, ket noi Redis/MQTT/Mongo/PG va chay consumers.",
+      "description": "File nay tao logger, ket noi cac he thong phu thuoc, bat heartbeat va health monitor, sau do start command consumer va telemetry subscriber; co shutdown handler cho SIGINT/SIGTERM.",
+      "tags": [
+        "bootstrap",
+        "worker",
+        "lifecycle",
+        "infra"
+      ],
+      "languageNotes": "Luu `state` chung giup quan ly lifecycle va tat ket noi an toan.",
+      "languageLesson": "Gom ket noi + shutdown vao entrypoint giup quan sat va xu ly loi tap trung.",
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:mqtt-worker-service/src/monitoring/healthMonitor.js",
+      "type": "file",
+      "name": "healthMonitor.js",
+      "title": "Worker health monitor",
+      "path": "mqtt-worker-service/src/monitoring/healthMonitor.js",
+      "language": "JavaScript",
+      "fileCategory": "code",
+      "summary": "Thuc hien health check dinh ky va log metrics nhu event loop lag va stream stats.",
+      "description": "Ham `startHealthMonitor` ping Redis/Mongo/Postgres, tinh event loop lag, doc XPENDING/XLEN cho Redis stream, va log health/metrics theo interval.",
+      "tags": [
+        "monitoring",
+        "healthcheck",
+        "metrics",
+        "redis"
+      ],
+      "languageNotes": "`process.hrtime.bigint()` giup do do tre event loop chinh xac.",
+      "languageLesson": "Health check dinh ky giup phat hien som su co ket noi he thong phu.",
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:mqtt-worker-service/src/services/commandProcessor.js",
+      "type": "file",
+      "name": "commandProcessor.js",
+      "title": "Command processing pipeline",
+      "path": "mqtt-worker-service/src/services/commandProcessor.js",
+      "language": "JavaScript",
+      "fileCategory": "code",
+      "summary": "Xu ly lifecycle lenh: validate, publish MQTT, update status trong PostgreSQL.",
+      "description": "Module nay cung cap validate schema, publish command toi MQTT, try-acquire de idempotency, va update status (sent/acked/failed) trong bang device_commands.",
+      "tags": [
+        "commands",
+        "mqtt",
+        "postgres",
+        "worker"
+      ],
+      "languageNotes": "Update trang thai bang query atomic giup tranh double-send khi nhieu worker.",
+      "languageLesson": "Tach xu ly command ra service rieng de tai su dung trong consumer va test.",
+      "complexity": "complex"
+    },
+    {
+      "id": "file:mqtt-worker-service/src/services/telemetryProcessor.js",
+      "type": "file",
+      "name": "telemetryProcessor.js",
+      "title": "Telemetry processing pipeline",
+      "path": "mqtt-worker-service/src/services/telemetryProcessor.js",
+      "language": "JavaScript",
+      "fileCategory": "code",
+      "summary": "Xu ly telemetry: validate, dedupe, resolve owner, ghi Mongo va publish realtime.",
+      "description": "Module nay validate telemetry, dedupe bang Redis, resolve owner tu cache/PG, batch insert Mongo, update device shadow va publish event len Redis channel.",
+      "tags": [
+        "telemetry",
+        "redis",
+        "mongo",
+        "realtime"
+      ],
+      "languageNotes": "Batch insert giam chi phi IO va giup ghi telemetry on dinh hon.",
+      "languageLesson": "Dedupe theo seq/timestamp/hash giam duplicate khi MQTT retry.",
+      "complexity": "complex"
+    },
+    {
+      "id": "file:mqtt-worker-service/src/workers/commandConsumer.js",
+      "type": "file",
+      "name": "commandConsumer.js",
+      "title": "Redis stream command consumer",
+      "path": "mqtt-worker-service/src/workers/commandConsumer.js",
+      "language": "JavaScript",
+      "fileCategory": "code",
+      "summary": "Tieu thu lenh tu Redis Stream, reclaim pending va retry theo gioi han.",
+      "description": "File nay tao consumer group, doc XREADGROUP, reclaim pending bang XAUTOCLAIM, xu ly message va ACK neu thanh cong; co vong lap retry va gioi han loi lien tiep.",
+      "tags": [
+        "redis",
+        "stream",
+        "consumer",
+        "retry"
+      ],
+      "languageNotes": "Dung XACK chi khi xu ly thanh cong de dam bao at-least-once.",
+      "languageLesson": "Reclaim pending giup he thong chiu loi khi worker chet dot ngot.",
+      "complexity": "complex"
+    },
+    {
+      "id": "file:mqtt-worker-service/src/workers/telemetrySubscriber.js",
+      "type": "file",
+      "name": "telemetrySubscriber.js",
+      "title": "MQTT telemetry subscriber",
+      "path": "mqtt-worker-service/src/workers/telemetrySubscriber.js",
+      "language": "JavaScript",
+      "fileCategory": "code",
+      "summary": "Subscribe telemetry/ack topics va dispatch xu ly message.",
+      "description": "Module nay subscribe telemetry va ACK topics, setup handler `message` de route sang `processTelemetry` va `updateCommandStatus`, log loi nhung khong crash worker.",
+      "tags": [
+        "mqtt",
+        "telemetry",
+        "ack",
+        "subscriber"
+      ],
+      "languageNotes": "Regex topic tu `+` wildcard giup route message dung handler.",
+      "languageLesson": "Tach handler theo topic giup mo rong de dang khi them loai message moi.",
+      "complexity": "moderate"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:api-gateway/src/modules/auth/routes.ts",
+      "target": "endpoint:api-gateway/src/modules/auth/routes.ts:GET /auth/health",
+      "type": "contains",
+      "description": "Khai bao endpoint healthcheck.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/routes.ts",
+      "target": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/register",
+      "type": "contains",
+      "description": "Khai bao endpoint dang ky.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/routes.ts",
+      "target": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/login",
+      "type": "contains",
+      "description": "Khai bao endpoint dang nhap.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/routes.ts",
+      "target": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/refresh",
+      "type": "contains",
+      "description": "Khai bao endpoint refresh token.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/routes.ts",
+      "target": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/logout",
+      "type": "contains",
+      "description": "Khai bao endpoint dang xuat.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/routes.ts",
+      "target": "endpoint:api-gateway/src/modules/auth/routes.ts:GET /auth/me",
+      "type": "contains",
+      "description": "Khai bao endpoint lay thong tin nguoi dung.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/schemas.ts",
+      "target": "schema:api-gateway/src/modules/auth/schemas.ts:registerSchema",
+      "type": "contains",
+      "description": "Export schema dang ky.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/schemas.ts",
+      "target": "schema:api-gateway/src/modules/auth/schemas.ts:loginSchema",
+      "type": "contains",
+      "description": "Export schema dang nhap.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/schemas.ts",
+      "target": "schema:api-gateway/src/modules/auth/schemas.ts:refreshSchema",
+      "type": "contains",
+      "description": "Export schema refresh.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/schemas.ts",
+      "target": "schema:api-gateway/src/modules/auth/schemas.ts:logoutSchema",
+      "type": "contains",
+      "description": "Export schema logout.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/service.ts",
+      "target": "function:api-gateway/src/modules/auth/service.ts:nowPlusSeconds",
+      "type": "contains",
+      "description": "Tien ich thoi gian.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/service.ts",
+      "target": "function:api-gateway/src/modules/auth/service.ts:normalizeEmail",
+      "type": "contains",
+      "description": "Tien ich chuan hoa email.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/service.ts",
+      "target": "function:api-gateway/src/modules/auth/service.ts:generateRefreshToken",
+      "type": "contains",
+      "description": "Tien ich tao refresh token.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/service.ts",
+      "target": "function:api-gateway/src/modules/auth/service.ts:registerUser",
+      "type": "contains",
+      "description": "Ham dang ky nguoi dung.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/service.ts",
+      "target": "function:api-gateway/src/modules/auth/service.ts:loginUser",
+      "type": "contains",
+      "description": "Ham dang nhap nguoi dung.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/service.ts",
+      "target": "function:api-gateway/src/modules/auth/service.ts:refreshSession",
+      "type": "contains",
+      "description": "Ham refresh token.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/service.ts",
+      "target": "function:api-gateway/src/modules/auth/service.ts:logoutSession",
+      "type": "contains",
+      "description": "Ham dang xuat session.",
+      "direction": "forward"
+    },
+    {
+      "source": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/register",
+      "target": "schema:api-gateway/src/modules/auth/schemas.ts:registerSchema",
+      "type": "validates_with",
+      "description": "Dung schema de kiem tra body dang ky.",
+      "direction": "forward"
+    },
+    {
+      "source": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/login",
+      "target": "schema:api-gateway/src/modules/auth/schemas.ts:loginSchema",
+      "type": "validates_with",
+      "description": "Dung schema de kiem tra body dang nhap.",
+      "direction": "forward"
+    },
+    {
+      "source": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/refresh",
+      "target": "schema:api-gateway/src/modules/auth/schemas.ts:refreshSchema",
+      "type": "validates_with",
+      "description": "Dung schema de kiem tra body refresh.",
+      "direction": "forward"
+    },
+    {
+      "source": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/logout",
+      "target": "schema:api-gateway/src/modules/auth/schemas.ts:logoutSchema",
+      "type": "validates_with",
+      "description": "Dung schema de kiem tra body logout.",
+      "direction": "forward"
+    },
+    {
+      "source": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/register",
+      "target": "function:api-gateway/src/modules/auth/service.ts:registerUser",
+      "type": "calls",
+      "description": "Goi nghiep vu dang ky.",
+      "direction": "forward"
+    },
+    {
+      "source": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/login",
+      "target": "function:api-gateway/src/modules/auth/service.ts:loginUser",
+      "type": "calls",
+      "description": "Goi nghiep vu dang nhap.",
+      "direction": "forward"
+    },
+    {
+      "source": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/refresh",
+      "target": "function:api-gateway/src/modules/auth/service.ts:refreshSession",
+      "type": "calls",
+      "description": "Goi nghiep vu refresh session.",
+      "direction": "forward"
+    },
+    {
+      "source": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/logout",
+      "target": "function:api-gateway/src/modules/auth/service.ts:logoutSession",
+      "type": "calls",
+      "description": "Goi nghiep vu logout.",
+      "direction": "forward"
+    },
+    {
+      "source": "function:api-gateway/src/modules/auth/service.ts:registerUser",
+      "target": "function:api-gateway/src/modules/auth/service.ts:normalizeEmail",
+      "type": "calls",
+      "description": "Chuan hoa email truoc khi kiem tra.",
+      "direction": "forward"
+    },
+    {
+      "source": "function:api-gateway/src/modules/auth/service.ts:registerUser",
+      "target": "table:accounts",
+      "type": "writes",
+      "description": "Them ban ghi tai khoan moi.",
+      "direction": "forward"
+    },
+    {
+      "source": "function:api-gateway/src/modules/auth/service.ts:loginUser",
+      "target": "function:api-gateway/src/modules/auth/service.ts:normalizeEmail",
+      "type": "calls",
+      "description": "Chuan hoa email truoc khi truy van.",
+      "direction": "forward"
+    },
+    {
+      "source": "function:api-gateway/src/modules/auth/service.ts:loginUser",
+      "target": "function:api-gateway/src/modules/auth/service.ts:generateRefreshToken",
+      "type": "calls",
+      "description": "Sinh refresh token moi.",
+      "direction": "forward"
+    },
+    {
+      "source": "function:api-gateway/src/modules/auth/service.ts:loginUser",
+      "target": "function:api-gateway/src/modules/auth/service.ts:nowPlusSeconds",
+      "type": "calls",
+      "description": "Tinh thoi diem het han refresh token.",
+      "direction": "forward"
+    },
+    {
+      "source": "function:api-gateway/src/modules/auth/service.ts:loginUser",
+      "target": "table:accounts",
+      "type": "reads",
+      "description": "Doc thong tin tai khoan de xac thuc.",
+      "direction": "forward"
+    },
+    {
+      "source": "function:api-gateway/src/modules/auth/service.ts:loginUser",
+      "target": "table:user_sessions",
+      "type": "writes",
+      "description": "Tao session moi cho refresh token.",
+      "direction": "forward"
+    },
+    {
+      "source": "function:api-gateway/src/modules/auth/service.ts:refreshSession",
+      "target": "function:api-gateway/src/modules/auth/service.ts:generateRefreshToken",
+      "type": "calls",
+      "description": "Sinh refresh token moi.",
+      "direction": "forward"
+    },
+    {
+      "source": "function:api-gateway/src/modules/auth/service.ts:refreshSession",
+      "target": "function:api-gateway/src/modules/auth/service.ts:nowPlusSeconds",
+      "type": "calls",
+      "description": "Tinh thoi diem het han moi.",
+      "direction": "forward"
+    },
+    {
+      "source": "function:api-gateway/src/modules/auth/service.ts:refreshSession",
+      "target": "table:user_sessions",
+      "type": "reads",
+      "description": "Doc session hop le va chua het han.",
+      "direction": "forward"
+    },
+    {
+      "source": "function:api-gateway/src/modules/auth/service.ts:refreshSession",
+      "target": "table:user_sessions",
+      "type": "updates",
+      "description": "Cap nhat refresh_token_hash va expires_at.",
+      "direction": "forward"
+    },
+    {
+      "source": "function:api-gateway/src/modules/auth/service.ts:logoutSession",
+      "target": "table:user_sessions",
+      "type": "reads",
+      "description": "Kiem tra session con hoat dong.",
+      "direction": "forward"
+    },
+    {
+      "source": "function:api-gateway/src/modules/auth/service.ts:logoutSession",
+      "target": "table:user_sessions",
+      "type": "updates",
+      "description": "Vo hieu hoa session (is_active = false).",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/device/routes.ts",
+      "target": "file:api-gateway/src/modules/device/schemas.ts",
+      "type": "imports",
+      "summary": "Routes dùng schema để validate request.",
+      "description": "Các endpoint tham chiếu `claimSchema`, `unpairSchema`, `commandSchema`, `deviceStateSchema` trong cấu hình route.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/device/routes.ts",
+      "target": "file:api-gateway/src/modules/device/service.ts",
+      "type": "imports",
+      "summary": "Routes gọi service để xử lý nghiệp vụ.",
+      "description": "Handler gọi `listDevices`, `claimDevice`, `unpairDevice`, `sendDeviceCommand`, `getDeviceState`.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/device/service.ts",
+      "target": "file:api-gateway/src/modules/device/roles.ts",
+      "type": "imports",
+      "summary": "Service kiểm tra role bằng allowlist.",
+      "description": "`isAllowedRole` được dùng để xác thực role từ factory trước khi claim.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/device/service.ts",
+      "target": "file:api-gateway/src/config/env.ts",
+      "type": "imports",
+      "summary": "Service dùng cấu hình môi trường cho Redis/Mongo.",
+      "description": "Đọc `REDIS_CACHE_OWNER_PREFIX`, `REDIS_CACHE_TTL_SECONDS`, `REDIS_COMMAND_STREAM`, `MONGO_DEVICES_COLLECTION`.",
+      "direction": "forward"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "config:api-gateway/.env.example",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "config:api-gateway/package.json",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "config:api-gateway/package-lock.json",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "config:api-gateway/tsconfig.json",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "file:api-gateway/src/modules/auth/routes.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "file:api-gateway/src/modules/auth/schemas.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "file:api-gateway/src/modules/auth/service.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "endpoint:api-gateway/src/modules/auth/routes.ts:GET /auth/health",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/register",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/login",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/refresh",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/logout",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "endpoint:api-gateway/src/modules/auth/routes.ts:GET /auth/me",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "schema:api-gateway/src/modules/auth/schemas.ts:registerSchema",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "schema:api-gateway/src/modules/auth/schemas.ts:loginSchema",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "schema:api-gateway/src/modules/auth/schemas.ts:refreshSchema",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "schema:api-gateway/src/modules/auth/schemas.ts:logoutSchema",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "function:api-gateway/src/modules/auth/service.ts:nowPlusSeconds",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "function:api-gateway/src/modules/auth/service.ts:normalizeEmail",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "function:api-gateway/src/modules/auth/service.ts:generateRefreshToken",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "function:api-gateway/src/modules/auth/service.ts:registerUser",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "function:api-gateway/src/modules/auth/service.ts:loginUser",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "function:api-gateway/src/modules/auth/service.ts:refreshSession",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "function:api-gateway/src/modules/auth/service.ts:logoutSession",
+      "type": "contains"
+    },
+    {
+      "source": "dir:",
+      "target": "table:accounts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:",
+      "target": "table:user_sessions",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/device",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/device",
+      "target": "file:api-gateway/src/modules/device/roles.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/device",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/device",
+      "target": "file:api-gateway/src/modules/device/routes.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/device",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/device",
+      "target": "file:api-gateway/src/modules/device/schemas.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/device",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/device",
+      "target": "file:api-gateway/src/modules/device/service.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/plugins",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/plugins",
+      "target": "file:api-gateway/src/plugins/errorHandler.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/plugins",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/plugins",
+      "target": "file:api-gateway/src/plugins/jwt.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/plugins",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/plugins",
+      "target": "file:api-gateway/src/plugins/mongo.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/plugins",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/plugins",
+      "target": "file:api-gateway/src/plugins/postgres.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/plugins",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/plugins",
+      "target": "file:api-gateway/src/plugins/rateLimit.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/plugins",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/plugins",
+      "target": "file:api-gateway/src/plugins/redis.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/plugins",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/plugins",
+      "target": "file:api-gateway/src/plugins/validation.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/types",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/types",
+      "target": "file:api-gateway/src/types/fastify.d.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/types",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/types",
+      "target": "file:api-gateway/src/types/jwt.d.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/types",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/types",
+      "target": "file:api-gateway/src/types/validation.d.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service",
+      "target": "dir:mqtt-worker-service/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src",
+      "target": "dir:mqtt-worker-service/src/infra",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src/infra",
+      "target": "file:mqtt-worker-service/src/infra/mongoClient.js",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service",
+      "target": "dir:mqtt-worker-service/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src",
+      "target": "dir:mqtt-worker-service/src/infra",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src/infra",
+      "target": "file:mqtt-worker-service/src/infra/mqttClient.js",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service",
+      "target": "dir:mqtt-worker-service/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src",
+      "target": "dir:mqtt-worker-service/src/infra",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src/infra",
+      "target": "file:mqtt-worker-service/src/infra/postgresPool.js",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service",
+      "target": "dir:mqtt-worker-service/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src",
+      "target": "dir:mqtt-worker-service/src/infra",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src/infra",
+      "target": "file:mqtt-worker-service/src/infra/redisClient.js",
+      "type": "contains"
+    },
+    {
+      "source": "dir:",
+      "target": "file:.gitignore",
+      "type": "contains"
+    },
+    {
+      "source": "dir:.understand-anything",
+      "target": "file:.understand-anything/.understandignore",
+      "type": "contains"
+    },
+    {
+      "source": "dir:.understand-anything",
+      "target": "file:.understand-anything/config.json",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "file:api-gateway/src/app.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/config",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/config",
+      "target": "file:api-gateway/src/config/env.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "file:api-gateway/src/index.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service",
+      "target": "file:mqtt-worker-service/.env.example",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service",
+      "target": "file:mqtt-worker-service/package.json",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service",
+      "target": "dir:mqtt-worker-service/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src",
+      "target": "dir:mqtt-worker-service/src/config",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src/config",
+      "target": "file:mqtt-worker-service/src/config/env.js",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service",
+      "target": "dir:mqtt-worker-service/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src",
+      "target": "file:mqtt-worker-service/src/index.js",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service",
+      "target": "dir:mqtt-worker-service/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src",
+      "target": "dir:mqtt-worker-service/src/monitoring",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src/monitoring",
+      "target": "file:mqtt-worker-service/src/monitoring/healthMonitor.js",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service",
+      "target": "dir:mqtt-worker-service/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src",
+      "target": "dir:mqtt-worker-service/src/services",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src/services",
+      "target": "file:mqtt-worker-service/src/services/commandProcessor.js",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service",
+      "target": "dir:mqtt-worker-service/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src",
+      "target": "dir:mqtt-worker-service/src/services",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src/services",
+      "target": "file:mqtt-worker-service/src/services/telemetryProcessor.js",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service",
+      "target": "dir:mqtt-worker-service/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src",
+      "target": "dir:mqtt-worker-service/src/workers",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src/workers",
+      "target": "file:mqtt-worker-service/src/workers/commandConsumer.js",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service",
+      "target": "dir:mqtt-worker-service/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src",
+      "target": "dir:mqtt-worker-service/src/workers",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src/workers",
+      "target": "file:mqtt-worker-service/src/workers/telemetrySubscriber.js",
+      "type": "contains"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/routes.ts",
+      "target": "endpoint:api-gateway/src/modules/auth/routes.ts:GET /auth/health",
+      "type": "contains",
+      "description": "Khai bao endpoint healthcheck.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/routes.ts",
+      "target": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/register",
+      "type": "contains",
+      "description": "Khai bao endpoint dang ky.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/routes.ts",
+      "target": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/login",
+      "type": "contains",
+      "description": "Khai bao endpoint dang nhap.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/routes.ts",
+      "target": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/refresh",
+      "type": "contains",
+      "description": "Khai bao endpoint refresh token.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/routes.ts",
+      "target": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/logout",
+      "type": "contains",
+      "description": "Khai bao endpoint dang xuat.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/routes.ts",
+      "target": "endpoint:api-gateway/src/modules/auth/routes.ts:GET /auth/me",
+      "type": "contains",
+      "description": "Khai bao endpoint lay thong tin nguoi dung.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/schemas.ts",
+      "target": "schema:api-gateway/src/modules/auth/schemas.ts:registerSchema",
+      "type": "contains",
+      "description": "Export schema dang ky.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/schemas.ts",
+      "target": "schema:api-gateway/src/modules/auth/schemas.ts:loginSchema",
+      "type": "contains",
+      "description": "Export schema dang nhap.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/schemas.ts",
+      "target": "schema:api-gateway/src/modules/auth/schemas.ts:refreshSchema",
+      "type": "contains",
+      "description": "Export schema refresh.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/schemas.ts",
+      "target": "schema:api-gateway/src/modules/auth/schemas.ts:logoutSchema",
+      "type": "contains",
+      "description": "Export schema logout.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/service.ts",
+      "target": "function:api-gateway/src/modules/auth/service.ts:nowPlusSeconds",
+      "type": "contains",
+      "description": "Tien ich thoi gian.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/service.ts",
+      "target": "function:api-gateway/src/modules/auth/service.ts:normalizeEmail",
+      "type": "contains",
+      "description": "Tien ich chuan hoa email.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/service.ts",
+      "target": "function:api-gateway/src/modules/auth/service.ts:generateRefreshToken",
+      "type": "contains",
+      "description": "Tien ich tao refresh token.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/service.ts",
+      "target": "function:api-gateway/src/modules/auth/service.ts:registerUser",
+      "type": "contains",
+      "description": "Ham dang ky nguoi dung.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/service.ts",
+      "target": "function:api-gateway/src/modules/auth/service.ts:loginUser",
+      "type": "contains",
+      "description": "Ham dang nhap nguoi dung.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/service.ts",
+      "target": "function:api-gateway/src/modules/auth/service.ts:refreshSession",
+      "type": "contains",
+      "description": "Ham refresh token.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/auth/service.ts",
+      "target": "function:api-gateway/src/modules/auth/service.ts:logoutSession",
+      "type": "contains",
+      "description": "Ham dang xuat session.",
+      "direction": "forward"
+    },
+    {
+      "source": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/register",
+      "target": "schema:api-gateway/src/modules/auth/schemas.ts:registerSchema",
+      "type": "validates_with",
+      "description": "Dung schema de kiem tra body dang ky.",
+      "direction": "forward"
+    },
+    {
+      "source": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/login",
+      "target": "schema:api-gateway/src/modules/auth/schemas.ts:loginSchema",
+      "type": "validates_with",
+      "description": "Dung schema de kiem tra body dang nhap.",
+      "direction": "forward"
+    },
+    {
+      "source": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/refresh",
+      "target": "schema:api-gateway/src/modules/auth/schemas.ts:refreshSchema",
+      "type": "validates_with",
+      "description": "Dung schema de kiem tra body refresh.",
+      "direction": "forward"
+    },
+    {
+      "source": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/logout",
+      "target": "schema:api-gateway/src/modules/auth/schemas.ts:logoutSchema",
+      "type": "validates_with",
+      "description": "Dung schema de kiem tra body logout.",
+      "direction": "forward"
+    },
+    {
+      "source": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/register",
+      "target": "function:api-gateway/src/modules/auth/service.ts:registerUser",
+      "type": "calls",
+      "description": "Goi nghiep vu dang ky.",
+      "direction": "forward"
+    },
+    {
+      "source": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/login",
+      "target": "function:api-gateway/src/modules/auth/service.ts:loginUser",
+      "type": "calls",
+      "description": "Goi nghiep vu dang nhap.",
+      "direction": "forward"
+    },
+    {
+      "source": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/refresh",
+      "target": "function:api-gateway/src/modules/auth/service.ts:refreshSession",
+      "type": "calls",
+      "description": "Goi nghiep vu refresh session.",
+      "direction": "forward"
+    },
+    {
+      "source": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/logout",
+      "target": "function:api-gateway/src/modules/auth/service.ts:logoutSession",
+      "type": "calls",
+      "description": "Goi nghiep vu logout.",
+      "direction": "forward"
+    },
+    {
+      "source": "function:api-gateway/src/modules/auth/service.ts:registerUser",
+      "target": "function:api-gateway/src/modules/auth/service.ts:normalizeEmail",
+      "type": "calls",
+      "description": "Chuan hoa email truoc khi kiem tra.",
+      "direction": "forward"
+    },
+    {
+      "source": "function:api-gateway/src/modules/auth/service.ts:registerUser",
+      "target": "table:accounts",
+      "type": "writes",
+      "description": "Them ban ghi tai khoan moi.",
+      "direction": "forward"
+    },
+    {
+      "source": "function:api-gateway/src/modules/auth/service.ts:loginUser",
+      "target": "function:api-gateway/src/modules/auth/service.ts:normalizeEmail",
+      "type": "calls",
+      "description": "Chuan hoa email truoc khi truy van.",
+      "direction": "forward"
+    },
+    {
+      "source": "function:api-gateway/src/modules/auth/service.ts:loginUser",
+      "target": "function:api-gateway/src/modules/auth/service.ts:generateRefreshToken",
+      "type": "calls",
+      "description": "Sinh refresh token moi.",
+      "direction": "forward"
+    },
+    {
+      "source": "function:api-gateway/src/modules/auth/service.ts:loginUser",
+      "target": "function:api-gateway/src/modules/auth/service.ts:nowPlusSeconds",
+      "type": "calls",
+      "description": "Tinh thoi diem het han refresh token.",
+      "direction": "forward"
+    },
+    {
+      "source": "function:api-gateway/src/modules/auth/service.ts:loginUser",
+      "target": "table:accounts",
+      "type": "reads",
+      "description": "Doc thong tin tai khoan de xac thuc.",
+      "direction": "forward"
+    },
+    {
+      "source": "function:api-gateway/src/modules/auth/service.ts:loginUser",
+      "target": "table:user_sessions",
+      "type": "writes",
+      "description": "Tao session moi cho refresh token.",
+      "direction": "forward"
+    },
+    {
+      "source": "function:api-gateway/src/modules/auth/service.ts:refreshSession",
+      "target": "function:api-gateway/src/modules/auth/service.ts:generateRefreshToken",
+      "type": "calls",
+      "description": "Sinh refresh token moi.",
+      "direction": "forward"
+    },
+    {
+      "source": "function:api-gateway/src/modules/auth/service.ts:refreshSession",
+      "target": "function:api-gateway/src/modules/auth/service.ts:nowPlusSeconds",
+      "type": "calls",
+      "description": "Tinh thoi diem het han moi.",
+      "direction": "forward"
+    },
+    {
+      "source": "function:api-gateway/src/modules/auth/service.ts:refreshSession",
+      "target": "table:user_sessions",
+      "type": "reads",
+      "description": "Doc session hop le va chua het han.",
+      "direction": "forward"
+    },
+    {
+      "source": "function:api-gateway/src/modules/auth/service.ts:refreshSession",
+      "target": "table:user_sessions",
+      "type": "updates",
+      "description": "Cap nhat refresh_token_hash va expires_at.",
+      "direction": "forward"
+    },
+    {
+      "source": "function:api-gateway/src/modules/auth/service.ts:logoutSession",
+      "target": "table:user_sessions",
+      "type": "reads",
+      "description": "Kiem tra session con hoat dong.",
+      "direction": "forward"
+    },
+    {
+      "source": "function:api-gateway/src/modules/auth/service.ts:logoutSession",
+      "target": "table:user_sessions",
+      "type": "updates",
+      "description": "Vo hieu hoa session (is_active = false).",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/device/routes.ts",
+      "target": "file:api-gateway/src/modules/device/schemas.ts",
+      "type": "imports",
+      "summary": "Routes dùng schema để validate request.",
+      "description": "Các endpoint tham chiếu `claimSchema`, `unpairSchema`, `commandSchema`, `deviceStateSchema` trong cấu hình route.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/device/routes.ts",
+      "target": "file:api-gateway/src/modules/device/service.ts",
+      "type": "imports",
+      "summary": "Routes gọi service để xử lý nghiệp vụ.",
+      "description": "Handler gọi `listDevices`, `claimDevice`, `unpairDevice`, `sendDeviceCommand`, `getDeviceState`.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/device/service.ts",
+      "target": "file:api-gateway/src/modules/device/roles.ts",
+      "type": "imports",
+      "summary": "Service kiểm tra role bằng allowlist.",
+      "description": "`isAllowedRole` được dùng để xác thực role từ factory trước khi claim.",
+      "direction": "forward"
+    },
+    {
+      "source": "file:api-gateway/src/modules/device/service.ts",
+      "target": "file:api-gateway/src/config/env.ts",
+      "type": "imports",
+      "summary": "Service dùng cấu hình môi trường cho Redis/Mongo.",
+      "description": "Đọc `REDIS_CACHE_OWNER_PREFIX`, `REDIS_CACHE_TTL_SECONDS`, `REDIS_COMMAND_STREAM`, `MONGO_DEVICES_COLLECTION`.",
+      "direction": "forward"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "config:api-gateway/.env.example",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "config:api-gateway/package.json",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "config:api-gateway/package-lock.json",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "config:api-gateway/tsconfig.json",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "file:api-gateway/src/modules/auth/routes.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "file:api-gateway/src/modules/auth/schemas.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "file:api-gateway/src/modules/auth/service.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "endpoint:api-gateway/src/modules/auth/routes.ts:GET /auth/health",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/register",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/login",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/refresh",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/logout",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "endpoint:api-gateway/src/modules/auth/routes.ts:GET /auth/me",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "schema:api-gateway/src/modules/auth/schemas.ts:registerSchema",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "schema:api-gateway/src/modules/auth/schemas.ts:loginSchema",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "schema:api-gateway/src/modules/auth/schemas.ts:refreshSchema",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "schema:api-gateway/src/modules/auth/schemas.ts:logoutSchema",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "function:api-gateway/src/modules/auth/service.ts:nowPlusSeconds",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "function:api-gateway/src/modules/auth/service.ts:normalizeEmail",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "function:api-gateway/src/modules/auth/service.ts:generateRefreshToken",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "function:api-gateway/src/modules/auth/service.ts:registerUser",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "function:api-gateway/src/modules/auth/service.ts:loginUser",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "function:api-gateway/src/modules/auth/service.ts:refreshSession",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/auth",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/auth",
+      "target": "function:api-gateway/src/modules/auth/service.ts:logoutSession",
+      "type": "contains"
+    },
+    {
+      "source": "dir:",
+      "target": "table:accounts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:",
+      "target": "table:user_sessions",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/device",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/device",
+      "target": "file:api-gateway/src/modules/device/roles.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/device",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/device",
+      "target": "file:api-gateway/src/modules/device/routes.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/device",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/device",
+      "target": "file:api-gateway/src/modules/device/schemas.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/modules",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules",
+      "target": "dir:api-gateway/src/modules/device",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/modules/device",
+      "target": "file:api-gateway/src/modules/device/service.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/plugins",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/plugins",
+      "target": "file:api-gateway/src/plugins/errorHandler.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/plugins",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/plugins",
+      "target": "file:api-gateway/src/plugins/jwt.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/plugins",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/plugins",
+      "target": "file:api-gateway/src/plugins/mongo.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/plugins",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/plugins",
+      "target": "file:api-gateway/src/plugins/postgres.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/plugins",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/plugins",
+      "target": "file:api-gateway/src/plugins/rateLimit.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/plugins",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/plugins",
+      "target": "file:api-gateway/src/plugins/redis.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/plugins",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/plugins",
+      "target": "file:api-gateway/src/plugins/validation.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/types",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/types",
+      "target": "file:api-gateway/src/types/fastify.d.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/types",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/types",
+      "target": "file:api-gateway/src/types/jwt.d.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/types",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/types",
+      "target": "file:api-gateway/src/types/validation.d.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service",
+      "target": "dir:mqtt-worker-service/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src",
+      "target": "dir:mqtt-worker-service/src/infra",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src/infra",
+      "target": "file:mqtt-worker-service/src/infra/mongoClient.js",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service",
+      "target": "dir:mqtt-worker-service/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src",
+      "target": "dir:mqtt-worker-service/src/infra",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src/infra",
+      "target": "file:mqtt-worker-service/src/infra/mqttClient.js",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service",
+      "target": "dir:mqtt-worker-service/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src",
+      "target": "dir:mqtt-worker-service/src/infra",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src/infra",
+      "target": "file:mqtt-worker-service/src/infra/postgresPool.js",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service",
+      "target": "dir:mqtt-worker-service/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src",
+      "target": "dir:mqtt-worker-service/src/infra",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src/infra",
+      "target": "file:mqtt-worker-service/src/infra/redisClient.js",
+      "type": "contains"
+    },
+    {
+      "source": "dir:",
+      "target": "file:.gitignore",
+      "type": "contains"
+    },
+    {
+      "source": "dir:.understand-anything",
+      "target": "file:.understand-anything/.understandignore",
+      "type": "contains"
+    },
+    {
+      "source": "dir:.understand-anything",
+      "target": "file:.understand-anything/config.json",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "file:api-gateway/src/app.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "dir:api-gateway/src/config",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src/config",
+      "target": "file:api-gateway/src/config/env.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway",
+      "target": "dir:api-gateway/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:api-gateway/src",
+      "target": "file:api-gateway/src/index.ts",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service",
+      "target": "file:mqtt-worker-service/.env.example",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service",
+      "target": "file:mqtt-worker-service/package.json",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service",
+      "target": "dir:mqtt-worker-service/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src",
+      "target": "dir:mqtt-worker-service/src/config",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src/config",
+      "target": "file:mqtt-worker-service/src/config/env.js",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service",
+      "target": "dir:mqtt-worker-service/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src",
+      "target": "file:mqtt-worker-service/src/index.js",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service",
+      "target": "dir:mqtt-worker-service/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src",
+      "target": "dir:mqtt-worker-service/src/monitoring",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src/monitoring",
+      "target": "file:mqtt-worker-service/src/monitoring/healthMonitor.js",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service",
+      "target": "dir:mqtt-worker-service/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src",
+      "target": "dir:mqtt-worker-service/src/services",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src/services",
+      "target": "file:mqtt-worker-service/src/services/commandProcessor.js",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service",
+      "target": "dir:mqtt-worker-service/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src",
+      "target": "dir:mqtt-worker-service/src/services",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src/services",
+      "target": "file:mqtt-worker-service/src/services/telemetryProcessor.js",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service",
+      "target": "dir:mqtt-worker-service/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src",
+      "target": "dir:mqtt-worker-service/src/workers",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src/workers",
+      "target": "file:mqtt-worker-service/src/workers/commandConsumer.js",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service",
+      "target": "dir:mqtt-worker-service/src",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src",
+      "target": "dir:mqtt-worker-service/src/workers",
+      "type": "contains"
+    },
+    {
+      "source": "dir:mqtt-worker-service/src/workers",
+      "target": "file:mqtt-worker-service/src/workers/telemetrySubscriber.js",
+      "type": "contains"
+    }
+  ],
+  "layers": [
+    {
+      "id": "layer:presentationapi",
+      "name": "Presentation/API",
+      "description": "HTTP interface and routing, request/response validation, and auth endpoints.",
+      "nodeIds": [
+        "file:api-gateway/src/modules/auth/routes.ts",
+        "endpoint:api-gateway/src/modules/auth/routes.ts:GET /auth/health",
+        "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/register",
+        "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/login",
+        "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/refresh",
+        "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/logout",
+        "endpoint:api-gateway/src/modules/auth/routes.ts:GET /auth/me",
+        "file:api-gateway/src/modules/device/routes.ts"
+      ]
+    },
+    {
+      "id": "layer:applicationuse-cases",
+      "name": "Application/Use Cases",
+      "description": "Business logic for auth and device workflows; worker processing for commands/telemetry.",
+      "nodeIds": [
+        "file:api-gateway/src/modules/auth/service.ts",
+        "file:api-gateway/src/modules/device/service.ts",
+        "file:mqtt-worker-service/src/services/commandProcessor.js",
+        "file:mqtt-worker-service/src/services/telemetryProcessor.js"
+      ]
+    },
+    {
+      "id": "layer:domainvalidation",
+      "name": "Domain/Validation",
+      "description": "Schemas and domain constraints (Zod) and domain-specific types/roles.",
+      "nodeIds": [
+        "file:api-gateway/src/modules/auth/schemas.ts",
+        "schema:api-gateway/src/modules/auth/schemas.ts:registerSchema",
+        "schema:api-gateway/src/modules/auth/schemas.ts:loginSchema",
+        "schema:api-gateway/src/modules/auth/schemas.ts:refreshSchema",
+        "schema:api-gateway/src/modules/auth/schemas.ts:logoutSchema",
+        "file:api-gateway/src/modules/device/schemas.ts",
+        "file:api-gateway/src/modules/device/roles.ts"
+      ]
+    },
+    {
+      "id": "layer:infrastructure",
+      "name": "Infrastructure",
+      "description": "Database, cache, MQTT, and external connectivity adapters.",
+      "nodeIds": [
+        "file:api-gateway/src/plugins/errorHandler.ts",
+        "file:api-gateway/src/plugins/jwt.ts",
+        "file:api-gateway/src/plugins/mongo.ts",
+        "file:api-gateway/src/plugins/postgres.ts",
+        "file:api-gateway/src/plugins/rateLimit.ts",
+        "file:api-gateway/src/plugins/redis.ts",
+        "file:api-gateway/src/plugins/validation.ts",
+        "file:mqtt-worker-service/src/infra/mongoClient.js",
+        "file:mqtt-worker-service/src/infra/mqttClient.js",
+        "file:mqtt-worker-service/src/infra/postgresPool.js",
+        "file:mqtt-worker-service/src/infra/redisClient.js",
+        "file:api-gateway/src/types/fastify.d.ts",
+        "file:api-gateway/src/types/jwt.d.ts",
+        "file:api-gateway/src/types/validation.d.ts"
+      ]
+    },
+    {
+      "id": "layer:workersintegration",
+      "name": "Workers/Integration",
+      "description": "Background consumers/subscribers orchestrating streams and MQTT topics.",
+      "nodeIds": [
+        "file:mqtt-worker-service/src/workers/commandConsumer.js",
+        "file:mqtt-worker-service/src/workers/telemetrySubscriber.js"
+      ]
+    },
+    {
+      "id": "layer:bootstrapruntime",
+      "name": "Bootstrap/Runtime",
+      "description": "Service startup, config loading, and lifecycle wiring.",
+      "nodeIds": [
+        "file:api-gateway/src/index.ts",
+        "file:api-gateway/src/app.ts",
+        "file:api-gateway/src/config/env.ts",
+        "file:mqtt-worker-service/src/index.js",
+        "file:mqtt-worker-service/src/config/env.js",
+        "file:mqtt-worker-service/src/monitoring/healthMonitor.js"
+      ]
+    },
+    {
+      "id": "layer:data-stores",
+      "name": "Data Stores",
+      "description": "Logical storage entities referenced by services.",
+      "nodeIds": [
+        "table:accounts",
+        "table:user_sessions"
+      ]
+    },
+    {
+      "id": "layer:configurationmetadata",
+      "name": "Configuration/Metadata",
+      "description": "Project manifests, tool config, and environment templates.",
+      "nodeIds": [
+        "config:api-gateway/.env.example",
+        "config:api-gateway/package.json",
+        "config:api-gateway/package-lock.json",
+        "config:api-gateway/tsconfig.json",
+        "file:mqtt-worker-service/.env.example",
+        "file:mqtt-worker-service/package.json",
+        "file:.understand-anything/config.json",
+        "file:.understand-anything/.understandignore",
+        "file:.gitignore"
+      ]
+    }
+  ],
+  "tour": [
+    {
+      "order": 1,
+      "title": "Khoi dong API Gateway",
+      "description": "Theo dong khoi dong tu entry point den Fastify app de hieu cach service duoc tao va listen.",
+      "nodeIds": [
+        "file:api-gateway/src/index.ts",
+        "file:api-gateway/src/app.ts",
+        "file:api-gateway/src/config/env.ts"
+      ],
+      "languageLesson": null
+    },
+    {
+      "order": 2,
+      "title": "Cau hinh va metadata",
+      "description": "Xem manifest, tsconfig va file mau env de nam bien moi truong va scripts quan trong.",
+      "nodeIds": [
+        "config:api-gateway/package.json",
+        "config:api-gateway/tsconfig.json",
+        "config:api-gateway/.env.example",
+        "config:api-gateway/package-lock.json"
+      ],
+      "languageLesson": null
+    },
+    {
+      "order": 3,
+      "title": "Plugins ha tang Fastify",
+      "description": "Doc cac plugin de hieu cach app ket noi DB/cache, xac thuc JWT, rate limit va xu ly loi tap trung.",
+      "nodeIds": [
+        "file:api-gateway/src/plugins/jwt.ts",
+        "file:api-gateway/src/plugins/validation.ts",
+        "file:api-gateway/src/plugins/errorHandler.ts",
+        "file:api-gateway/src/plugins/rateLimit.ts",
+        "file:api-gateway/src/plugins/postgres.ts",
+        "file:api-gateway/src/plugins/mongo.ts",
+        "file:api-gateway/src/plugins/redis.ts",
+        "file:api-gateway/src/types/fastify.d.ts",
+        "file:api-gateway/src/types/jwt.d.ts",
+        "file:api-gateway/src/types/validation.d.ts"
+      ],
+      "languageLesson": null
+    },
+    {
+      "order": 4,
+      "title": "Auth routes va endpoint",
+      "description": "Kiem tra cac endpoint auth, quan sat cach gan schema va goi handler nghiep vu.",
+      "nodeIds": [
+        "file:api-gateway/src/modules/auth/routes.ts",
+        "endpoint:api-gateway/src/modules/auth/routes.ts:GET /auth/health",
+        "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/register",
+        "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/login",
+        "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/refresh",
+        "endpoint:api-gateway/src/modules/auth/routes.ts:POST /auth/logout",
+        "endpoint:api-gateway/src/modules/auth/routes.ts:GET /auth/me"
+      ],
+      "languageLesson": null
+    },
+    {
+      "order": 5,
+      "title": "Schema xac thuc auth",
+      "description": "Doc Zod schema de hieu rang buoc input cho register/login/refresh/logout.",
+      "nodeIds": [
+        "file:api-gateway/src/modules/auth/schemas.ts",
+        "schema:api-gateway/src/modules/auth/schemas.ts:registerSchema",
+        "schema:api-gateway/src/modules/auth/schemas.ts:loginSchema",
+        "schema:api-gateway/src/modules/auth/schemas.ts:refreshSchema",
+        "schema:api-gateway/src/modules/auth/schemas.ts:logoutSchema"
+      ],
+      "languageLesson": null
+    },
+    {
+      "order": 6,
+      "title": "Nghiep vu auth va data stores",
+      "description": "Theo doi luong nghiep vu dang ky, dang nhap, refresh, logout va cac bang du lieu lien quan.",
+      "nodeIds": [
+        "file:api-gateway/src/modules/auth/service.ts",
+        "table:accounts",
+        "table:user_sessions"
+      ],
+      "languageLesson": null
+    },
+    {
+      "order": 7,
+      "title": "Module thiet bi",
+      "description": "Xem roles, schemas, routes va service de hieu quy trinh claim/unpair/list/command/state.",
+      "nodeIds": [
+        "file:api-gateway/src/modules/device/roles.ts",
+        "file:api-gateway/src/modules/device/schemas.ts",
+        "file:api-gateway/src/modules/device/routes.ts",
+        "file:api-gateway/src/modules/device/service.ts"
+      ],
+      "languageLesson": null
+    },
+    {
+      "order": 8,
+      "title": "Khoi dong MQTT worker",
+      "description": "Theo doi entry point worker: nap config, ket noi Redis/MQTT/DB va chay consumers.",
+      "nodeIds": [
+        "file:mqtt-worker-service/src/index.js",
+        "file:mqtt-worker-service/src/config/env.js",
+        "file:mqtt-worker-service/.env.example",
+        "file:mqtt-worker-service/package.json"
+      ],
+      "languageLesson": null
+    },
+    {
+      "order": 9,
+      "title": "Ha tang ket noi cho worker",
+      "description": "Kham pha cac client ket noi Mongo/PG/Redis/MQTT va cach kiem tra ket noi.",
+      "nodeIds": [
+        "file:mqtt-worker-service/src/infra/mongoClient.js",
+        "file:mqtt-worker-service/src/infra/postgresPool.js",
+        "file:mqtt-worker-service/src/infra/redisClient.js",
+        "file:mqtt-worker-service/src/infra/mqttClient.js"
+      ],
+      "languageLesson": null
+    },
+    {
+      "order": 10,
+      "title": "Worker processing va monitoring",
+      "description": "Di qua consumers/subscribers va processor de hieu cach xu ly command/telemetry va health monitor.",
+      "nodeIds": [
+        "file:mqtt-worker-service/src/workers/commandConsumer.js",
+        "file:mqtt-worker-service/src/workers/telemetrySubscriber.js",
+        "file:mqtt-worker-service/src/services/commandProcessor.js",
+        "file:mqtt-worker-service/src/services/telemetryProcessor.js",
+        "file:mqtt-worker-service/src/monitoring/healthMonitor.js"
+      ],
+      "languageLesson": null
+    }
+  ],
+  "kind": "codebase",
+  "metadata": {
+    "generatedBy": "augment_graph_fs.js",
+    "generatedAt": "2026-05-28T07:25:15.712Z"
+  }
+}

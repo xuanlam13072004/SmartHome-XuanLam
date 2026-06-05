@@ -248,3 +248,38 @@ export async function getDeviceState(app: FastifyInstance, mac: string, ownerId:
         last_updated: shadow.last_updated || null,
     };
 }
+
+export async function updateDeviceName(app: FastifyInstance, mac: string, name: string, ownerId: string) {
+    const trimmedName = name.trim();
+
+    const result = await app.pg.query(
+        `
+        UPDATE device_metadata
+        SET name = $1, updated_at = NOW()
+        WHERE owner_id = $2 AND mac = $3
+        RETURNING id, owner_id, mac, name, role, is_active, created_at, updated_at
+        `,
+        [trimmedName, ownerId, mac]
+    );
+
+    if (result.rows.length === 0) {
+        throw buildError('Device not found', 404, 'DEVICE_NOT_FOUND');
+    }
+
+    try {
+        const collection = app.mongo.db.collection(env.MONGO_DEVICES_COLLECTION);
+        await collection.updateOne(
+            { _id: mac },
+            {
+                $set: {
+                    name: trimmedName,
+                    last_updated: new Date(),
+                },
+            }
+        );
+    } catch (err) {
+        app.log.warn({ err, mac }, 'Failed to update device shadow name');
+    }
+
+    return result.rows[0];
+}

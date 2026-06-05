@@ -31,3 +31,12 @@ export const deviceStateSchema = z.object({
         mac: z.string().regex(macRegex),
     }),
 });
+
+export const updateDeviceSchema = z.object({
+    params: z.object({
+        mac: z.string().regex(macRegex),
+    }),
+    body: z.object({
+        name: z.string().min(1).max(120),
+    }),
+});

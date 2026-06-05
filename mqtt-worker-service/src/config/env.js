@@ -59,7 +59,7 @@ const envSchema = z.object({
     TELEMETRY_BATCH_SIZE: z.coerce.number().positive().default(200),
     TELEMETRY_BATCH_FLUSH_MS: z.coerce.number().positive().default(1000),
     TELEMETRY_BUFFER_MAX: z.coerce.number().positive().default(5000),
-    TELEMETRY_DEDUPE_TTL_SECONDS: z.coerce.number().positive().default(300),
+    TELEMETRY_DEDUPE_TTL_SECONDS: z.coerce.number().positive().default(10),
     REDIS_DEDUPE_PREFIX: z.string().default('dedupe:'),
 
     // Worker behavior

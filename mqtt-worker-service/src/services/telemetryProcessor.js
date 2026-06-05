@@ -16,8 +16,9 @@
 const crypto = require('crypto');
 const { z } = require('zod');
 
-// In-memory batch buffer for telemetry logs
+// In-memory batch buffers for telemetry logs & shadows
 const telemetryBatch = [];
+const shadowBatchMap = new Map();
 let flushTimer = null;
 let flushInProgress = false;
 
@@ -171,24 +172,16 @@ async function resolveOwnerId(clients, deviceId, config, logger) {
 }
 
 /**
- * insertTelemetryLog: ghi dữ liệu vào telemetry_logs (time-series MongoDB)
- * 
- * Mục đích:
- * - Append-only insert (không update)
- * - Dữ liệu tự TTL xóa cũ theo chính sách
- * - Phục vụ biểu đồ, phân tích lịch sử
+ * insertTelemetryLog: gom dữ liệu vào telemetryBatch (lịch sử cảm biến)
  * 
  * @param {object} mongoClient - MongoDB client
  * @param {object} telemetry - validated telemetry data
  * @param {string} ownerId - owner UUID
  * @param {object} config - biến config (collection names)
  * @param {object} logger - logger instance
- * @returns {Promise<string>} inserted document _id
+ * @returns {Promise<null>}
  */
 async function insertTelemetryLog(mongoClient, telemetry, ownerId, config, logger) {
-    const db = mongoClient.db(config.MONGO_DB_NAME);
-    const collection = db.collection(config.MONGO_TELEMETRY_COLLECTION);
-
     const doc = {
         metadata: {
             device_id: telemetry.device_id,
@@ -209,35 +202,28 @@ async function insertTelemetryLog(mongoClient, telemetry, ownerId, config, logge
     }
 
     telemetryBatch.push(doc);
-
-    if (telemetryBatch.length >= config.TELEMETRY_BATCH_SIZE) {
-        await flushTelemetryBatch(collection, config, logger);
-    } else {
-        scheduleTelemetryFlush(collection, config, logger);
-    }
-
     return null;
 }
 
 /**
- * scheduleTelemetryFlush: set timeout để flush batch nếu chưa đủ size
+ * scheduleAllBatchesFlush: set timeout để flush các batch nếu chưa đủ size
  */
-function scheduleTelemetryFlush(collection, config, logger) {
+function scheduleAllBatchesFlush(mongoClient, config, logger) {
     if (flushTimer) return;
 
     flushTimer = setTimeout(() => {
-        flushTelemetryBatch(collection, config, logger).catch((err) => {
-            logger.error({ err }, 'Telemetry batch flush failed');
+        flushAllBatches(mongoClient, config, logger).catch((err) => {
+            logger.error({ err }, 'Batches flush failed');
         });
     }, config.TELEMETRY_BATCH_FLUSH_MS);
 }
 
 /**
- * flushTelemetryBatch: ghi batch telemetry bằng insertMany
+ * flushAllBatches: ghi batch telemetry & shadow bằng insertMany + bulkWrite song song
  */
-async function flushTelemetryBatch(collection, config, logger) {
+async function flushAllBatches(mongoClient, config, logger) {
     if (flushInProgress) return;
-    if (telemetryBatch.length === 0) return;
+    if (telemetryBatch.length === 0 && shadowBatchMap.size === 0) return;
 
     flushInProgress = true;
 
@@ -246,68 +232,95 @@ async function flushTelemetryBatch(collection, config, logger) {
         flushTimer = null;
     }
 
-    const batch = telemetryBatch.splice(0, config.TELEMETRY_BATCH_SIZE);
+    const db = mongoClient.db(config.MONGO_DB_NAME);
+    const telemetryCollection = db.collection(config.MONGO_TELEMETRY_COLLECTION);
+    const devicesCollection = db.collection(config.MONGO_DEVICES_COLLECTION);
+
+    // Lấy tối đa TELEMETRY_BATCH_SIZE log để insert
+    const logsBatch = telemetryBatch.splice(0, config.TELEMETRY_BATCH_SIZE);
+
+    // Chuẩn bị bulkWrite cho shadow updates của các thiết bị tích lũy trong shadowBatchMap
+    const shadowOps = [];
+    for (const [mac, updateDoc] of shadowBatchMap.entries()) {
+        shadowOps.push({
+            updateOne: {
+                filter: { _id: mac },
+                update: { $set: updateDoc },
+                upsert: true
+            }
+        });
+    }
+    shadowBatchMap.clear();
+
+    const writePromises = [];
+
+    if (logsBatch.length > 0) {
+        writePromises.push(
+            telemetryCollection.insertMany(logsBatch, { ordered: false })
+                .then((result) => {
+                    logger.debug(
+                        { inserted: result.insertedCount, batch_size: logsBatch.length },
+                        'Telemetry batch inserted'
+                    );
+                })
+                .catch((err) => {
+                    logger.error({ err, batch_size: logsBatch.length }, 'Failed to insert telemetry batch');
+                })
+        );
+    }
+
+    if (shadowOps.length > 0) {
+        writePromises.push(
+            devicesCollection.bulkWrite(shadowOps, { ordered: false })
+                .then((result) => {
+                    logger.debug(
+                        { matched: result.matchedCount, upserted: result.upsertedCount, ops_size: shadowOps.length },
+                        'Shadow bulk updates completed'
+                    );
+                })
+                .catch((err) => {
+                    logger.error({ err, ops_size: shadowOps.length }, 'Failed to bulk write shadow updates');
+                })
+        );
+    }
 
     try {
-        const result = await collection.insertMany(batch, { ordered: false });
-        logger.debug(
-            { inserted: result.insertedCount, batch_size: batch.length },
-            'Telemetry batch inserted'
-        );
+        await Promise.all(writePromises);
     } catch (err) {
-        logger.error({ err, batch_size: batch.length }, 'Failed to insert telemetry batch');
-        throw err;
+        // Lỗi chi tiết đã được xử lý/log trong từng promise
     } finally {
         flushInProgress = false;
 
-        if (telemetryBatch.length > 0) {
-            scheduleTelemetryFlush(collection, config, logger);
+        // Nếu vẫn còn dữ liệu chưa flush hết (trong trường hợp dồn dập vượt quá BATCH_SIZE), lên lịch flush tiếp
+        if (telemetryBatch.length > 0 || shadowBatchMap.size > 0) {
+            scheduleAllBatchesFlush(mongoClient, config, logger);
         }
     }
 }
 
 /**
- * updateDeviceShadow: cập nhật trạng thái hiện tại của thiết bị (devices collection)
- * 
- * Mục đình:
- * - Lưu bản ghi state mới nhất để app realtime lấy ngay
- * - Upsert để xử lý cả device mới lẫn update state cũ
- * - Ghi lại last_updated timestamp
+ * updateDeviceShadow: gom dữ liệu vào shadowBatchMap (trạng thái thiết bị shadow)
  * 
  * @param {object} mongoClient - MongoDB client
  * @param {object} telemetry - validated telemetry data
  * @param {string} ownerId - owner UUID
  * @param {object} config - biến config (collection names)
  * @param {object} logger - logger instance
- * @returns {Promise}
+ * @returns {Promise<null>}
  */
 async function updateDeviceShadow(mongoClient, telemetry, ownerId, config, logger) {
-    const db = mongoClient.db(config.MONGO_DB_NAME);
-    const collection = db.collection(config.MONGO_DEVICES_COLLECTION);
-
-    const update = {
-        $set: {
-            owner_id: ownerId,
-            state: telemetry.metrics,
-            last_updated: new Date(),
-            last_seen: new Date(),
-            is_online: true,
-            ...(telemetry.rssi && { rssi: telemetry.rssi }),
-            ...(telemetry.battery && { battery: telemetry.battery }),
-        },
+    const updateDoc = {
+        owner_id: ownerId,
+        state: telemetry.metrics,
+        last_updated: new Date(),
+        last_seen: new Date(),
+        is_online: true,
+        ...(telemetry.rssi && { rssi: telemetry.rssi }),
+        ...(telemetry.battery && { battery: telemetry.battery }),
     };
 
-    try {
-        await collection.updateOne(
-            { _id: telemetry.device_id },
-            update,
-            { upsert: true }
-        );
-        logger.debug({ device_id: telemetry.device_id }, 'Device shadow updated');
-    } catch (err) {
-        logger.error({ err, device_id: telemetry.device_id }, 'Failed to update device shadow');
-        throw err;
-    }
+    shadowBatchMap.set(telemetry.device_id, updateDoc);
+    return null;
 }
 
 /**
@@ -351,10 +364,12 @@ async function publishTelemetryUpdate(redis, ownerId, telemetry, config, logger)
  * 
  * Bước:
  * 1. Validate schema
- * 2. Resolve owner_id (cache / DB fallback)
- * 3. Insert telemetry_logs (MongoDB)
- * 4. Update device shadow (MongoDB)
- * 5. Publish realtime event (Redis)
+ * 2. Dedupe bằng Redis SET NX
+ * 3. Resolve owner_id (cache / DB fallback)
+ * 4. Gom telemetry log vào telemetryBatch
+ * 5. Gom shadow update vào shadowBatchMap
+ * 6. Kích hoạt ghi theo lô hoặc lên lịch flush định kỳ
+ * 7. Publish realtime event (Redis)
  * 
  * @param {object} rawMessage - message từ MQTT
  * @param {object} clients - { redis, pgPool, mongoClient }
@@ -389,11 +404,18 @@ async function processTelemetry(rawMessage, clients, config, logger) {
     }
 
     try {
-        // Bước 4: Insert telemetry_logs
+        // Bước 4: Gom telemetry_logs
         await insertTelemetryLog(clients.mongoClient, telemetry, ownerId, config, logger);
 
-        // Bước 5: Update device shadow
+        // Bước 5: Gom device shadow
         await updateDeviceShadow(clients.mongoClient, telemetry, ownerId, config, logger);
+
+        // Kích hoạt ghi theo lô nếu vượt quá kích thước quy định
+        if (telemetryBatch.length >= config.TELEMETRY_BATCH_SIZE || shadowBatchMap.size >= config.TELEMETRY_BATCH_SIZE) {
+            await flushAllBatches(clients.mongoClient, config, logger);
+        } else {
+            scheduleAllBatchesFlush(clients.mongoClient, config, logger);
+        }
 
         // Bước 6: Publish realtime event
         await publishTelemetryUpdate(clients.redis, ownerId, telemetry, config, logger);
