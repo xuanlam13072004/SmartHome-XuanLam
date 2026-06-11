@@ -133,40 +133,18 @@ async function resolveOwnerId(clients, deviceId, config, logger) {
     const cacheKey = `${config.REDIS_CACHE_OWNER_PREFIX}${deviceId}`;
 
     try {
-        // Bước 1: Thử Redis cache
-        let ownerId = await clients.redis.get(cacheKey);
+        // Chỉ đọc từ Redis cache (API Gateway có trách nhiệm sync lên Redis)
+        const ownerId = await clients.redis.get(cacheKey);
 
         if (ownerId) {
-            logger.debug({ device_id: deviceId }, 'Owner resolved from cache');
+            logger.debug({ device_id: deviceId }, 'Owner resolved from Redis');
             return ownerId;
         }
 
-        // Bước 2: Cache miss, query PostgreSQL
-        logger.debug({ device_id: deviceId }, 'Owner cache miss, querying PostgreSQL');
-
-        const result = await clients.pgPool.query(
-            'SELECT owner_id FROM device_metadata WHERE mac = $1',
-            [deviceId]
-        );
-
-        if (result.rows.length === 0) {
-            logger.warn({ device_id: deviceId }, 'Device not found in PostgreSQL');
-            return null;
-        }
-
-        ownerId = result.rows[0].owner_id;
-
-        // Bước 3: Nạp cache
-        await clients.redis.setex(
-            cacheKey,
-            config.REDIS_CACHE_TTL_SECONDS,
-            ownerId
-        );
-
-        logger.debug({ device_id: deviceId }, 'Owner cached');
-        return ownerId;
+        logger.warn({ device_id: deviceId }, 'Device owner cache miss in Redis, no Postgres fallback allowed');
+        return null;
     } catch (err) {
-        logger.error({ err, device_id: deviceId }, 'Failed to resolve owner');
+        logger.error({ err, device_id: deviceId }, 'Failed to resolve owner from Redis');
         return null;
     }
 }

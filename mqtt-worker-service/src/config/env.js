@@ -21,6 +21,7 @@ const envSchema = z.object({
     // Redis
     REDIS_URL: z.string().url().default('redis://localhost:6379'),
     REDIS_COMMAND_STREAM: z.string().default('device.commands'),
+    REDIS_COMMAND_STATUS_STREAM: z.string().default('command.status.stream'),
     REDIS_COMMAND_GROUP: z.string().default('mqtt-worker-group'),
     REDIS_COMMAND_CONSUMER: z.string().default('worker-1'),
     REDIS_UPDATE_CHANNEL: z.string().default('device.updates'),
@@ -38,18 +39,11 @@ const envSchema = z.object({
     MQTT_PASSWORD: z.string().optional().default(''),
     MQTT_QOS: z.coerce.number().int().min(0).max(2).default(1),
     MQTT_SHARED_GROUP: z.string().optional().default(''),
-    MQTT_CONTROL_TOPIC: z.string().default('smarthome/{owner_id}/{device_id}/control'),
-    MQTT_TELEMETRY_TOPIC: z.string().default('smarthome/+/+/telemetry'),
-    MQTT_ACK_TOPIC: z.string().default('smarthome/+/+/ack'),
-    MQTT_STATUS_TOPIC: z.string().default('smarthome/+/+/status'),
+    MQTT_CONTROL_TOPIC: z.string().default('smarthome/{device_id}/control'),
+    MQTT_TELEMETRY_TOPIC: z.string().default('smarthome/+/telemetry'),
+    MQTT_ACK_TOPIC: z.string().default('smarthome/+/ack'),
+    MQTT_STATUS_TOPIC: z.string().default('smarthome/+/status'),
 
-    // PostgreSQL
-    PG_HOST: z.string().default('localhost'),
-    PG_PORT: z.coerce.number().int().positive().default(5432),
-    PG_DATABASE: z.string().default('smarthome'),
-    PG_USER: z.string().default('postgres'),
-    PG_PASSWORD: z.string().default('postgres'),
-    PG_SSL: z.enum(['true', 'false']).transform(v => v === 'true').default('false'),
 
     // MongoDB
     MONGO_URI: z.string().url().default('mongodb://localhost:27017'),

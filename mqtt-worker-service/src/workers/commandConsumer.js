@@ -14,7 +14,7 @@
  * - Idle: nếu worker crash, message quay lại được consumer khác pick up
  */
 
-const { processCommand } = require('../services/commandProcessor');
+const { processCommand, updateCommandStatus } = require('../services/commandProcessor');
 
 /**
  * initConsumerGroup: tạo consumer group nếu chưa tồn tại
@@ -230,53 +230,37 @@ async function processCommandMessage(
 
         logger.debug({ message_id: messageId, command_id: message.command_id }, 'Processing command');
 
-        // Retry limit check
-        const retryResult = await clients.pgPool.query(
-            'SELECT retry_count FROM device_commands WHERE id = $1',
-            [message.command_id]
-        );
-
-        if (retryResult.rows.length === 0) {
-            logger.warn({ command_id: message.command_id }, 'Command not found, ACKing message');
-            await redis.call('XACK', streamKey, groupName, messageId);
-            return true;
+        // Check retry limit bằng Redis
+        const retryKey = `command_retries:${message.command_id}`;
+        const retryCount = await redis.incr(retryKey);
+        
+        // Thiết lập TTL cho key retry trong 10 phút ở lần tăng đầu tiên
+        if (retryCount === 1) {
+            await redis.expire(retryKey, 600);
         }
 
-        const retryCount = retryResult.rows[0].retry_count || 0;
-
-        if (retryCount >= config.COMMAND_MAX_RETRY) {
-            await clients.pgPool.query(
-                `
-                UPDATE device_commands
-                SET status = 'failed', updated_at = NOW(), error_log = $2
-                WHERE id = $1
-              `,
-                [message.command_id, 'Retry limit exceeded']
-            );
+        if (retryCount > config.COMMAND_MAX_RETRY) {
+            // Cập nhật trạng thái failed không đồng bộ
+            await updateCommandStatus(redis, config, message.command_id, 'failed', 'Retry limit exceeded', logger, retryCount);
 
             await redis.call('XACK', streamKey, groupName, messageId);
-            logger.warn({ command_id: message.command_id, retry_count: retryCount }, 'Retry limit reached, ACKing');
+            await redis.del(retryKey); // Dọn dẹp key retry
+            logger.warn({ command_id: message.command_id, retry_count: retryCount }, 'Retry limit reached, ACKing & dropping command');
             return true;
         }
-
-        // Increment retry_count before processing
-        await clients.pgPool.query(
-            'UPDATE device_commands SET retry_count = retry_count + 1 WHERE id = $1',
-            [message.command_id]
-        );
 
         // Gọi processCommand từ commandProcessor
-        await processCommand(message, clients, config, logger);
+        await processCommand(message, clients, config, logger, retryCount);
 
         // Nếu thành công, ACK message
-        // XACK <stream> <group> <id1> [id2 ...]
         await redis.call('XACK', streamKey, groupName, messageId);
+        await redis.del(retryKey); // Dọn dẹp key retry
         logger.debug({ message_id: messageId }, 'Command ACKed');
 
         return true;
     } catch (err) {
         logger.error(
-            { err, message_id: messageId, command_id: messageData.command_id },
+            { err, message_id: messageId, command_id: message.command_id },
             'Failed to process command message'
         );
         // Không ACK = message vẫn trong pending, sẽ retry sau

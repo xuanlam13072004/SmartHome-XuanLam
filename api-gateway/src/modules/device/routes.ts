@@ -10,7 +10,7 @@ const deviceRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
     app.get('/devices', {
         preHandler: [app.authenticate],
     }, async (request) => {
-        const devices = await listDevices(app, request.user.userId);
+        const devices = await listDevices(app, (request.user as any).userId);
         return { success: true, devices };
     });
 
@@ -19,7 +19,7 @@ const deviceRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         validationSchema: claimSchema,
     }, async (request) => {
         const body = request.body as any;
-        const device = await claimDevice(app, body, request.user.userId);
+        const device = await claimDevice(app, body, (request.user as any).userId);
         return { success: true, device };
     });
 
@@ -28,7 +28,7 @@ const deviceRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         validationSchema: unpairSchema,
     }, async (request) => {
         const params = request.params as any;
-        const result = await unpairDevice(app, params.mac, request.user.userId);
+        const result = await unpairDevice(app, params.mac, (request.user as any).userId);
         return { success: true, ...result };
     });
 
@@ -41,7 +41,7 @@ const deviceRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         const result = await sendDeviceCommand(
             app,
             { mac: params.mac, action: body.action, payload: body.payload },
-            request.user.userId
+            (request.user as any).userId
         );
         return { success: true, ...result };
     });
@@ -51,7 +51,7 @@ const deviceRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         validationSchema: deviceStateSchema,
     }, async (request) => {
         const params = request.params as any;
-        const state = await getDeviceState(app, params.mac, request.user.userId);
+        const state = await getDeviceState(app, params.mac, (request.user as any).userId);
         return { success: true, state };
     });
 
@@ -61,7 +61,7 @@ const deviceRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
     }, async (request) => {
         const params = request.params as any;
         const body = request.body as any;
-        const device = await updateDeviceName(app, params.mac, body.name, request.user.userId);
+        const device = await updateDeviceName(app, params.mac, body.name, (request.user as any).userId);
         return { success: true, device };
     });
 };

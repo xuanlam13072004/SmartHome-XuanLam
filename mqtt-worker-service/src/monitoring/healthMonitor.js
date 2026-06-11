@@ -19,7 +19,6 @@ function startHealthMonitor(clients, config, logger) {
         const health = {
             redis: false,
             mongo: false,
-            postgres: false,
             mqtt: Boolean(clients.mqttClient && clients.mqttClient.connected),
         };
 
@@ -53,14 +52,6 @@ function startHealthMonitor(clients, config, logger) {
             health.mongo = true;
         } catch (err) {
             logger.warn({ err }, 'MongoDB health check failed');
-        }
-
-        // Postgres ping
-        try {
-            await clients.pgPool.query('SELECT 1');
-            health.postgres = true;
-        } catch (err) {
-            logger.warn({ err }, 'PostgreSQL health check failed');
         }
 
         logger.info({ health, metrics }, 'Health monitor');

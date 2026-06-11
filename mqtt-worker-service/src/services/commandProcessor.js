@@ -1,28 +1,16 @@
 /**
  * Tác dụng của file này:
  * - Xử lý vòng đời của lệnh điều khiển (ON/OFF device)
- * - Nhận lệnh từ Redis Stream
+ * - Nhận lệnh từ Redis Stream (device.commands)
  * - Validate + resolve owner/device
- * - Publish lệnh xuống MQTT
- * - Cập nhật trạng thái lệnh trong PostgreSQL
- *
- * Luồng xử lý:
- * API Service -> Redis Stream (device.commands) 
- *   -> Worker readCommand -> validate 
- *   -> publish MQTT 
- *   -> MQTT Worker wait ACK 
- *   -> updateCommandStatus (sent/acked/failed/timeout)
+ * - Publish lệnh xuống MQTT (topic phẳng)
+ * - Đẩy trạng thái lệnh (sent/failed) lên Redis Stream để API Gateway đồng bộ về PostgreSQL
  */
 
 const { z } = require('zod');
 
 /**
  * Schema validate cho command message từ Redis
- * 
- * Mục đích:
- * - Đảm bảo message từ API có đủ thông tin
- * - Fail fast nếu thiếu field bắt buộc
- * - Dễ debug lỗi format message
  */
 const commandSchema = z.object({
     command_id: z.string().uuid(),
@@ -35,9 +23,6 @@ const commandSchema = z.object({
 
 /**
  * validateCommand: kiểm tra message có đúng schema không
- * 
- * @param {object} message - raw message từ Redis
- * @returns {object} parsed message hoặc throw error
  */
 function validateCommand(message) {
     return commandSchema.parse(message);
@@ -45,23 +30,10 @@ function validateCommand(message) {
 
 /**
  * publishCommandToDevice: gửi lệnh xuống MQTT
- * 
- * Luồng:
- * 1. Tạo topic MQTT từ owner_id + device_id
- * 2. Tạo payload lệnh
- * 3. Publish với QoS=1 (at least once)
- * 4. Trả về promise để theo dõi
- * 
- * @param {object} mqttClient - MQTT client instance
- * @param {object} command - validated command
- * @param {object} config - biến config (topic format, QoS)
- * @param {object} logger - logger instance
- * @returns {Promise}
  */
 function publishCommandToDevice(mqttClient, command, config, logger) {
-    // Tạo topic theo template: smarthome/{owner_id}/{device_id}/control
+    // Tạo topic theo template phẳng: smarthome/{device_id}/control
     const topic = config.MQTT_CONTROL_TOPIC
-        .replace('{owner_id}', command.owner_id)
         .replace('{device_id}', command.device_id);
 
     // Tạo payload lệnh
@@ -96,72 +68,78 @@ function publishCommandToDevice(mqttClient, command, config, logger) {
 }
 
 /**
- * updateCommandStatus: cập nhật trạng thái lệnh trong PostgreSQL
+ * updateCommandStatus: đẩy sự kiện cập nhật trạng thái lên Redis Stream để API Gateway đồng bộ về PostgreSQL
  * 
- * Trạng thái có thể là:
- * - pending: lệnh vừa được tạo
- * - sent: lệnh đã gửi xuống MQTT
- * - acked: thiết bị đã nhận + xác nhận
- * - failed: thiết bị lỗi hoặc MQTT fail
- * - timeout: quá hạn chờ ACK
- * 
- * @param {object} pgPool - PostgreSQL pool
+ * @param {object} redis - Redis client
+ * @param {object} config - biến config
  * @param {string} commandId - command UUID
- * @param {string} status - trạng thái mới
- * @param {string} errorMessage - (optional) tin nhắn lỗi nếu có
+ * @param {string} status - trạng thái mới (sending, sent, acked, failed, timeout)
+ * @param {string} errorMessage - tin nhắn lỗi nếu có
  * @param {object} logger - logger instance
- * @returns {Promise}
+ * @param {number|null} retryCount - số lần retry của command
  */
-async function updateCommandStatus(pgPool, commandId, status, errorMessage = null, logger) {
-    const query = `
-    UPDATE device_commands
-    SET 
-      status = $1,
-      updated_at = NOW(),
-      error_log = $2
-    WHERE id = $3
-  `;
-
+async function updateCommandStatus(redis, config, commandId, status, errorMessage = null, logger, retryCount = null) {
     try {
-        await pgPool.query(query, [status, errorMessage, commandId]);
-        logger.debug({ command_id: commandId, status }, 'Command status updated');
+        // Sinh event_version tăng dần thông qua Redis INCR
+        const versionKey = `command_version:${commandId}`;
+        const eventVersion = await redis.incr(versionKey);
+        if (eventVersion === 1) {
+            await redis.expire(versionKey, 600); // TTL 10 phút
+        }
+
+        // Ghi nhận trạng thái tạm thời trong Redis để theo dõi nhanh
+        const lockKey = `command_lock:${commandId}`;
+        await redis.set(lockKey, status, 'EX', 60); // Lưu giữ trạng thái trong 60 giây
+
+        const payload = {
+            command_id: commandId,
+            status,
+            error_log: errorMessage || '',
+            event_version: eventVersion,
+            ...(retryCount !== null && { retry_count: retryCount }),
+        };
+
+        // Đẩy vào Redis Stream `command.status.stream` để sync về Postgres không đồng bộ
+        await redis.xadd(
+            config.REDIS_COMMAND_STATUS_STREAM,
+            '*',
+            'data',
+            JSON.stringify(payload)
+        );
+
+        logger.debug({ command_id: commandId, status, retry_count: retryCount, event_version: eventVersion }, 'Command status update published to Redis Stream');
     } catch (err) {
         logger.error(
             { err, command_id: commandId, status },
-            'Failed to update command status'
+            'Failed to publish command status update'
         );
         throw err;
     }
 }
 
 /**
- * tryAcquireCommand: chuyển trạng thái từ pending -> sending một cách atomic
+ * tryAcquireCommand: chuyển trạng thái từ pending -> sending một cách atomic sử dụng Redis locks (SET NX)
  * 
- * @param {object} pgPool - PostgreSQL pool
+ * @param {object} redis - Redis client
  * @param {string} commandId - command UUID
  * @param {object} logger - logger instance
  * @returns {Promise<boolean>} true nếu acquire được, false nếu đã có worker khác xử lý
  */
-async function tryAcquireCommand(pgPool, commandId, logger) {
+async function tryAcquireCommand(redis, commandId, logger) {
     try {
-        const result = await pgPool.query(
-            `
-            UPDATE device_commands
-            SET status = 'sending', updated_at = NOW()
-            WHERE id = $1 AND status = 'pending'
-            RETURNING id
-          `,
-            [commandId]
-        );
+        const lockKey = `command_lock:${commandId}`;
+        
+        // Sử dụng SET NX để tạo lock nguyên tử trong 10 giây (tránh bị kẹt mãi mãi nếu crash)
+        const result = await redis.set(lockKey, 'sending', 'EX', 10, 'NX');
 
-        if (result.rowCount === 0) {
-            logger.info({ command_id: commandId }, 'Command already acquired or not pending');
+        if (result !== 'OK') {
+            logger.info({ command_id: commandId }, 'Command already acquired by another worker');
             return false;
         }
 
         return true;
     } catch (err) {
-        logger.error({ err, command_id: commandId }, 'Failed to acquire command');
+        logger.error({ err, command_id: commandId }, 'Failed to acquire command lock via Redis');
         throw err;
     }
 }
@@ -169,19 +147,14 @@ async function tryAcquireCommand(pgPool, commandId, logger) {
 /**
  * processCommand: luồng xử lý chính cho 1 lệnh
  * 
- * Bước:
- * 1. Validate schema
- * 2. Publish MQTT
- * 3. Update status = sent
- * 4. Return command_id để worker tracking
- * 
  * @param {object} rawMessage - message từ Redis
- * @param {object} clients - { mqttClient, pgPool }
+ * @param {object} clients - { mqttClient, redis }
  * @param {object} config - biến môi trường
  * @param {object} logger - logger instance
+ * @param {number|null} retryCount - số lần retry của command
  * @returns {Promise<string>} command_id đã xử lý
  */
-async function processCommand(rawMessage, clients, config, logger) {
+async function processCommand(rawMessage, clients, config, logger, retryCount = null) {
     let command;
 
     // Bước 1: Validate schema
@@ -194,11 +167,18 @@ async function processCommand(rawMessage, clients, config, logger) {
 
     const { command_id, action, device_id } = command;
 
-    // Bước 1.5: Idempotency atomic - chỉ worker nào acquire được mới publish
-    const acquired = await tryAcquireCommand(clients.pgPool, command_id, logger);
+    // Bước 1.5: Idempotency atomic - chỉ worker nào acquire được lock mới xử lý
+    const acquired = await tryAcquireCommand(clients.redis, command_id, logger);
 
     if (!acquired) {
         return command_id;
+    }
+
+    // Gửi sự kiện 'sending' về stream cập nhật
+    try {
+        await updateCommandStatus(clients.redis, config, command_id, 'sending', null, logger, retryCount);
+    } catch (err) {
+        logger.warn({ err, command_id }, 'Failed to update sending status, continuing execution');
     }
 
     try {
@@ -206,14 +186,14 @@ async function processCommand(rawMessage, clients, config, logger) {
         await publishCommandToDevice(clients.mqttClient, command, config, logger);
 
         // Bước 3: Update status = sent
-        await updateCommandStatus(clients.pgPool, command_id, 'sent', null, logger);
+        await updateCommandStatus(clients.redis, config, command_id, 'sent', null, logger, retryCount);
 
         logger.info({ command_id, device_id, action }, 'Command processed successfully');
         return command_id;
     } catch (err) {
         // Nếu lỗi, update status = failed
         try {
-            await updateCommandStatus(clients.pgPool, command_id, 'failed', err.message, logger);
+            await updateCommandStatus(clients.redis, config, command_id, 'failed', err.message, logger, retryCount);
         } catch (updateErr) {
             logger.error({ updateErr }, 'Failed to update error status');
         }

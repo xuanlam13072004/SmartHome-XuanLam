@@ -132,16 +132,17 @@ async function handleTelemetryMessage(topic, payload, clients, config, logger) {
  * Bước:
  * 1. Parse JSON
  * 2. Validate command_id
- * 3. Update device_commands status = acked (nếu success) hoặc failed (nếu error)
+ * 3. Đẩy tin nhắn cập nhật trạng thái (acked/failed) vào Redis Stream command.status.stream
  * 4. Log ACK
  * 
  * @param {string} topic - MQTT topic
  * @param {Buffer} payload - message payload (JSON)
- * @param {object} pgPool - PostgreSQL pool
+ * @param {object} clients - { redis }
+ * @param {object} config - cấu hình
  * @param {object} logger - logger instance
  * @returns {Promise}
  */
-async function handleAckMessage(topic, payload, pgPool, logger) {
+async function handleAckMessage(topic, payload, clients, config, logger) {
     try {
         const ack = JSON.parse(payload.toString());
         const { command_id, device_id, status, error_msg } = ack;
@@ -157,7 +158,8 @@ async function handleAckMessage(topic, payload, pgPool, logger) {
         const commandStatus = status === 'success' ? 'acked' : 'failed';
         const errorMsg = status === 'success' ? null : error_msg || 'Device returned error';
 
-        await updateCommandStatus(pgPool, command_id, commandStatus, errorMsg, logger);
+        // Đẩy sự kiện qua Redis Stream thay vì chọc trực tiếp vào PostgreSQL
+        await updateCommandStatus(clients.redis, config, command_id, commandStatus, errorMsg, logger);
 
         logger.info({ command_id, device_id }, 'Command ACK processed');
     } catch (err) {
@@ -177,7 +179,7 @@ async function handleAckMessage(topic, payload, pgPool, logger) {
  * 5. Nếu topic không khớp -> ignore (không phải lỗi)
  * 
  * @param {object} mqttClient - MQTT client instance
- * @param {object} clients - { redis, pgPool, mongoClient, mqttClient }
+ * @param {object} clients - { redis, mongoClient, mqttClient }
  * @param {object} config - biến config
  * @param {object} logger - logger instance
  */
@@ -195,7 +197,7 @@ function setupMessageHandlers(mqttClient, clients, config, logger) {
         if (telemetryRegex.test(cleanTopic)) {
             await handleTelemetryMessage(cleanTopic, payload, clients, config, logger);
         } else if (ackRegex.test(cleanTopic)) {
-            await handleAckMessage(cleanTopic, payload, clients.pgPool, logger);
+            await handleAckMessage(cleanTopic, payload, clients, config, logger);
         }
         // Ignore topic không khớp
     });
@@ -211,7 +213,7 @@ function setupMessageHandlers(mqttClient, clients, config, logger) {
  * 4. Log subscribe thành công
  * 
  * @param {object} mqttClient - MQTT client instance
- * @param {object} clients - { redis, pgPool, mongoClient, mqttClient }
+ * @param {object} clients - { redis, mongoClient, mqttClient }
  * @param {object} config - biến config
  * @param {object} logger - logger instance
  * @returns {Promise}

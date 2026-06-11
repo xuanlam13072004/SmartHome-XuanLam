@@ -73,13 +73,20 @@ export async function claimDevice(app: FastifyInstance, input: {
 
         try {
             const cacheKey = `${env.REDIS_CACHE_OWNER_PREFIX}${input.mac}`;
-            await app.redis.setex(cacheKey, env.REDIS_CACHE_TTL_SECONDS, ownerId);
+            await app.redis.set(cacheKey, ownerId);
         } catch (err) {
             app.log.warn({ err, mac: input.mac }, 'Failed to cache device owner');
         }
 
         try {
-            const collection = app.mongo.db.collection(env.MONGO_DEVICES_COLLECTION);
+            const userDevicesKey = `user_devices:${ownerId}`;
+            await app.redis.del(userDevicesKey);
+        } catch (err) {
+            app.log.warn({ err, ownerId }, 'Failed to invalidate user devices cache');
+        }
+
+        try {
+            const collection = app.mongo.db.collection<any>(env.MONGO_DEVICES_COLLECTION);
             await collection.updateOne(
                 { _id: input.mac },
                 {
@@ -135,7 +142,14 @@ export async function unpairDevice(app: FastifyInstance, mac: string, ownerId: s
         }
 
         try {
-            const collection = app.mongo.db.collection(env.MONGO_DEVICES_COLLECTION);
+            const userDevicesKey = `user_devices:${ownerId}`;
+            await app.redis.del(userDevicesKey);
+        } catch (err) {
+            app.log.warn({ err, ownerId }, 'Failed to invalidate user devices cache');
+        }
+
+        try {
+            const collection = app.mongo.db.collection<any>(env.MONGO_DEVICES_COLLECTION);
             await collection.updateOne(
                 { _id: mac },
                 {
@@ -160,17 +174,81 @@ export async function unpairDevice(app: FastifyInstance, mac: string, ownerId: s
 }
 
 export async function listDevices(app: FastifyInstance, ownerId: string) {
-    const result = await app.pg.query(
-        `
-        SELECT id, owner_id, mac, name, role, is_active, created_at, updated_at
-        FROM device_metadata
-        WHERE owner_id = $1 AND role = ANY($2)
-        ORDER BY created_at DESC
-        `,
-        [ownerId, ALLOWED_ROLES]
-    );
+    const userDevicesKey = `user_devices:${ownerId}`;
+    let devices: any[] = [];
 
-    return result.rows;
+    // Step 1: Thử lấy danh sách thiết bị tĩnh của User từ Redis Cache
+    try {
+        const cached = await app.redis.get(userDevicesKey);
+        if (cached) {
+            devices = JSON.parse(cached);
+            app.log.debug({ ownerId }, 'User devices list resolved from cache');
+        }
+    } catch (err) {
+        app.log.warn({ err, ownerId }, 'Failed to get user devices list from cache');
+    }
+
+    // Step 2: Cache miss -> Truy vấn PostgreSQL và nạp cache
+    if (devices.length === 0) {
+        const result = await app.pg.query(
+            `
+            SELECT id, owner_id, mac, name, role, is_active, created_at, updated_at
+            FROM device_metadata
+            WHERE owner_id = $1 AND role = ANY($2)
+            ORDER BY created_at DESC
+            `,
+            [ownerId, ALLOWED_ROLES]
+        );
+        devices = result.rows;
+
+        if (devices.length > 0) {
+            try {
+                await app.redis.setex(
+                    userDevicesKey,
+                    env.REDIS_CACHE_TTL_SECONDS,
+                    JSON.stringify(devices)
+                );
+                app.log.debug({ ownerId }, 'User devices list cached in Redis');
+            } catch (err) {
+                app.log.warn({ err, ownerId }, 'Failed to cache user devices list');
+            }
+        }
+    }
+
+    // Step 3: Ghép nối với MongoDB Devices Shadow để lấy trạng thái động
+    const macs = devices.map(d => d.mac);
+    if (macs.length === 0) {
+        return [];
+    }
+
+    try {
+        const collection = app.mongo.db.collection<any>(env.MONGO_DEVICES_COLLECTION);
+        const shadows = await collection.find({ _id: { $in: macs } }).toArray();
+        const shadowMap = new Map(shadows.map(s => [s._id, s]));
+
+        return devices.map(d => {
+            const shadow = shadowMap.get(d.mac);
+            return {
+                ...d,
+                state: shadow?.state || {},
+                is_online: shadow?.is_online ?? false,
+                rssi: shadow?.rssi ?? null,
+                battery: shadow?.battery ?? null,
+                last_seen: shadow?.last_seen ?? null,
+            };
+        });
+    } catch (err) {
+        app.log.error({ err, ownerId }, 'Failed to merge MongoDB device shadow states');
+        // Nếu Mongo sập, vẫn trả về danh sách tĩnh để app không lỗi hoàn toàn
+        return devices.map(d => ({
+            ...d,
+            state: {},
+            is_online: false,
+            rssi: null,
+            battery: null,
+            last_seen: null,
+        }));
+    }
 }
 
 export async function sendDeviceCommand(app: FastifyInstance, input: {
@@ -199,18 +277,21 @@ export async function sendDeviceCommand(app: FastifyInstance, input: {
 
     await app.pg.query(
         `
-        INSERT INTO device_commands (id, owner_id, mac, command, status, retry_count, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, 'pending', 0, NOW(), NOW())
+        INSERT INTO device_commands (id, owner_id, mac, command, status, retry_count, event_version, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, 'pending', 0, 1, NOW(), NOW())
         `,
         [commandId, ownerId, input.mac, JSON.stringify(commandPayload)]
     );
 
-    await app.redis.xadd(
+    const pipeline = app.redis.pipeline();
+    pipeline.set(`command_version:${commandId}`, '1', 'EX', 600);
+    pipeline.xadd(
         env.REDIS_COMMAND_STREAM,
         '*',
         'data',
         JSON.stringify(commandPayload)
     );
+    await pipeline.exec();
 
     return {
         command_id: commandId,
@@ -231,7 +312,7 @@ export async function getDeviceState(app: FastifyInstance, mac: string, ownerId:
         throw err;
     }
 
-    const collection = app.mongo.db.collection(env.MONGO_DEVICES_COLLECTION);
+    const collection = app.mongo.db.collection<any>(env.MONGO_DEVICES_COLLECTION);
     const shadow = await collection.findOne({ _id: mac });
 
     if (!shadow) {
@@ -267,7 +348,7 @@ export async function updateDeviceName(app: FastifyInstance, mac: string, name: 
     }
 
     try {
-        const collection = app.mongo.db.collection(env.MONGO_DEVICES_COLLECTION);
+        const collection = app.mongo.db.collection<any>(env.MONGO_DEVICES_COLLECTION);
         await collection.updateOne(
             { _id: mac },
             {
@@ -281,5 +362,38 @@ export async function updateDeviceName(app: FastifyInstance, mac: string, name: 
         app.log.warn({ err, mac }, 'Failed to update device shadow name');
     }
 
+    try {
+        const userDevicesKey = `user_devices:${ownerId}`;
+        await app.redis.del(userDevicesKey);
+    } catch (err) {
+        app.log.warn({ err, ownerId }, 'Failed to invalidate user devices cache');
+    }
+
     return result.rows[0];
 }
+
+export async function syncOwnershipToRedis(app: FastifyInstance) {
+    app.log.info('Starting synchronization of device ownership from PostgreSQL to Redis...');
+    try {
+        const result = await app.pg.query(
+            'SELECT mac, owner_id FROM device_metadata WHERE is_active = true'
+        );
+
+        if (result.rows.length === 0) {
+            app.log.info('No active devices found in PostgreSQL to sync.');
+            return;
+        }
+
+        const pipeline = app.redis.pipeline();
+        for (const row of result.rows) {
+            const cacheKey = `${env.REDIS_CACHE_OWNER_PREFIX}${row.mac}`;
+            pipeline.set(cacheKey, row.owner_id);
+        }
+        await pipeline.exec();
+
+        app.log.info({ count: result.rows.length }, 'Successfully synchronized device ownership to Redis.');
+    } catch (err) {
+        app.log.error({ err }, 'Failed to synchronize device ownership to Redis on startup');
+    }
+}
+

@@ -47,7 +47,7 @@ const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
     }, async (request) => {
         const body = request.body as any;
         const result = await logoutSession(app, body);
-        return { success: true, ...result };
+        return result;
     });
 
     app.get('/auth/me', {
@@ -56,8 +56,8 @@ const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         return {
             success: true,
             user: {
-                id: request.user.userId,
-                email: request.user.email,
+                id: (request.user as any).userId,
+                email: (request.user as any).email,
             },
         };
     });

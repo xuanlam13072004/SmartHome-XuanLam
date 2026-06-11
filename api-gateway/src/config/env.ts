@@ -22,8 +22,10 @@ const envSchema = z.object({
 
     REDIS_URL: z.string().url(),
     REDIS_COMMAND_STREAM: z.string().default('device.commands'),
+    REDIS_COMMAND_STATUS_STREAM: z.string().default('command.status.stream'),
     REDIS_CACHE_OWNER_PREFIX: z.string().default('owner_of:'),
     REDIS_CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
+    COMMAND_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(30),
 });
 
 const parseResult = envSchema.safeParse(process.env);

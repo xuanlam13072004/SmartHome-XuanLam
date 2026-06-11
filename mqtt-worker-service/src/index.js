@@ -6,7 +6,6 @@ const config = require('./config/env');
 const { createRedisClient } = require('./infra/redisClient');
 const { createMqttClient } = require('./infra/mqttClient');
 const { createMongoClient } = require('./infra/mongoClient');
-const { createPostgresPool } = require('./infra/postgresPool');
 const { startCommandConsumer } = require('./workers/commandConsumer');
 const { startTelemetrySubscriber } = require('./workers/telemetrySubscriber');
 const { startHealthMonitor } = require('./monitoring/healthMonitor');
@@ -20,7 +19,6 @@ const state = {
     redis: null,
     mqttClient: null,
     mongoClient: null,
-    pgPool: null,
     heartbeatTimer: null,
     healthTimer: null,
     shuttingDown: false,
@@ -67,27 +65,12 @@ async function connectMongo() {
     state.mongoClient = mongoClient;
 }
 
-async function connectPostgres() {
-    const pgPool = await createPostgresPool({
-        host: config.PG_HOST,
-        port: config.PG_PORT,
-        database: config.PG_DATABASE,
-        user: config.PG_USER,
-        password: config.PG_PASSWORD,
-        ssl: config.PG_SSL,
-        logger,
-    });
-
-    state.pgPool = pgPool;
-}
-
 function startHeartbeat() {
     state.heartbeatTimer = setInterval(() => {
         const health = {
             redis: Boolean(state.redis),
             mqtt: Boolean(state.mqttClient && state.mqttClient.connected),
             mongo: Boolean(state.mongoClient),
-            postgres: Boolean(state.pgPool),
         };
 
         logger.info({ health }, 'Worker heartbeat');
@@ -124,10 +107,6 @@ async function shutdown(signal) {
         closeTasks.push(state.mongoClient.close());
     }
 
-    if (state.pgPool) {
-        closeTasks.push(state.pgPool.end());
-    }
-
     await Promise.allSettled(closeTasks);
     logger.info('Shutdown completed');
     process.exit(0);
@@ -139,7 +118,6 @@ async function start() {
     await connectRedis();
     await connectMqtt();
     await connectMongo();
-    await connectPostgres();
 
     startHeartbeat();
 
@@ -148,7 +126,6 @@ async function start() {
         redis: state.redis,
         mqttClient: state.mqttClient,
         mongoClient: state.mongoClient,
-        pgPool: state.pgPool,
     };
 
     state.commandConsumerTask = startCommandConsumer(clients, config, logger).catch((err) => {
