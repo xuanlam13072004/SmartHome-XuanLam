@@ -1,6 +1,9 @@
 import { Pool } from 'pg';
 import Redis from 'ioredis';
+import type { Db } from 'mongodb';
 import { env } from '../config/env';
+// @ts-ignore
+import { REDIS_CHANNELS, COMMAND_STATUS } from '../../../shared/constants';
 
 /**
  * CommandStatusConsumer
@@ -12,14 +15,16 @@ export class CommandStatusConsumer {
     private pgPool: Pool;
     private redis: Redis;
     private logger: any;
+    private mongoDb: Db | null;
     private isRunning: boolean = false;
     private timeoutTimer: NodeJS.Timeout | null = null;
     private consumerName: string;
 
-    constructor(pgPool: Pool, redis: Redis, logger: any) {
+    constructor(pgPool: Pool, redis: Redis, logger: any, mongoDb?: Db) {
         this.pgPool = pgPool;
         this.redis = redis;
         this.logger = logger;
+        this.mongoDb = mongoDb || null;
         this.consumerName = `gateway-sync-worker-${Math.random().toString(36).substring(2, 7)}`;
     }
 
@@ -58,7 +63,7 @@ export class CommandStatusConsumer {
                 // 1. Quét tìm các lệnh hết hạn
                 const findQuery = `
                     SELECT id FROM device_commands
-                    WHERE (status = 'sent' OR status = 'sending')
+                    WHERE (status = '${COMMAND_STATUS.SENT}' OR status = '${COMMAND_STATUS.SENDING}' OR status = '${COMMAND_STATUS.PENDING}')
                       AND updated_at < NOW() - $1 * INTERVAL '1 second'
                 `;
                 const findResult = await this.pgPool.query(findQuery, [env.COMMAND_TIMEOUT_SECONDS]);
@@ -73,18 +78,47 @@ export class CommandStatusConsumer {
                     try {
                         const versionKey = `command_version:${commandId}`;
                         const newVersion = await this.redis.incr(versionKey);
+
+                        // Ghi nhận khóa timeout vào Redis để chống race condition với ACK trễ
+                        const lockKey = `command_lock:${commandId}`;
+                        await this.redis.set(lockKey, 'timeout', 'EX', 86400); // Khóa trong 24h
                         
                         const updateQuery = `
                             UPDATE device_commands
-                            SET status = 'timeout', event_version = $1, error_log = 'ACK timeout exceeded', updated_at = NOW()
+                            SET status = '${COMMAND_STATUS.TIMEOUT}', event_version = $1, error_log = 'ACK timeout exceeded', updated_at = NOW()
                             WHERE id = $2 
                               AND $1 > event_version
-                              AND status NOT IN ('acked', 'failed', 'timeout')
+                              AND status NOT IN ('${COMMAND_STATUS.ACKED}', '${COMMAND_STATUS.FAILED}', '${COMMAND_STATUS.TIMEOUT}')
+                            RETURNING owner_id, mac
                         `;
                         const updateResult = await this.pgPool.query(updateQuery, [newVersion, commandId]);
                         
-                        if (updateResult.rowCount && updateResult.rowCount > 0) {
+                        if (updateResult.rows && updateResult.rows.length > 0) {
+                            const { owner_id, mac } = updateResult.rows[0];
                             this.logger.info({ command_id: commandId, new_version: newVersion }, 'Command timed out and updated to timeout status');
+                            
+                            // Delete timed-out command from active_commands collection
+                            if (this.mongoDb) {
+                                await this.mongoDb.collection('active_commands').deleteOne({ _id: commandId }).catch(err => {
+                                    this.logger.error({ err, commandId }, 'Failed to delete active command from MongoDB on timeout');
+                                });
+                            }
+
+                            try {
+                                await this.redis.publish(REDIS_CHANNELS.DEVICE_COMMAND, JSON.stringify({
+                                    owner_id,
+                                    mac,
+                                    payload: {
+                                        command_id: commandId,
+                                        status: COMMAND_STATUS.TIMEOUT,
+                                        event_version: newVersion,
+                                        error_log: 'ACK timeout exceeded'
+                                    },
+                                    timestamp: new Date().toISOString()
+                                }));
+                            } catch (pubErr) {
+                                this.logger.warn({ pubErr, commandId }, 'Failed to publish timeout update to Redis Pub/Sub');
+                            }
                         }
                     } catch (cmdErr) {
                         this.logger.error({ cmdErr, commandId }, 'Failed to process timeout transition for command');
@@ -122,8 +156,19 @@ export class CommandStatusConsumer {
                 for (const [messageId, messageFields] of commandMessages) {
                     await this.processMessage(messageId, messageFields, streamKey, groupName);
                 }
-            } catch (err) {
+            } catch (err: any) {
                 this.logger.error({ err }, 'Error in command status consumer loop');
+                if (err.message && err.message.includes('NOGROUP')) {
+                    this.logger.warn('NOGROUP error detected (Redis restart). Re-creating consumer group...');
+                    try {
+                        await this.redis.call('XGROUP', 'CREATE', streamKey, groupName, '$', 'MKSTREAM');
+                        this.logger.info(`Re-created consumer group ${groupName} for stream ${streamKey}`);
+                    } catch (initErr: any) {
+                        if (!initErr.message.includes('BUSYGROUP')) {
+                            this.logger.error({ err: initErr }, 'Failed to re-create consumer group after NOGROUP');
+                        }
+                    }
+                }
                 // Nghỉ 2 giây trước khi thử lại nếu lỗi
                 await new Promise(resolve => setTimeout(resolve, 2000));
             }
@@ -161,7 +206,8 @@ export class CommandStatusConsumer {
                     updated_at = NOW()
                 WHERE id = $5
                   AND $2 > event_version
-                  AND status NOT IN ('acked', 'failed', 'timeout')
+                  AND status NOT IN ('${COMMAND_STATUS.ACKED}', '${COMMAND_STATUS.FAILED}', '${COMMAND_STATUS.TIMEOUT}')
+                RETURNING owner_id, mac
             `;
             const result = await this.pgPool.query(query, [
                 status,
@@ -171,8 +217,48 @@ export class CommandStatusConsumer {
                 command_id
             ]);
             
-            if (result.rowCount && result.rowCount > 0) {
+            if (result.rows && result.rows.length > 0) {
+                const { owner_id, mac } = result.rows[0];
                 this.logger.debug({ command_id, status, event_version }, 'Command status updated in PostgreSQL');
+                
+                // Sync to MongoDB active_commands collection
+                if (this.mongoDb) {
+                    if (status === COMMAND_STATUS.ACKED || status === COMMAND_STATUS.FAILED) {
+                        await this.mongoDb.collection('active_commands').deleteOne({ _id: command_id }).catch(err => {
+                            this.logger.error({ err, command_id }, 'Failed to delete active command from MongoDB');
+                        });
+                    } else if (status === COMMAND_STATUS.SENDING || status === COMMAND_STATUS.SENT) {
+                        await this.mongoDb.collection('active_commands').updateOne(
+                            { _id: command_id, event_version: { $lt: Number(event_version) } },
+                            {
+                                $set: {
+                                    status,
+                                    event_version: Number(event_version),
+                                    updated_at: new Date()
+                                }
+                            },
+                            { upsert: true }
+                        ).catch(err => {
+                            this.logger.error({ err, command_id }, 'Failed to update active command in MongoDB');
+                        });
+                    }
+                }
+
+                try {
+                    await this.redis.publish(REDIS_CHANNELS.DEVICE_COMMAND, JSON.stringify({
+                        owner_id,
+                        mac,
+                        payload: {
+                            command_id,
+                            status,
+                            event_version: Number(event_version),
+                            error_log: error_log || null
+                        },
+                        timestamp: new Date().toISOString()
+                    }));
+                } catch (pubErr) {
+                    this.logger.warn({ pubErr, command_id }, 'Failed to publish command update to Redis Pub/Sub');
+                }
             } else {
                 this.logger.debug({ command_id, status, event_version }, 'Command status update ignored (out-of-order, duplicate or terminal state)');
             }

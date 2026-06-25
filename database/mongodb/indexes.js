@@ -6,6 +6,14 @@
 const { MongoClient } = require('mongodb');
 const dotenv = require('dotenv');
 const path = require('path');
+const dns = require('dns');
+
+// Fix Node.js SRV lookup issues on Windows
+try {
+    dns.setServers(['8.8.8.8', '8.8.4.4']);
+} catch (dnsErr) {
+    console.warn('⚠️ Failed to set custom DNS servers:', dnsErr);
+}
 
 // Load environment variables from api-gateway/.env
 dotenv.config({ path: path.join(__dirname, '../../api-gateway/.env') });
@@ -46,13 +54,26 @@ async function main() {
         const telemetry = db.collection(telemetryCollectionName);
 
         // Compound index for time-series charts query (e.g. fetch last 24h temp for device X)
-        console.log('- Creating compound index on { device_id: 1, timestamp: -1 }...');
-        await telemetry.createIndex({ device_id: 1, timestamp: -1 });
+        console.log('- Creating compound index on { "metadata.device_id": 1, timestamp: -1 }...');
+        await telemetry.createIndex({ "metadata.device_id": 1, timestamp: -1 });
 
         // TTL Index: Automatically expire telemetry logs after 30 days to control storage costs
         const expireAfterSeconds = 30 * 24 * 60 * 60; // 30 days
         console.log(`- Creating TTL index on { timestamp: 1 } with expireAfterSeconds = ${expireAfterSeconds}...`);
-        await telemetry.createIndex({ timestamp: 1 }, { expireAfterSeconds });
+        await telemetry.createIndex(
+            { timestamp: 1 },
+            { 
+                expireAfterSeconds,
+                partialFilterExpression: { "metadata.device_id": { $exists: true } }
+            }
+        );
+
+
+        // 3. Indexes for Active Commands Collection (Command Recovery)
+        console.log(`\nBuilding indexes for collection "active_commands" (Active Commands Recovery)...`);
+        const activeCommands = db.collection('active_commands');
+        console.log('- Creating index on { owner_id: 1 }...');
+        await activeCommands.createIndex({ owner_id: 1 });
 
         console.log('\n✅ All MongoDB indexes have been created successfully!');
     } catch (err) {

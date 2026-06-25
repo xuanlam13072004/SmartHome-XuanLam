@@ -8,6 +8,7 @@
  */
 
 const { z } = require('zod');
+const { recordCommandSuccess, recordCommandFailure } = require('../monitoring/metrics');
 
 /**
  * Schema validate cho command message từ Redis
@@ -16,7 +17,9 @@ const commandSchema = z.object({
     command_id: z.string().uuid(),
     owner_id: z.string().uuid(),
     device_id: z.string(), // MAC address
-    action: z.enum(['ON', 'OFF', 'SET_TEMP']),
+    capability_id: z.string().min(1).max(64),
+    action: z.string().min(1).max(64),
+    instance: z.string().min(1).max(64),
     payload: z.record(z.any()).optional(),
     timestamp: z.string().datetime().optional(),
 });
@@ -39,7 +42,9 @@ function publishCommandToDevice(mqttClient, command, config, logger) {
     // Tạo payload lệnh
     const payload = {
         command_id: command.command_id,
+        capability_id: command.capability_id,
         action: command.action,
+        instance: command.instance,
         timestamp: new Date().toISOString(),
         ...(command.payload && { payload: command.payload }),
     };
@@ -80,6 +85,21 @@ function publishCommandToDevice(mqttClient, command, config, logger) {
  */
 async function updateCommandStatus(redis, config, commandId, status, errorMessage = null, logger, retryCount = null) {
     try {
+        const lockKey = `command_lock:${commandId}`;
+
+        // Kiểm tra Idempotent ACK chống duplicate hoặc late ACK
+        if (status === 'acked' || status === 'failed') {
+            const currentLockVal = await redis.get(lockKey);
+            if (currentLockVal === 'timeout') {
+                logger.warn({ command_id: commandId, status }, 'updateCommandStatus: Late ACK/Response ignored because command already timed out');
+                return;
+            }
+            if (currentLockVal === 'acked' || currentLockVal === 'failed') {
+                logger.info({ command_id: commandId, status }, 'updateCommandStatus: Duplicate ACK/Response ignored');
+                return;
+            }
+        }
+
         // Sinh event_version tăng dần thông qua Redis INCR
         const versionKey = `command_version:${commandId}`;
         const eventVersion = await redis.incr(versionKey);
@@ -88,7 +108,6 @@ async function updateCommandStatus(redis, config, commandId, status, errorMessag
         }
 
         // Ghi nhận trạng thái tạm thời trong Redis để theo dõi nhanh
-        const lockKey = `command_lock:${commandId}`;
         await redis.set(lockKey, status, 'EX', 60); // Lưu giữ trạng thái trong 60 giây
 
         const payload = {
@@ -188,9 +207,11 @@ async function processCommand(rawMessage, clients, config, logger, retryCount = 
         // Bước 3: Update status = sent
         await updateCommandStatus(clients.redis, config, command_id, 'sent', null, logger, retryCount);
 
+        try { recordCommandSuccess(); } catch (mErr) {}
         logger.info({ command_id, device_id, action }, 'Command processed successfully');
         return command_id;
     } catch (err) {
+        try { recordCommandFailure(); } catch (mErr) {}
         // Nếu lỗi, update status = failed
         try {
             await updateCommandStatus(clients.redis, config, command_id, 'failed', err.message, logger, retryCount);

@@ -21,7 +21,8 @@ export const commandSchema = z.object({
         mac: z.string().regex(macRegex),
     }),
     body: z.object({
-        action: z.enum(['ON', 'OFF', 'SET_TEMP']),
+        action: z.string().min(1).max(64),
+        instance: z.string().min(1).max(64).optional(),
         payload: z.record(z.any()).optional(),
     }),
 });

@@ -368,6 +368,17 @@ async function startCommandConsumer(clients, config, logger) {
                 'Command consumer error'
             );
 
+            // Tự động khôi phục nếu gặp lỗi NOGROUP (Redis restart làm mất Stream/Group)
+            if (err.message && err.message.includes('NOGROUP')) {
+                logger.warn('NOGROUP error detected (Redis restart). Re-initializing consumer group...');
+                try {
+                    await initConsumerGroup(clients.redis, streamKey, groupName, logger);
+                    consecutiveErrors = 0; // Reset counter lỗi khi re-init thành công
+                } catch (initErr) {
+                    logger.error({ err: initErr }, 'Failed to re-initialize consumer group after NOGROUP');
+                }
+            }
+
             // Nếu lỗi quá nhiều lần, thoát để trigger health check
             if (consecutiveErrors >= maxConsecutiveErrors) {
                 logger.fatal({ consecutive_errors: consecutiveErrors }, 'Command consumer giving up');

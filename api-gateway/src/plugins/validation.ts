@@ -1,6 +1,10 @@
-import { FastifyInstance, FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
+import { FastifyInstance, FastifyPluginAsync, FastifyRequest, FastifyReply, FastifyContextConfig } from 'fastify';
 import fp from 'fastify-plugin';
 import { ZodError, ZodSchema } from 'zod';
+
+export function typedRouteConfig(config: FastifyContextConfig): FastifyContextConfig {
+    return config;
+}
 
 /**
  * validationPlugin
@@ -24,9 +28,9 @@ const validationPlugin: FastifyPluginAsync = async (app: FastifyInstance) => {
         }
     });
 
-    // Optional hook: tự động validate request body/query/params nếu route cung cấp schema
+    // Optional hook: tự động validate request body/query/params nếu route cung cấp schema qua config.zodSchema
     app.addHook('preHandler', async (request: FastifyRequest, reply: FastifyReply) => {
-        const schema = (request.routeOptions as any).validationSchema;
+        const schema = request.routeOptions.config?.zodSchema;
         if (!schema) return;
 
         const { body, query, params } = request;

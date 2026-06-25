@@ -1,0 +1,121 @@
+[
+  {
+    "_id": "prod_smart_plug",
+    "model_name": "Ổ Cắm Thông Minh XL-Plug1",
+    "manufacturer": "XuanLam SmartHome",
+    "category": "lighting_appliances",
+    "default_state": {
+      "relay1": false,
+      "power_consumption": 0.0
+    },
+    "capabilities": [
+      {
+        "capability_id": "switch",
+        "instance": "main",
+        "state_key": "relay1",
+        "ui": {
+          "ui_type": "toggle",
+          "title": "Công tắc nguồn",
+          "config": { "icon_hint": "power" }
+        }
+      }
+    ]
+  },
+  {
+    "_id": "prod_rgb_light",
+    "model_name": "Bóng Đèn Thông Minh XL-RGB",
+    "manufacturer": "XuanLam SmartHome",
+    "category": "lighting_appliances",
+    "default_state": {
+      "relay1": false,
+      "color_hex": "#FFFFFF",
+      "brightness": 100
+    },
+    "capabilities": [
+      {
+        "capability_id": "switch",
+        "instance": "light",
+        "state_key": "relay1",
+        "ui": {
+          "ui_type": "toggle",
+          "title": "Công tắc đèn",
+          "config": { "icon_hint": "lightbulb" }
+        }
+      },
+      {
+        "capability_id": "color-control",
+        "instance": "light",
+        "state_key": "color_hex",
+        "ui": {
+          "ui_type": "color_picker",
+          "title": "Chọn màu đèn",
+          "config": {}
+        }
+      },
+      {
+        "capability_id": "level-control",
+        "instance": "light",
+        "state_key": "brightness",
+        "ui": {
+          "ui_type": "slider",
+          "title": "Độ sáng đèn",
+          "config": { "min": 0, "max": 100, "step": 1, "unit": "%" }
+        }
+      }
+    ]
+  },
+  {
+    "_id": "prod_switch_2_gang",
+    "model_name": "Công Tắc 2 Nút XL-Switch2",
+    "manufacturer": "XuanLam SmartHome",
+    "category": "lighting_appliances",
+    "default_state": {
+      "relay1": false,
+      "relay2": false
+    },
+    "capabilities": [
+      {
+        "capability_id": "switch",
+        "instance": "relay1",
+        "state_key": "relay1",
+        "ui": {
+          "ui_type": "toggle",
+          "title": "Nút bấm số 1",
+          "config": { "icon_hint": "lightbulb" }
+        }
+      },
+      {
+        "capability_id": "switch",
+        "instance": "relay2",
+        "state_key": "relay2",
+        "ui": {
+          "ui_type": "toggle",
+          "title": "Nút bấm số 2",
+          "config": { "icon_hint": "lightbulb" }
+        }
+      }
+    ]
+  },
+  {
+    "_id": "prod_esp32_cam",
+    "model_name": "ESP32 Camera Stream XL-Cam1",
+    "manufacturer": "XuanLam SmartHome",
+    "category": "security",
+    "default_state": {
+      "is_streaming": false,
+      "stream_url": ""
+    },
+    "capabilities": [
+      {
+        "capability_id": "video-stream",
+        "instance": "camera1",
+        "state_key": "is_streaming",
+        "ui": {
+          "ui_type": "custom",
+          "title": "Camera giám sát",
+          "config": {}
+        }
+      }
+    ]
+  }
+]

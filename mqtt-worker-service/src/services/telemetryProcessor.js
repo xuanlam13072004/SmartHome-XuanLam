@@ -1,102 +1,130 @@
 /**
- * Tác dụng của file này:
- * - Xử lý telemetry (dữ liệu cảm biến) từ ESP32
- * - Nhận từ MQTT broker -> validate -> resolve owner -> ghi Mongo -> phát realtime
- *
- * Luồng xử lý:
- * ESP32 -> MQTT (topic: smarthome/{owner_id}/{device_id}/telemetry)
- *   -> Worker subscribe & parse
- *   -> validate schema
- *   -> resolve owner_id (Redis cache hit 90%)
- *   -> insert telemetry_logs (MongoDB time-series)
- *   -> update devices shadow (MongoDB)
- *   -> publish device.updates (Redis Pub/Sub -> Realtime Service)
+ * mqtt-worker-service/src/services/telemetryProcessor.js
+ * 
+ * Bộ điều phối Telemetry Pipeline (Telemetry Processor) tinh gọn,
+ * đóng vai trò orchestrator điều phối tuần tự qua các service chuyên biệt:
+ * 1. Validate (Zod)
+ * 2. Dedupe (Redis NX)
+ * 3. Sequence Gap Detection (Redis L2 check)
+ * 4. Resolve Context (L1 LRU Cache & L2 Redis)
+ * 5. Sanitize (TelemetrySanitizer)
+ * 6. Write Telemetry & Shadow (TelemetryBatchWriter, ShadowBatchWriter)
+ * 7. Publish Realtime (RealtimePublisher)
+ * 8. Presence Record (PresenceManager)
  */
 
 const crypto = require('crypto');
 const { z } = require('zod');
+const { CACHE_PREFIXES } = require('../../../shared/constants');
+const { observeLatency } = require('../monitoring/metrics');
+const { recordActivity } = require('./presenceManager');
 
-// In-memory batch buffers for telemetry logs & shadows
-const telemetryBatch = [];
-const shadowBatchMap = new Map();
-let flushTimer = null;
-let flushInProgress = false;
+// Lớp LRUMap nội bộ cho cache L1
+class LRUMap {
+    constructor(maxSize) {
+        this.maxSize = maxSize;
+        this.map = new Map();
+    }
+    get(key) {
+        if (!this.map.has(key)) return undefined;
+        const entry = this.map.get(key);
+        this.map.delete(key);
+        this.map.set(key, entry);
+        return entry;
+    }
+    set(key, value) {
+        if (this.map.has(key)) {
+            this.map.delete(key);
+        } else if (this.map.size >= this.maxSize) {
+            const oldestKey = this.map.keys().next().value;
+            if (oldestKey !== undefined) {
+                this.map.delete(oldestKey);
+            }
+        }
+        this.map.set(key, value);
+    }
+    delete(key) {
+        return this.map.delete(key);
+    }
+    clear() {
+        this.map.clear();
+    }
+}
+
+// Khởi tạo L1 cache trong bộ nhớ
+let l1ContextCache = new LRUMap(10000);
+const L1_TTL_MS = 5 * 60 * 1000; // 5 phút
+let redisSub = null;
 
 /**
- * Schema validate cho telemetry message từ MQTT
- * 
- * Mục đích:
- * - Đảm bảo sensor data từ ESP32 có định dạng chuẩn
- * - Fail fast nếu thiếu timestamp hoặc metrics
- * - Dễ debug lỗi format từ device
+ * Đăng ký lắng nghe sự kiện cache invalidation qua Redis Pub/Sub
  */
+function initTelemetryProcessor(clients, config, logger) {
+    logger.info('TelemetryProcessor: Initializing L1 Context Cache and Invalidation Subscriber');
+    l1ContextCache = new LRUMap(10000);
+
+    if (clients.redis) {
+        redisSub = clients.redis.duplicate({ lazyConnect: true });
+        redisSub.connect().then(() => {
+            redisSub.subscribe('device.context.invalidated', (mac) => {
+                logger.info({ mac }, 'TelemetryProcessor: Evicted device context from L1 cache on invalidation event');
+                l1ContextCache.delete(mac);
+            }).catch(err => {
+                logger.error({ err }, 'TelemetryProcessor: Invalidation subscribe failed');
+            });
+        }).catch(err => {
+            logger.error({ err }, 'TelemetryProcessor: Invalidation Redis connection failed');
+        });
+    }
+
+    return async () => {
+        if (redisSub) {
+            try {
+                await redisSub.quit();
+                logger.info('TelemetryProcessor: Closed cache invalidation subscriber');
+            } catch (err) {
+                logger.error({ err }, 'TelemetryProcessor: Error closing invalidation subscriber');
+            }
+        }
+    };
+}
+
+// Zod Schema cho telemetry packet
 const telemetrySchema = z.object({
-    device_id: z.string(), // MAC address
+    device_id: z.string(),
     timestamp: z.string().datetime().optional(),
     seq: z.coerce.number().int().nonnegative().optional(),
-    metrics: z.record(z.any()), // { temp: 28.5, humidity: 65, relay: "ON" }
-    rssi: z.number().optional(), // signal strength
-    battery: z.number().optional(), // battery level
+    metrics: z.record(z.any()),
+    rssi: z.number().optional(),
+    battery: z.number().optional(),
+    trace_id: z.string().optional(),
 });
 
-/**
- * getTelemetryDedupeId: tạo id để chống duplicate telemetry
- * 
- * Ưu tiên:
- * 1) seq từ device
- * 2) timestamp
- * 3) hash payload (fallback)
- * 
- * @param {object} telemetry - validated telemetry data
- * @returns {string} dedupe id
- */
 function getTelemetryDedupeId(telemetry) {
     if (typeof telemetry.seq === 'number') {
         return `seq:${telemetry.seq}`;
     }
-
     if (telemetry.timestamp) {
         const ts = new Date(telemetry.timestamp).getTime();
         return `ts:${ts}`;
     }
-
     const payloadHash = crypto
         .createHash('sha1')
         .update(JSON.stringify(telemetry.metrics))
         .digest('hex');
-
     return `hash:${payloadHash}`;
 }
 
-/**
- * shouldProcessTelemetry: kiểm tra telemetry có bị duplicate không
- * 
- * Dùng Redis SET NX + TTL để đảm bảo 1 telemetry chỉ xử lý 1 lần
- * 
- * @param {object} redis - Redis client
- * @param {object} telemetry - validated telemetry data
- * @param {object} config - biến config
- * @param {object} logger - logger instance
- * @returns {Promise<boolean>} true nếu nên xử lý
- */
 async function shouldProcessTelemetry(redis, telemetry, config, logger) {
     const dedupeId = getTelemetryDedupeId(telemetry);
     const dedupeKey = `${config.REDIS_DEDUPE_PREFIX}${telemetry.device_id}:${dedupeId}`;
 
     try {
-        const result = await redis.set(
-            dedupeKey,
-            '1',
-            'EX',
-            config.TELEMETRY_DEDUPE_TTL_SECONDS,
-            'NX'
-        );
-
+        const result = await redis.set(dedupeKey, '1', 'EX', config.TELEMETRY_DEDUPE_TTL_SECONDS, 'NX');
         if (result !== 'OK') {
             logger.debug({ device_id: telemetry.device_id, dedupe_id: dedupeId }, 'Duplicate telemetry dropped');
             return false;
         }
-
         return true;
     } catch (err) {
         logger.error({ err, device_id: telemetry.device_id }, 'Telemetry dedupe failed, allowing processing');
@@ -105,321 +133,187 @@ async function shouldProcessTelemetry(redis, telemetry, config, logger) {
 }
 
 /**
- * validateTelemetry: kiểm tra message có đúng schema không
- * 
- * @param {object} message - raw message từ MQTT
- * @returns {object} parsed message hoặc throw error
+ * Phân giải Context (Owner ID, Product ID, Firmware Version) kết hợp L1 Cache + L2 Redis
  */
-function validateTelemetry(message) {
-    return telemetrySchema.parse(message);
-}
+async function resolveDeviceContext(clients, deviceId, config, logger) {
+    const cached = l1ContextCache.get(deviceId);
+    if (cached && Date.now() < cached.expiresAt) {
+        return cached.context;
+    }
 
-/**
- * resolveOwnerId: tìm owner_id từ device_id
- * 
- * Luồng:
- * 1. Thử đọc từ Redis cache (key: owner_of:{device_id})
- * 2. Nếu cache miss, query PostgreSQL device_metadata
- * 3. Nạp lại cache + TTL 1 giờ
- * 4. Nếu device không tồn tại -> log error + skip
- * 
- * @param {object} clients - { redis, pgPool }
- * @param {string} deviceId - MAC address
- * @param {object} config - biến config (cache TTL)
- * @param {object} logger - logger instance
- * @returns {Promise<string|null>} owner_id hoặc null nếu device không tồn tại
- */
-async function resolveOwnerId(clients, deviceId, config, logger) {
-    const cacheKey = `${config.REDIS_CACHE_OWNER_PREFIX}${deviceId}`;
+    const ownerCacheKey = `${CACHE_PREFIXES.OWNER_OF}${deviceId}`;
+    const productCacheKey = `${CACHE_PREFIXES.PRODUCT_OF}${deviceId}`;
 
     try {
-        // Chỉ đọc từ Redis cache (API Gateway có trách nhiệm sync lên Redis)
-        const ownerId = await clients.redis.get(cacheKey);
+        const [ownerId, productId] = await Promise.all([
+            clients.redis.get(ownerCacheKey),
+            clients.redis.get(productCacheKey)
+        ]);
 
-        if (ownerId) {
-            logger.debug({ device_id: deviceId }, 'Owner resolved from Redis');
-            return ownerId;
+        if (ownerId && productId) {
+            const context = { ownerId, productId, firmwareVersion: null };
+            l1ContextCache.set(deviceId, { context, expiresAt: Date.now() + L1_TTL_MS });
+            return context;
         }
 
-        logger.warn({ device_id: deviceId }, 'Device owner cache miss in Redis, no Postgres fallback allowed');
-        return null;
-    } catch (err) {
-        logger.error({ err, device_id: deviceId }, 'Failed to resolve owner from Redis');
-        return null;
-    }
-}
+        logger.warn({ device_id: deviceId }, 'Device context cache miss in Redis, falling back to MongoDB shadow');
+        const db = clients.mongoClient.db(config.MONGO_DB_NAME);
+        const collection = db.collection(config.MONGO_DEVICES_COLLECTION);
+        const doc = await collection.findOne({ _id: deviceId }, { projection: { owner_id: 1, product_id: 1, firmware_version: 1 } });
 
-/**
- * insertTelemetryLog: gom dữ liệu vào telemetryBatch (lịch sử cảm biến)
- * 
- * @param {object} mongoClient - MongoDB client
- * @param {object} telemetry - validated telemetry data
- * @param {string} ownerId - owner UUID
- * @param {object} config - biến config (collection names)
- * @param {object} logger - logger instance
- * @returns {Promise<null>}
- */
-async function insertTelemetryLog(mongoClient, telemetry, ownerId, config, logger) {
-    const doc = {
-        metadata: {
-            device_id: telemetry.device_id,
-            owner_id: ownerId,
-        },
-        timestamp: telemetry.timestamp ? new Date(telemetry.timestamp) : new Date(),
-        ...telemetry.metrics,
-        ...(telemetry.rssi && { rssi: telemetry.rssi }),
-        ...(telemetry.battery && { battery: telemetry.battery }),
-    };
+        if (doc) {
+            const context = {
+                ownerId: doc.owner_id || null,
+                productId: doc.product_id || null,
+                firmwareVersion: doc.firmware_version || null
+            };
 
-    if (telemetryBatch.length >= config.TELEMETRY_BUFFER_MAX) {
-        logger.warn(
-            { buffer_size: telemetryBatch.length, device_id: telemetry.device_id },
-            'Telemetry buffer full, dropping message'
-        );
-        return null;
-    }
+            if (context.ownerId) await clients.redis.set(ownerCacheKey, context.ownerId);
+            if (context.productId) await clients.redis.set(productCacheKey, context.productId);
 
-    telemetryBatch.push(doc);
-    return null;
-}
-
-/**
- * scheduleAllBatchesFlush: set timeout để flush các batch nếu chưa đủ size
- */
-function scheduleAllBatchesFlush(mongoClient, config, logger) {
-    if (flushTimer) return;
-
-    flushTimer = setTimeout(() => {
-        flushAllBatches(mongoClient, config, logger).catch((err) => {
-            logger.error({ err }, 'Batches flush failed');
-        });
-    }, config.TELEMETRY_BATCH_FLUSH_MS);
-}
-
-/**
- * flushAllBatches: ghi batch telemetry & shadow bằng insertMany + bulkWrite song song
- */
-async function flushAllBatches(mongoClient, config, logger) {
-    if (flushInProgress) return;
-    if (telemetryBatch.length === 0 && shadowBatchMap.size === 0) return;
-
-    flushInProgress = true;
-
-    if (flushTimer) {
-        clearTimeout(flushTimer);
-        flushTimer = null;
-    }
-
-    const db = mongoClient.db(config.MONGO_DB_NAME);
-    const telemetryCollection = db.collection(config.MONGO_TELEMETRY_COLLECTION);
-    const devicesCollection = db.collection(config.MONGO_DEVICES_COLLECTION);
-
-    // Lấy tối đa TELEMETRY_BATCH_SIZE log để insert
-    const logsBatch = telemetryBatch.splice(0, config.TELEMETRY_BATCH_SIZE);
-
-    // Chuẩn bị bulkWrite cho shadow updates của các thiết bị tích lũy trong shadowBatchMap
-    const shadowOps = [];
-    for (const [mac, updateDoc] of shadowBatchMap.entries()) {
-        shadowOps.push({
-            updateOne: {
-                filter: { _id: mac },
-                update: { $set: updateDoc },
-                upsert: true
-            }
-        });
-    }
-    shadowBatchMap.clear();
-
-    const writePromises = [];
-
-    if (logsBatch.length > 0) {
-        writePromises.push(
-            telemetryCollection.insertMany(logsBatch, { ordered: false })
-                .then((result) => {
-                    logger.debug(
-                        { inserted: result.insertedCount, batch_size: logsBatch.length },
-                        'Telemetry batch inserted'
-                    );
-                })
-                .catch((err) => {
-                    logger.error({ err, batch_size: logsBatch.length }, 'Failed to insert telemetry batch');
-                })
-        );
-    }
-
-    if (shadowOps.length > 0) {
-        writePromises.push(
-            devicesCollection.bulkWrite(shadowOps, { ordered: false })
-                .then((result) => {
-                    logger.debug(
-                        { matched: result.matchedCount, upserted: result.upsertedCount, ops_size: shadowOps.length },
-                        'Shadow bulk updates completed'
-                    );
-                })
-                .catch((err) => {
-                    logger.error({ err, ops_size: shadowOps.length }, 'Failed to bulk write shadow updates');
-                })
-        );
-    }
-
-    try {
-        await Promise.all(writePromises);
-    } catch (err) {
-        // Lỗi chi tiết đã được xử lý/log trong từng promise
-    } finally {
-        flushInProgress = false;
-
-        // Nếu vẫn còn dữ liệu chưa flush hết (trong trường hợp dồn dập vượt quá BATCH_SIZE), lên lịch flush tiếp
-        if (telemetryBatch.length > 0 || shadowBatchMap.size > 0) {
-            scheduleAllBatchesFlush(mongoClient, config, logger);
+            l1ContextCache.set(deviceId, { context, expiresAt: Date.now() + L1_TTL_MS });
+            return context;
         }
-    }
-}
 
-/**
- * updateDeviceShadow: gom dữ liệu vào shadowBatchMap (trạng thái thiết bị shadow)
- * 
- * @param {object} mongoClient - MongoDB client
- * @param {object} telemetry - validated telemetry data
- * @param {string} ownerId - owner UUID
- * @param {object} config - biến config (collection names)
- * @param {object} logger - logger instance
- * @returns {Promise<null>}
- */
-async function updateDeviceShadow(mongoClient, telemetry, ownerId, config, logger) {
-    const updateDoc = {
-        owner_id: ownerId,
-        state: telemetry.metrics,
-        last_updated: new Date(),
-        last_seen: new Date(),
-        is_online: true,
-        ...(telemetry.rssi && { rssi: telemetry.rssi }),
-        ...(telemetry.battery && { battery: telemetry.battery }),
-    };
-
-    shadowBatchMap.set(telemetry.device_id, updateDoc);
-    return null;
-}
-
-/**
- * publishTelemetryUpdate: phát event telemetry update lên Redis cho Realtime Service
- * 
- * Mục đích:
- * - Realtime Service subscribe Redis channel này
- * - Lấy event, lọc theo owner_id, push WebSocket về app
- * - App re-render UI với dữ liệu mới ngay
- * 
- * @param {object} redis - Redis client
- * @param {string} ownerId - owner UUID
- * @param {object} telemetry - validated telemetry data
- * @param {object} config - biến config (channel name)
- * @param {object} logger - logger instance
- * @returns {Promise}
- */
-async function publishTelemetryUpdate(redis, ownerId, telemetry, config, logger) {
-    const payload = {
-        type: 'device_update',
-        owner_id: ownerId,
-        device_id: telemetry.device_id,
-        state: telemetry.metrics,
-        timestamp: telemetry.timestamp || new Date().toISOString(),
-    };
-
-    try {
-        await redis.publish(
-            config.REDIS_UPDATE_CHANNEL,
-            JSON.stringify(payload)
-        );
-        logger.debug({ device_id: telemetry.device_id }, 'Telemetry update published');
+        logger.error({ device_id: deviceId }, 'Device context not found in MongoDB Devices collection');
+        return { ownerId: null, productId: null, firmwareVersion: null };
     } catch (err) {
-        logger.error({ err, device_id: telemetry.device_id }, 'Failed to publish telemetry update');
-        // Không throw - realtime không critical như storage
+        logger.error({ err, device_id: deviceId }, 'Failed to resolve device context');
+        return { ownerId: null, productId: null, firmwareVersion: null };
     }
 }
 
 /**
- * processTelemetry: luồng xử lý chính cho 1 bản telemetry
- * 
- * Bước:
- * 1. Validate schema
- * 2. Dedupe bằng Redis SET NX
- * 3. Resolve owner_id (cache / DB fallback)
- * 4. Gom telemetry log vào telemetryBatch
- * 5. Gom shadow update vào shadowBatchMap
- * 6. Kích hoạt ghi theo lô hoặc lên lịch flush định kỳ
- * 7. Publish realtime event (Redis)
- * 
- * @param {object} rawMessage - message từ MQTT
- * @param {object} clients - { redis, pgPool, mongoClient }
- * @param {object} config - biến môi trường
- * @param {object} logger - logger instance
- * @returns {Promise<string>} device_id đã xử lý
+ * Hàm điều phối luồng Telemetry Pipeline
  */
 async function processTelemetry(rawMessage, clients, config, logger) {
+    const startTime = process.hrtime.bigint();
     let telemetry;
 
-    // Bước 1: Validate schema
+    // 1. Validate Zod Schema
     try {
-        telemetry = validateTelemetry(rawMessage);
+        telemetry = telemetrySchema.parse(rawMessage);
     } catch (err) {
-        logger.error({ err, message: rawMessage }, 'Invalid telemetry schema');
+        logger.error({ err, message: rawMessage }, 'TelemetryProcessor: Invalid telemetry schema');
         throw new Error(`Schema validation failed: ${err.message}`);
     }
 
-    // Bước 2: Dedupe telemetry
-    const allowProcess = await shouldProcessTelemetry(clients.redis, telemetry, config, logger);
+    const deviceId = telemetry.device_id;
 
-    if (!allowProcess) {
+    // 2. Deduplicate
+    const allowProcess = await shouldProcessTelemetry(clients.redis, telemetry, config, logger);
+    if (!allowProcess) return null;
+
+    // 3. Sequence Gap Detection (survives restart using Redis key last_seq:{device})
+    if (telemetry.seq !== undefined) {
+        const seqKey = `last_seq:${deviceId}`;
+        try {
+            const lastSeqStr = await clients.redis.get(seqKey);
+            if (lastSeqStr !== null) {
+                const lastSeq = parseInt(lastSeqStr, 10);
+                if (telemetry.seq > lastSeq + 1) {
+                    const missing = [];
+                    for (let s = lastSeq + 1; s < telemetry.seq; s++) {
+                        missing.push(s);
+                    }
+                    logger.warn(
+                        { device_id: deviceId, last_seq: lastSeq, current_seq: telemetry.seq, missing_packets: missing },
+                        `Sequence Gap Detected: Missing packets [${missing.join(', ')}]`
+                    );
+                }
+            }
+            await clients.redis.set(seqKey, telemetry.seq.toString());
+        } catch (redisErr) {
+            logger.error({ err: redisErr, device_id: deviceId }, 'Failed to check/update sequence in Redis');
+        }
+    }
+
+    // 4. Resolve Context
+    const context = await resolveDeviceContext(clients, deviceId, config, logger);
+    if (!context.ownerId || !context.productId) {
+        logger.warn({ device_id: deviceId }, 'TelemetryProcessor: Owner or Product not resolved, skipping telemetry');
         return null;
     }
 
-    // Bước 3: Resolve owner_id
-    const ownerId = await resolveOwnerId(clients, telemetry.device_id, config, logger);
-
-    if (!ownerId) {
-        logger.warn({ device_id: telemetry.device_id }, 'Device owner not found, skipping telemetry');
+    // Lấy product spec từ Catalog Cache
+    const product = clients.catalogCache.getProduct(context.productId);
+    if (!product) {
+        logger.warn({ device_id: deviceId, product_id: context.productId }, 'TelemetryProcessor: Product metadata missing, skipping');
         return null;
+    }
+
+    const reportedFirmware = telemetry.metrics?.firmware_version || context.firmwareVersion;
+
+    // 5. Lọc & Validate bằng TelemetrySanitizer (Single Responsibility)
+    const { sanitizedState, sanitizedDiagnostics, warnings } = clients.telemetrySanitizer.sanitize(
+        telemetry,
+        product,
+        reportedFirmware
+    );
+
+    if (warnings.length > 0) {
+        logger.warn({ device_id: deviceId, count: warnings.length, warnings }, 'TelemetryProcessor: Sanitizer warnings reported');
     }
 
     try {
-        // Bước 4: Gom telemetry_logs
-        await insertTelemetryLog(clients.mongoClient, telemetry, ownerId, config, logger);
+        // 6. Ghi lô (Batch Writers)
+        const telemetryDoc = {
+            metadata: { device_id: deviceId, owner_id: context.ownerId },
+            timestamp: telemetry.timestamp ? new Date(telemetry.timestamp) : new Date(),
+            trace_id: telemetry.trace_id || null,
+            ...sanitizedState,
+            ...sanitizedDiagnostics
+        };
 
-        // Bước 5: Gom device shadow
-        await updateDeviceShadow(clients.mongoClient, telemetry, ownerId, config, logger);
-
-        // Kích hoạt ghi theo lô nếu vượt quá kích thước quy định
-        if (telemetryBatch.length >= config.TELEMETRY_BATCH_SIZE || shadowBatchMap.size >= config.TELEMETRY_BATCH_SIZE) {
-            await flushAllBatches(clients.mongoClient, config, logger);
-        } else {
-            scheduleAllBatchesFlush(clients.mongoClient, config, logger);
+        if (clients.telemetryWriter) {
+            clients.telemetryWriter.add(telemetryDoc);
         }
 
-        // Bước 6: Publish realtime event
-        await publishTelemetryUpdate(clients.redis, ownerId, telemetry, config, logger);
+        if (clients.shadowWriter) {
+            clients.shadowWriter.add(deviceId, context.ownerId, {
+                stateUpdates: sanitizedState,
+                diagnosticUpdates: {
+                    ...sanitizedDiagnostics,
+                    ...(reportedFirmware ? { firmware_version: reportedFirmware } : {})
+                }
+            });
+        }
+
+        // 7. Publish Realtime (RealtimePublisher)
+        if (clients.realtimePublisher) {
+            await clients.realtimePublisher.publishTelemetry(
+                context.ownerId,
+                deviceId,
+                sanitizedState,
+                sanitizedDiagnostics,
+                telemetry.timestamp,
+                telemetry.trace_id || null
+            );
+        }
+
+        // 8. Presence Record activity
+        await recordActivity(clients, deviceId, context.ownerId, 'telemetry', config, logger);
+
+        // Đo latency xử lý
+        const durationSec = Number(process.hrtime.bigint() - startTime) / 1e9;
+        observeLatency(durationSec);
 
         logger.info(
-            { device_id: telemetry.device_id, owner_id: ownerId },
+            { device_id: deviceId, owner_id: context.ownerId, duration_ms: (durationSec * 1000).toFixed(2) },
             'Telemetry processed successfully'
         );
 
-        return telemetry.device_id;
+        return deviceId;
     } catch (err) {
-        logger.error(
-            { err, device_id: telemetry.device_id, owner_id: ownerId },
-            'Failed to process telemetry'
-        );
+        logger.error({ err, device_id: deviceId }, 'Failed to process telemetry message');
         throw err;
     }
 }
 
 module.exports = {
-    validateTelemetry,
-    getTelemetryDedupeId,
-    shouldProcessTelemetry,
-    resolveOwnerId,
-    insertTelemetryLog,
-    updateDeviceShadow,
-    publishTelemetryUpdate,
+    initTelemetryProcessor,
+    resolveDeviceContext,
     processTelemetry,
+    getTelemetryDedupeId,
+    shouldProcessTelemetry
 };

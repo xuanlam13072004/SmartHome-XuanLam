@@ -6,8 +6,8 @@ declare module 'fastify' {
         validate: (schema: ZodSchema, data: unknown) => Promise<unknown>;
     }
 
-    interface RouteShorthandOptions {
-        validationSchema?: ZodSchema;
+    interface FastifyContextConfig {
+        zodSchema?: ZodSchema;
     }
 }
 

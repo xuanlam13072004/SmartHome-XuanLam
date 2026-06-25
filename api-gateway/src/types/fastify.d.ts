@@ -2,6 +2,7 @@ import 'fastify';
 import type { Pool } from 'pg';
 import type Redis from 'ioredis';
 import type { Db, MongoClient } from 'mongodb';
+import type { CatalogCache } from '../modules/device/catalogCache';
 
 declare module 'fastify' {
     interface FastifyInstance {
@@ -11,5 +12,6 @@ declare module 'fastify' {
             client: MongoClient;
             db: Db;
         };
+        catalogCache: CatalogCache;
     }
 }

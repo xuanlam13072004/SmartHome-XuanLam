@@ -1,0 +1,111 @@
+[
+  {
+    "_id": "switch",
+    "version": 1,
+    "name": "Switch Control",
+    "value_type": "boolean",
+    "validation": {
+      "required": true
+    },
+    "commands": [
+      {
+        "action": "SET_SWITCH",
+        "arguments": ["value"]
+      }
+    ]
+  },
+  {
+    "_id": "temperature-measurement",
+    "version": 1,
+    "name": "Temperature Measurement",
+    "value_type": "number",
+    "validation": {
+      "min": -40,
+      "max": 125,
+      "required": true
+    },
+    "commands": []
+  },
+  {
+    "_id": "relative-humidity-measurement",
+    "version": 1,
+    "name": "Relative Humidity Measurement",
+    "value_type": "number",
+    "validation": {
+      "min": 0,
+      "max": 100,
+      "required": true
+    },
+    "commands": []
+  },
+  {
+    "_id": "color-control",
+    "version": 1,
+    "name": "Color Control",
+    "value_type": "string",
+    "validation": {
+      "required": true
+    },
+    "commands": [
+      {
+        "action": "SET_COLOR",
+        "arguments": ["hex"]
+      }
+    ]
+  },
+  {
+    "_id": "level-control",
+    "version": 1,
+    "name": "Level Control",
+    "value_type": "number",
+    "validation": {
+      "min": 0,
+      "max": 100,
+      "required": true
+    },
+    "commands": [
+      {
+        "action": "SET_LEVEL",
+        "arguments": ["level"]
+      }
+    ]
+  },
+  {
+    "_id": "video-stream",
+    "version": 1,
+    "name": "Video Streaming",
+    "value_type": "object",
+    "validation": {
+      "required": true
+    },
+    "commands": [
+      {
+        "action": "START_STREAM",
+        "arguments": []
+      },
+      {
+        "action": "STOP_STREAM",
+        "arguments": []
+      },
+      {
+        "action": "TAKE_PHOTO",
+        "arguments": []
+      }
+    ]
+  },
+  {
+    "_id": "system-diagnostics",
+    "version": 1,
+    "name": "System Diagnostics",
+    "state_properties": {},
+    "diagnostic_properties": {
+      "firmware_version": { "value_type": "string" },
+      "uptime_seconds": { "value_type": "number" },
+      "free_heap": { "value_type": "number" },
+      "reboot_count": { "value_type": "number" },
+      "rssi": { "value_type": "number" },
+      "battery": { "value_type": "number" }
+    },
+    "commands": []
+  }
+]

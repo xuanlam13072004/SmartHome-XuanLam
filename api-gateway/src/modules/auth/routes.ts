@@ -1,4 +1,5 @@
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
+import { typedRouteConfig } from '../../plugins/validation';
 import { loginSchema, logoutSchema, refreshSchema, registerSchema } from './schemas';
 import { loginUser, logoutSession, refreshSession, registerUser } from './service';
 
@@ -13,7 +14,9 @@ const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
     });
 
     app.post('/auth/register', {
-        validationSchema: registerSchema,
+        config: typedRouteConfig({
+            zodSchema: registerSchema,
+        }),
     }, async (request) => {
         const body = request.body as any;
         const user = await registerUser(app, body);
@@ -21,13 +24,13 @@ const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
     });
 
     app.post('/auth/login', {
-        validationSchema: loginSchema,
-        config: {
+        config: typedRouteConfig({
+            zodSchema: loginSchema,
             rateLimit: {
                 max: 5,
                 timeWindow: '1 minute',
             },
-        },
+        }),
     }, async (request) => {
         const body = request.body as any;
         const result = await loginUser(app, body);
@@ -35,7 +38,9 @@ const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
     });
 
     app.post('/auth/refresh', {
-        validationSchema: refreshSchema,
+        config: typedRouteConfig({
+            zodSchema: refreshSchema,
+        }),
     }, async (request) => {
         const body = request.body as any;
         const result = await refreshSession(app, body);
@@ -43,7 +48,9 @@ const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
     });
 
     app.post('/auth/logout', {
-        validationSchema: logoutSchema,
+        config: typedRouteConfig({
+            zodSchema: logoutSchema,
+        }),
     }, async (request) => {
         const body = request.body as any;
         const result = await logoutSession(app, body);
