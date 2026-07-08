@@ -1,8 +1,177 @@
 [
   {
-    "_id": "switch",
+    "_id": "temperature_measurement",
     "version": 1,
-    "name": "Switch Control",
+    "name": "Temperature Measurement",
+    "category": "environment",
+    "value_type": "number",
+    "validation": {
+      "min": -40,
+      "max": 125
+    },
+    "commands": []
+  },
+  {
+    "_id": "humidity_measurement",
+    "version": 1,
+    "name": "Humidity Measurement",
+    "category": "environment",
+    "value_type": "number",
+    "validation": {
+      "min": 0,
+      "max": 100
+    },
+    "commands": []
+  },
+  {
+    "_id": "light_sensor",
+    "version": 1,
+    "name": "Light Sensor",
+    "category": "environment",
+    "value_type": "number",
+    "validation": {
+      "min": 0,
+      "max": 100000
+    },
+    "commands": []
+  },
+  {
+    "_id": "soil_moisture",
+    "version": 1,
+    "name": "Soil Moisture",
+    "category": "environment",
+    "value_type": "number",
+    "validation": {
+      "min": 0,
+      "max": 100
+    },
+    "commands": []
+  },
+  {
+    "_id": "barometric_pressure",
+    "version": 1,
+    "name": "Barometric Pressure",
+    "category": "environment",
+    "value_type": "number",
+    "validation": {
+      "min": 300,
+      "max": 1100
+    },
+    "commands": []
+  },
+  {
+    "_id": "water_level",
+    "version": 1,
+    "name": "Water Level",
+    "category": "environment",
+    "value_type": "number",
+    "validation": {
+      "min": 0,
+      "max": 100
+    },
+    "commands": []
+  },
+  {
+    "_id": "gas_detection",
+    "version": 1,
+    "name": "Gas Detection",
+    "category": "safety",
+    "value_type": "number",
+    "validation": {
+      "min": 0,
+      "max": 10000
+    },
+    "commands": []
+  },
+  {
+    "_id": "flame_detection",
+    "version": 1,
+    "name": "Flame Detection",
+    "category": "safety",
+    "value_type": "boolean",
+    "validation": {
+      "required": true
+    },
+    "commands": []
+  },
+  {
+    "_id": "smoke_detection",
+    "version": 1,
+    "name": "Smoke Detection",
+    "category": "safety",
+    "value_type": "number",
+    "validation": {
+      "min": 0,
+      "max": 100
+    },
+    "commands": []
+  },
+  {
+    "_id": "motion_detection",
+    "version": 1,
+    "name": "Motion Detection",
+    "category": "security_motion",
+    "value_type": "boolean",
+    "validation": {
+      "required": true
+    },
+    "commands": []
+  },
+  {
+    "_id": "distance_measurement",
+    "version": 1,
+    "name": "Distance Measurement",
+    "category": "security_motion",
+    "value_type": "number",
+    "validation": {
+      "min": 0,
+      "max": 500
+    },
+    "commands": []
+  },
+  {
+    "_id": "vibration_detection",
+    "version": 1,
+    "name": "Vibration Detection",
+    "category": "security_motion",
+    "value_type": "boolean",
+    "validation": {
+      "required": true
+    },
+    "commands": []
+  },
+  {
+    "_id": "sound_detection",
+    "version": 1,
+    "name": "Sound Detection",
+    "category": "security_motion",
+    "value_type": "number",
+    "validation": {
+      "min": 30,
+      "max": 120
+    },
+    "commands": []
+  },
+  {
+    "_id": "door_window_sensor",
+    "version": 1,
+    "name": "Door Window Sensor",
+    "category": "security_motion",
+    "value_type": "string",
+    "validation": {
+      "enum": [
+        "open",
+        "closed"
+      ],
+      "required": true
+    },
+    "commands": []
+  },
+  {
+    "_id": "generic_switch",
+    "version": 1,
+    "name": "Generic Switch",
+    "category": "actuator",
     "value_type": "boolean",
     "validation": {
       "required": true
@@ -10,73 +179,443 @@
     "commands": [
       {
         "action": "SET_SWITCH",
-        "arguments": ["value"]
+        "arguments": [
+          "value"
+        ]
       }
     ]
   },
   {
-    "_id": "temperature-measurement",
+    "_id": "light_controller",
     "version": 1,
-    "name": "Temperature Measurement",
-    "value_type": "number",
-    "validation": {
-      "min": -40,
-      "max": 125,
-      "required": true
-    },
-    "commands": []
-  },
-  {
-    "_id": "relative-humidity-measurement",
-    "version": 1,
-    "name": "Relative Humidity Measurement",
-    "value_type": "number",
-    "validation": {
-      "min": 0,
-      "max": 100,
-      "required": true
-    },
-    "commands": []
-  },
-  {
-    "_id": "color-control",
-    "version": 1,
-    "name": "Color Control",
-    "value_type": "string",
-    "validation": {
-      "required": true
+    "name": "Light Controller",
+    "category": "actuator",
+    "state_properties": {
+      "power": {
+        "value_type": "boolean",
+        "validation": {
+          "required": true
+        }
+      },
+      "brightness": {
+        "value_type": "number",
+        "validation": {
+          "min": 0,
+          "max": 100,
+          "required": true
+        }
+      },
+      "color_hex": {
+        "value_type": "string",
+        "validation": {
+          "max_length": 7,
+          "required": true
+        }
+      }
     },
     "commands": [
+      {
+        "action": "SET_LIGHT_POWER",
+        "arguments": [
+          {
+            "name": "value",
+            "value_type": "boolean",
+            "validation": {
+              "required": true
+            }
+          }
+        ]
+      },
+      {
+        "action": "SET_BRIGHTNESS",
+        "arguments": [
+          {
+            "name": "brightness",
+            "value_type": "number",
+            "validation": {
+              "min": 0,
+              "max": 100,
+              "required": true
+            }
+          }
+        ]
+      },
       {
         "action": "SET_COLOR",
-        "arguments": ["hex"]
+        "arguments": [
+          {
+            "name": "color_hex",
+            "value_type": "string",
+            "validation": {
+              "max_length": 7,
+              "required": true
+            }
+          }
+        ]
       }
     ]
   },
   {
-    "_id": "level-control",
+    "_id": "fan_controller",
     "version": 1,
-    "name": "Level Control",
-    "value_type": "number",
+    "name": "Fan Controller",
+    "category": "actuator",
+    "state_properties": {
+      "power": {
+        "value_type": "boolean",
+        "validation": {
+          "required": true
+        }
+      },
+      "speed": {
+        "value_type": "number",
+        "validation": {
+          "min": 1,
+          "max": 5,
+          "required": true
+        }
+      },
+      "swing_active": {
+        "value_type": "boolean",
+        "validation": {
+          "required": true
+        }
+      }
+    },
+    "commands": [
+      {
+        "action": "SET_FAN_POWER",
+        "arguments": [
+          {
+            "name": "value",
+            "value_type": "boolean",
+            "validation": {
+              "required": true
+            }
+          }
+        ]
+      },
+      {
+        "action": "SET_SPEED",
+        "arguments": [
+          {
+            "name": "speed",
+            "value_type": "number",
+            "validation": {
+              "min": 1,
+              "max": 5,
+              "required": true
+            }
+          }
+        ]
+      },
+      {
+        "action": "SET_SWING",
+        "arguments": [
+          {
+            "name": "value",
+            "value_type": "boolean",
+            "validation": {
+              "required": true
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "_id": "cover_controller",
+    "version": 1,
+    "name": "Cover Controller",
+    "category": "actuator",
+    "state_properties": {
+      "target_position": {
+        "value_type": "number",
+        "validation": {
+          "min": 0,
+          "max": 100,
+          "required": true
+        }
+      },
+      "current_position": {
+        "value_type": "number",
+        "validation": {
+          "min": 0,
+          "max": 100,
+          "required": true
+        }
+      },
+      "movement_status": {
+        "value_type": "string",
+        "validation": {
+          "enum": [
+            "opening",
+            "closing",
+            "stopped"
+          ],
+          "required": true
+        }
+      }
+    },
+    "commands": [
+      {
+        "action": "OPEN",
+        "arguments": []
+      },
+      {
+        "action": "CLOSE",
+        "arguments": []
+      },
+      {
+        "action": "STOP",
+        "arguments": []
+      },
+      {
+        "action": "SET_POSITION",
+        "arguments": [
+          {
+            "name": "position",
+            "value_type": "number",
+            "validation": {
+              "min": 0,
+              "max": 100,
+              "required": true
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "_id": "door_lock",
+    "version": 1,
+    "name": "Door Lock",
+    "category": "actuator",
+    "value_type": "string",
     "validation": {
-      "min": 0,
-      "max": 100,
+      "enum": [
+        "locked",
+        "unlocked"
+      ],
       "required": true
     },
     "commands": [
       {
-        "action": "SET_LEVEL",
-        "arguments": ["level"]
+        "action": "LOCK",
+        "arguments": []
+      },
+      {
+        "action": "UNLOCK",
+        "arguments": []
       }
     ]
   },
   {
-    "_id": "video-stream",
+    "_id": "pin_authentication",
     "version": 1,
-    "name": "Video Streaming",
-    "value_type": "object",
-    "validation": {
-      "required": true
+    "name": "PIN Authentication",
+    "category": "authentication",
+    "state_properties": {},
+    "commands": [
+      {
+        "action": "REGISTER_PIN",
+        "arguments": [
+          {
+            "name": "slot_id",
+            "value_type": "number",
+            "validation": {
+              "min": 1,
+              "max": 100,
+              "required": true
+            }
+          },
+          {
+            "name": "pin_code",
+            "value_type": "string",
+            "validation": {
+              "max_length": 6,
+              "required": true
+            }
+          }
+        ]
+      },
+      {
+        "action": "REVOKE_PIN",
+        "arguments": [
+          {
+            "name": "slot_id",
+            "value_type": "number",
+            "validation": {
+              "min": 1,
+              "max": 100,
+              "required": true
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "_id": "face_authentication",
+    "version": 1,
+    "name": "Face Authentication",
+    "category": "authentication",
+    "state_properties": {
+      "recognition_enabled": {
+        "value_type": "boolean",
+        "validation": {
+          "required": true
+        }
+      }
+    },
+    "commands": [
+      {
+        "action": "ENROLL_FACE",
+        "arguments": [
+          {
+            "name": "user_name",
+            "value_type": "string",
+            "validation": {
+              "max_length": 32,
+              "required": true
+            }
+          },
+          {
+            "name": "timeout_seconds",
+            "value_type": "number",
+            "validation": {
+              "min": 10,
+              "max": 120,
+              "required": true
+            }
+          }
+        ]
+      },
+      {
+        "action": "DELETE_FACE",
+        "arguments": [
+          {
+            "name": "user_name",
+            "value_type": "string",
+            "validation": {
+              "max_length": 32,
+              "required": true
+            }
+          }
+        ]
+      },
+      {
+        "action": "SET_RECOGNITION_MODE",
+        "arguments": [
+          {
+            "name": "enabled",
+            "value_type": "boolean",
+            "validation": {
+              "required": true
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "_id": "rfid_authentication",
+    "version": 1,
+    "name": "RFID Authentication",
+    "category": "authentication",
+    "state_properties": {},
+    "commands": [
+      {
+        "action": "REGISTER_CARD",
+        "arguments": [
+          {
+            "name": "slot_id",
+            "value_type": "number",
+            "validation": {
+              "min": 1,
+              "max": 100,
+              "required": true
+            }
+          }
+        ]
+      },
+      {
+        "action": "REVOKE_CARD",
+        "arguments": [
+          {
+            "name": "slot_id",
+            "value_type": "number",
+            "validation": {
+              "min": 1,
+              "max": 100,
+              "required": true
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "_id": "fingerprint_authentication",
+    "version": 1,
+    "name": "Fingerprint Authentication",
+    "category": "authentication",
+    "state_properties": {},
+    "commands": [
+      {
+        "action": "ENROLL_FINGERPRINT",
+        "arguments": [
+          {
+            "name": "slot_id",
+            "value_type": "number",
+            "validation": {
+              "min": 1,
+              "max": 128,
+              "required": true
+            }
+          }
+        ]
+      },
+      {
+        "action": "DELETE_FINGERPRINT",
+        "arguments": [
+          {
+            "name": "slot_id",
+            "value_type": "number",
+            "validation": {
+              "min": 1,
+              "max": 128,
+              "required": true
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "_id": "camera_controller",
+    "version": 1,
+    "name": "Camera Controller",
+    "category": "visual",
+    "state_properties": {
+      "is_streaming": {
+        "value_type": "boolean",
+        "validation": {
+          "required": true
+        }
+      },
+      "stream_url": {
+        "value_type": "string",
+        "validation": {}
+      },
+      "last_snapshot_url": {
+        "value_type": "string",
+        "validation": {}
+      },
+      "snapshot_taken_at": {
+        "value_type": "string",
+        "validation": {}
+      }
     },
     "commands": [
       {
@@ -88,7 +627,106 @@
         "arguments": []
       },
       {
-        "action": "TAKE_PHOTO",
+        "action": "TAKE_SNAPSHOT",
+        "arguments": []
+      }
+    ]
+  },
+  {
+    "_id": "button_input",
+    "version": 1,
+    "name": "Button Input",
+    "category": "interaction",
+    "value_type": "string",
+    "validation": {},
+    "commands": []
+  },
+  {
+    "_id": "text_display",
+    "version": 1,
+    "name": "Text Display",
+    "category": "interaction",
+    "value_type": "string",
+    "validation": {
+      "max_length": 80,
+      "required": true
+    },
+    "commands": [
+      {
+        "action": "DISPLAY_TEXT",
+        "arguments": [
+          {
+            "name": "text",
+            "value_type": "string",
+            "validation": {
+              "max_length": 80,
+              "required": true
+            }
+          },
+          {
+            "name": "row",
+            "value_type": "number",
+            "validation": {
+              "min": 1,
+              "max": 4,
+              "required": true
+            }
+          },
+          {
+            "name": "col",
+            "value_type": "number",
+            "validation": {
+              "min": 1,
+              "max": 20,
+              "required": true
+            }
+          }
+        ]
+      },
+      {
+        "action": "CLEAR_DISPLAY",
+        "arguments": []
+      }
+    ]
+  },
+  {
+    "_id": "power_monitor",
+    "version": 1,
+    "name": "Power Monitor",
+    "category": "energy",
+    "state_properties": {
+      "voltage": {
+        "value_type": "number",
+        "validation": {
+          "min": 0,
+          "max": 300
+        }
+      },
+      "current": {
+        "value_type": "number",
+        "validation": {
+          "min": 0,
+          "max": 100
+        }
+      },
+      "active_power": {
+        "value_type": "number",
+        "validation": {
+          "min": 0,
+          "max": 25000
+        }
+      },
+      "energy_accumulated": {
+        "value_type": "number",
+        "validation": {
+          "min": 0,
+          "max": 1000000
+        }
+      }
+    },
+    "commands": [
+      {
+        "action": "RESET_ENERGY",
         "arguments": []
       }
     ]
@@ -99,12 +737,45 @@
     "name": "System Diagnostics",
     "state_properties": {},
     "diagnostic_properties": {
-      "firmware_version": { "value_type": "string" },
-      "uptime_seconds": { "value_type": "number" },
-      "free_heap": { "value_type": "number" },
-      "reboot_count": { "value_type": "number" },
-      "rssi": { "value_type": "number" },
-      "battery": { "value_type": "number" }
+      "firmware_version": {
+        "value_type": "string"
+      },
+      "uptime_seconds": {
+        "value_type": "number"
+      },
+      "free_heap": {
+        "value_type": "number"
+      },
+      "min_free_heap": {
+        "value_type": "number"
+      },
+      "memory_fragmentation": {
+        "value_type": "number"
+      },
+      "flash_usage_bytes": {
+        "value_type": "number"
+      },
+      "cpu_temperature": {
+        "value_type": "number"
+      },
+      "rssi": {
+        "value_type": "number"
+      },
+      "mqtt_latency_ms": {
+        "value_type": "number"
+      },
+      "boot_count": {
+        "value_type": "number"
+      },
+      "restart_reason": {
+        "value_type": "string"
+      },
+      "watchdog_resets": {
+        "value_type": "number"
+      },
+      "last_ota_timestamp": {
+        "value_type": "number"
+      }
     },
     "commands": []
   }

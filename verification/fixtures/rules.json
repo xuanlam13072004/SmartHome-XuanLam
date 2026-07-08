@@ -1,0 +1,50 @@
+[
+  {
+    "name": "Kitchen Gas Mitigation",
+    "home_id": "test_home_id",
+    "enabled": true,
+    "trigger": {
+      "mac": "00:1A:2B:3C:4D:60",
+      "state_key": "gas_level",
+      "operator": "gt",
+      "value": 200
+    },
+    "actions": [
+      {
+        "mac": "00:1A:2B:3C:4D:60",
+        "action": "SET_SWITCH",
+        "instance": "alarm_siren",
+        "payload": {
+          "value": true
+        }
+      },
+      {
+        "mac": "00:1A:2B:3C:4D:60",
+        "action": "SET_SWITCH",
+        "instance": "exhaust_fan",
+        "payload": {
+          "value": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "Rain Roof Close",
+    "home_id": "test_home_id",
+    "enabled": true,
+    "trigger": {
+      "mac": "00:1A:2B:3C:4D:5F",
+      "state_key": "rain_state",
+      "operator": "eq",
+      "value": "open"
+    },
+    "actions": [
+      {
+        "mac": "00:1A:2B:3C:4D:5F",
+        "action": "CLOSE",
+        "instance": "roof_motor",
+        "payload": {}
+      }
+    ]
+  }
+]

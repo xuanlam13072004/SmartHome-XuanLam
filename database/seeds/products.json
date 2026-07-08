@@ -1,120 +1,321 @@
 [
   {
-    "_id": "prod_smart_plug",
-    "model_name": "Ổ Cắm Thông Minh XL-Plug1",
-    "manufacturer": "XuanLam SmartHome",
-    "category": "lighting_appliances",
-    "default_state": {
-      "relay1": false,
-      "power_consumption": 0.0
-    },
-    "capabilities": [
-      {
-        "capability_id": "switch",
-        "instance": "main",
-        "state_key": "relay1",
-        "ui": {
-          "ui_type": "toggle",
-          "title": "Công tắc nguồn",
-          "config": { "icon_hint": "power" }
-        }
-      }
-    ]
-  },
-  {
-    "_id": "prod_rgb_light",
-    "model_name": "Bóng Đèn Thông Minh XL-RGB",
-    "manufacturer": "XuanLam SmartHome",
-    "category": "lighting_appliances",
-    "default_state": {
-      "relay1": false,
-      "color_hex": "#FFFFFF",
-      "brightness": 100
-    },
-    "capabilities": [
-      {
-        "capability_id": "switch",
-        "instance": "light",
-        "state_key": "relay1",
-        "ui": {
-          "ui_type": "toggle",
-          "title": "Công tắc đèn",
-          "config": { "icon_hint": "lightbulb" }
-        }
-      },
-      {
-        "capability_id": "color-control",
-        "instance": "light",
-        "state_key": "color_hex",
-        "ui": {
-          "ui_type": "color_picker",
-          "title": "Chọn màu đèn",
-          "config": {}
-        }
-      },
-      {
-        "capability_id": "level-control",
-        "instance": "light",
-        "state_key": "brightness",
-        "ui": {
-          "ui_type": "slider",
-          "title": "Độ sáng đèn",
-          "config": { "min": 0, "max": 100, "step": 1, "unit": "%" }
-        }
-      }
-    ]
-  },
-  {
-    "_id": "prod_switch_2_gang",
-    "model_name": "Công Tắc 2 Nút XL-Switch2",
-    "manufacturer": "XuanLam SmartHome",
-    "category": "lighting_appliances",
-    "default_state": {
-      "relay1": false,
-      "relay2": false
-    },
-    "capabilities": [
-      {
-        "capability_id": "switch",
-        "instance": "relay1",
-        "state_key": "relay1",
-        "ui": {
-          "ui_type": "toggle",
-          "title": "Nút bấm số 1",
-          "config": { "icon_hint": "lightbulb" }
-        }
-      },
-      {
-        "capability_id": "switch",
-        "instance": "relay2",
-        "state_key": "relay2",
-        "ui": {
-          "ui_type": "toggle",
-          "title": "Nút bấm số 2",
-          "config": { "icon_hint": "lightbulb" }
-        }
-      }
-    ]
-  },
-  {
-    "_id": "prod_esp32_cam",
-    "model_name": "ESP32 Camera Stream XL-Cam1",
-    "manufacturer": "XuanLam SmartHome",
+    "_id": "prod_entrance_controller_v1",
+    "manufacturer": "SmartHome XuanLam Ltd.",
+    "model_name": "Smart Entrance Controller V1",
+    "display_name": "Bộ Kiểm Soát Cửa Chính",
+    "connectivity": "WiFi/BLE",
     "category": "security",
+    "description": "Giải pháp kiểm soát an ninh cửa ra vào tích hợp xác thực 4 lớp và camera doorbell.",
     "default_state": {
+      "lock_state": "locked",
+      "recognition_enabled": true,
       "is_streaming": false,
-      "stream_url": ""
+      "stream_url": null,
+      "last_snapshot_url": null,
+      "snapshot_taken_at": null,
+      "is_vibrating": false,
+      "displayed_text": "",
+      "siren_active": false
     },
     "capabilities": [
       {
-        "capability_id": "video-stream",
-        "instance": "camera1",
-        "state_key": "is_streaming",
-        "ui": {
-          "ui_type": "custom",
-          "title": "Camera giám sát",
-          "config": {}
-        }
+        "capability_id": "door_lock",
+        "instance": "main_lock",
+        "state_key": "lock_state",
+        "semantic_role": "door_lock",
+        "default_display_name": "Khóa cửa chính",
+        "default_icon": "lock",
+        "display_order": 1
+      },
+      {
+        "capability_id": "pin_authentication",
+        "instance": "auth_pin",
+        "semantic_role": "pin_auth",
+        "default_display_name": "Xác thực mật mã",
+        "default_icon": "dialpad",
+        "display_order": 2
+      },
+      {
+        "capability_id": "face_authentication",
+        "instance": "auth_face",
+        "semantic_role": "face_auth",
+        "default_display_name": "Quét khuôn mặt",
+        "default_icon": "face",
+        "display_order": 3
+      },
+      {
+        "capability_id": "rfid_authentication",
+        "instance": "auth_rfid",
+        "semantic_role": "rfid_auth",
+        "default_display_name": "Xác thực thẻ từ",
+        "default_icon": "contactless",
+        "display_order": 4
+      },
+      {
+        "capability_id": "fingerprint_authentication",
+        "instance": "auth_finger",
+        "semantic_role": "fingerprint_auth",
+        "default_display_name": "Xác thực vân tay",
+        "default_icon": "fingerprint",
+        "display_order": 5
+      },
+      {
+        "capability_id": "camera_controller",
+        "instance": "entrance_camera",
+        "semantic_role": "doorbell_camera",
+        "default_display_name": "Camera cửa chính",
+        "default_icon": "videocam",
+        "display_order": 6
+      },
+      {
+        "capability_id": "button_input",
+        "instance": "doorbell_btn",
+        "semantic_role": "doorbell_button",
+        "default_display_name": "Chuông cửa",
+        "default_icon": "notifications",
+        "display_order": 7
+      },
+      {
+        "capability_id": "vibration_detection",
+        "instance": "tamper_sensor",
+        "state_key": "is_vibrating",
+        "semantic_role": "tamper_vibration",
+        "default_display_name": "Cảm biến cạy cửa",
+        "default_icon": "vibration",
+        "display_order": 8
+      },
+      {
+        "capability_id": "text_display",
+        "instance": "local_lcd",
+        "state_key": "displayed_text",
+        "semantic_role": "status_lcd",
+        "default_display_name": "Màn hình khóa",
+        "default_icon": "monitor",
+        "display_order": 9
+      },
+      {
+        "capability_id": "generic_switch",
+        "instance": "alarm_siren",
+        "state_key": "siren_active",
+        "semantic_role": "alarm_buzzer",
+        "default_display_name": "Còi báo động",
+        "default_icon": "volume_up",
+        "display_order": 10
+      }
+    ]
+  },
+  {
+    "_id": "prod_roof_controller_v1",
+    "manufacturer": "SmartHome XuanLam Ltd.",
+    "model_name": "Automated Roof & Climate Controller V1",
+    "display_name": "Bộ Kiểm Soát Mái Che",
+    "connectivity": "WiFi",
+    "category": "environment",
+    "description": "Hệ thống tự động hóa điều khiển mái che sân thượng dựa trên điều kiện mưa và ánh sáng mặt trời.",
+    "default_state": {
+      "target_position": 0,
+      "current_position": 0,
+      "movement_status": "stopped",
+      "rain_state": "open",
+      "light_level": null,
+      "temperature": null,
+      "humidity": null
+    },
+    "capabilities": [
+      {
+        "capability_id": "cover_controller",
+        "instance": "roof_motor",
+        "semantic_role": "roof_actuator",
+        "default_display_name": "Mái che sân thượng",
+        "default_icon": "curtains",
+        "display_order": 1
+      },
+      {
+        "capability_id": "door_window_sensor",
+        "instance": "rain_sensor",
+        "state_key": "rain_state",
+        "semantic_role": "rain_detector",
+        "default_display_name": "Cảm biến mưa",
+        "default_icon": "opacity",
+        "display_order": 2
+      },
+      {
+        "capability_id": "light_sensor",
+        "instance": "solar_sensor",
+        "state_key": "light_level",
+        "semantic_role": "sunlight_detector",
+        "default_display_name": "Cảm biến ánh sáng",
+        "default_icon": "sunny",
+        "display_order": 3
+      },
+      {
+        "capability_id": "temperature_measurement",
+        "instance": "outdoor_temp",
+        "state_key": "temperature",
+        "semantic_role": "temperature_sensor",
+        "default_display_name": "Nhiệt độ ngoài trời",
+        "default_icon": "thermostat",
+        "display_order": 4
+      },
+      {
+        "capability_id": "humidity_measurement",
+        "instance": "outdoor_humi",
+        "state_key": "humidity",
+        "semantic_role": "humidity_sensor",
+        "default_display_name": "Độ ẩm ngoài trời",
+        "default_icon": "water_drop",
+        "display_order": 5
+      },
+      {
+        "capability_id": "button_input",
+        "instance": "open_btn",
+        "semantic_role": "manual_button",
+        "default_display_name": "Nút mở tại chỗ",
+        "default_icon": "arrow_upward",
+        "display_order": 6
+      },
+      {
+        "capability_id": "button_input",
+        "instance": "close_btn",
+        "semantic_role": "manual_button",
+        "default_display_name": "Nút đóng tại chỗ",
+        "default_icon": "arrow_downward",
+        "display_order": 7
+      }
+    ]
+  },
+  {
+    "_id": "prod_hazard_mitigation_v1",
+    "manufacturer": "SmartHome XuanLam Ltd.",
+    "model_name": "Safety & Hazard Mitigation System V1",
+    "display_name": "Hệ Thống Cảnh Báo An Toàn Bếp",
+    "connectivity": "WiFi/Ethernet",
+    "category": "safety",
+    "description": "Giám sát rò rỉ khí gas, ngọn lửa, khói và quá tải điện; tự động ngắt tải bảo vệ cháy nổ.",
+    "default_state": {
+      "gas_level": null,
+      "flame_detected": false,
+      "smoke_level": null,
+      "siren_active": false,
+      "fan_active": false,
+      "voltage": null,
+      "current": null,
+      "active_power": null,
+      "energy_accumulated": null
+    },
+    "capabilities": [
+      {
+        "capability_id": "gas_detection",
+        "instance": "kitchen_gas",
+        "state_key": "gas_level",
+        "semantic_role": "lpg_gas_sensor",
+        "default_display_name": "Khí gas nhà bếp",
+        "default_icon": "gas_meter",
+        "display_order": 1
+      },
+      {
+        "capability_id": "flame_detection",
+        "instance": "kitchen_flame",
+        "state_key": "flame_detected",
+        "semantic_role": "fire_flame_sensor",
+        "default_display_name": "Cảm biến ngọn lửa",
+        "default_icon": "local_fire_department",
+        "display_order": 2
+      },
+      {
+        "capability_id": "smoke_detection",
+        "instance": "kitchen_smoke",
+        "state_key": "smoke_level",
+        "semantic_role": "fire_smoke_sensor",
+        "default_display_name": "Cảm biến khói độc",
+        "default_icon": "smoke_free",
+        "display_order": 3
+      },
+      {
+        "capability_id": "generic_switch",
+        "instance": "alarm_siren",
+        "state_key": "siren_active",
+        "semantic_role": "alarm_buzzer",
+        "default_display_name": "Còi báo động",
+        "default_icon": "volume_up",
+        "display_order": 4
+      },
+      {
+        "capability_id": "generic_switch",
+        "instance": "exhaust_fan",
+        "state_key": "fan_active",
+        "semantic_role": "ventilation_fan",
+        "default_display_name": "Quạt thông gió",
+        "default_icon": "wind_power",
+        "display_order": 5
+      },
+      {
+        "capability_id": "button_input",
+        "instance": "mute_btn",
+        "semantic_role": "alarm_mute_button",
+        "default_display_name": "Nút tắt còi",
+        "default_icon": "volume_mute",
+        "display_order": 6
+      },
+      {
+        "capability_id": "power_monitor",
+        "instance": "kitchen_power",
+        "semantic_role": "appliances_meter",
+        "default_display_name": "Giám sát nguồn điện",
+        "default_icon": "electric_bolt",
+        "display_order": 7
+      }
+    ]
+  },
+  {
+    "_id": "prod_irrigation_manager_v1",
+    "manufacturer": "SmartHome XuanLam Ltd.",
+    "model_name": "Smart Garden Irrigation & Water Manager V1",
+    "display_name": "Bộ Quản Lý Nước & Tưới Tiêu",
+    "connectivity": "WiFi",
+    "category": "agriculture",
+    "description": "Tự động tưới vườn dựa trên độ ẩm đất và kiểm soát an sau bể chứa nước.",
+    "default_state": {
+      "soil_moisture": null,
+      "water_level": null,
+      "pump_active": false
+    },
+    "capabilities": [
+      {
+        "capability_id": "soil_moisture",
+        "instance": "garden_moisture",
+        "state_key": "soil_moisture",
+        "semantic_role": "soil_sensor",
+        "default_display_name": "Độ ẩm đất vườn",
+        "default_icon": "grass",
+        "display_order": 1
+      },
+      {
+        "capability_id": "water_level",
+        "instance": "reservoir_level",
+        "state_key": "water_level",
+        "semantic_role": "tank_water_sensor",
+        "default_display_name": "Mực nước bể chứa",
+        "default_icon": "waves",
+        "display_order": 2
+      },
+      {
+        "capability_id": "generic_switch",
+        "instance": "irrigation_pump",
+        "state_key": "pump_active",
+        "semantic_role": "water_pump",
+        "default_display_name": "Bơm tưới vườn",
+        "default_icon": "water_damage",
+        "display_order": 3
+      },
+      {
+        "capability_id": "button_input",
+        "instance": "manual_pump_btn",
+        "semantic_role": "manual_button",
+        "default_display_name": "Bật bơm tại chỗ",
+        "default_icon": "play_arrow",
+        "display_order": 4
       }
     ]
   }

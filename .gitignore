@@ -34,3 +34,5 @@ logs/
 # Temporary files
 tmp/
 temp/
+*.rdb
+dump.rdb

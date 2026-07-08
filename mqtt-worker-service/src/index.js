@@ -1,4 +1,8 @@
 require('dotenv').config();
+const dns = require('dns');
+try {
+  dns.setServers(['8.8.8.8', '8.8.4.4']);
+} catch (err) {}
 
 const pino = require('pino');
 
@@ -27,6 +31,7 @@ const logger = pino({
 
 const state = {
     redis: null,
+    blockingRedis: null,
     mqttClient: null,
     mongoClient: null,
     heartbeatTimer: null,
@@ -52,6 +57,9 @@ async function connectRedis() {
     logger.info('Redis connected');
 
     state.redis = redis;
+    state.blockingRedis = redis.duplicate();
+    await state.blockingRedis.ping();
+    logger.info('Redis blocking connection initialized');
 }
 
 async function connectMqtt() {
@@ -160,6 +168,10 @@ async function shutdown(signal) {
         closeTasks.push(state.redis.quit().catch(() => state.redis.disconnect()));
     }
 
+    if (state.blockingRedis) {
+        closeTasks.push(state.blockingRedis.quit().catch(() => state.blockingRedis.disconnect()));
+    }
+
     if (state.mongoClient) {
         closeTasks.push(state.mongoClient.close());
     }
@@ -227,7 +239,7 @@ async function start() {
         logger.info({ port: metricsPort }, 'Prometheus metrics server listening');
     });
 
-    state.commandConsumerTask = startCommandConsumer(clients, config, logger).catch((err) => {
+    state.commandConsumerTask = startCommandConsumer({ ...clients, redis: state.blockingRedis }, config, logger).catch((err) => {
         logger.fatal({ err }, 'Command consumer fatal error');
         process.exit(1);
     });

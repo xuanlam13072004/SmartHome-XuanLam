@@ -121,6 +121,7 @@ async function shouldProcessTelemetry(redis, telemetry, config, logger) {
 
     try {
         const result = await redis.set(dedupeKey, '1', 'EX', config.TELEMETRY_DEDUPE_TTL_SECONDS, 'NX');
+
         if (result !== 'OK') {
             logger.debug({ device_id: telemetry.device_id, dedupe_id: dedupeId }, 'Duplicate telemetry dropped');
             return false;
@@ -136,6 +137,7 @@ async function shouldProcessTelemetry(redis, telemetry, config, logger) {
  * Phân giải Context (Owner ID, Product ID, Firmware Version) kết hợp L1 Cache + L2 Redis
  */
 async function resolveDeviceContext(clients, deviceId, config, logger) {
+
     const cached = l1ContextCache.get(deviceId);
     if (cached && Date.now() < cached.expiresAt) {
         return cached.context;
@@ -187,6 +189,7 @@ async function resolveDeviceContext(clients, deviceId, config, logger) {
  * Hàm điều phối luồng Telemetry Pipeline
  */
 async function processTelemetry(rawMessage, clients, config, logger) {
+
     const startTime = process.hrtime.bigint();
     let telemetry;
 
@@ -202,6 +205,7 @@ async function processTelemetry(rawMessage, clients, config, logger) {
 
     // 2. Deduplicate
     const allowProcess = await shouldProcessTelemetry(clients.redis, telemetry, config, logger);
+
     if (!allowProcess) return null;
 
     // 3. Sequence Gap Detection (survives restart using Redis key last_seq:{device})

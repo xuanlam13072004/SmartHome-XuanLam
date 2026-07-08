@@ -1,0 +1,26 @@
+[
+  {
+    "mac": "00:1A:2B:3C:4D:5E",
+    "secret_key": "entrance_secret_key_123",
+    "product_id": "prod_entrance_controller_v1",
+    "device_name": "Cửa chính phòng khách"
+  },
+  {
+    "mac": "00:1A:2B:3C:4D:5F",
+    "secret_key": "roof_secret_key_123",
+    "product_id": "prod_roof_controller_v1",
+    "device_name": "Bộ mái che sân thượng"
+  },
+  {
+    "mac": "00:1A:2B:3C:4D:60",
+    "secret_key": "hazard_secret_key_123",
+    "product_id": "prod_hazard_mitigation_v1",
+    "device_name": "Cảnh báo an toàn bếp"
+  },
+  {
+    "mac": "00:1A:2B:3C:4D:61",
+    "secret_key": "irrigation_secret_key_123",
+    "product_id": "prod_irrigation_manager_v1",
+    "device_name": "Bộ tưới tiêu vườn"
+  }
+]

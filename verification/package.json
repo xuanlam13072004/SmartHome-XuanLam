@@ -1,0 +1,24 @@
+{
+  "name": "smarthome-verification-framework",
+  "version": "1.0.0",
+  "description": "Verification Framework for SmartHome-XuanLam Runtime Architecture",
+  "main": "run_all.js",
+  "scripts": {
+    "verify": "node run_all.js",
+    "verify:scenario01": "node scenarios/scenario01_provisioning.js",
+    "verify:scenario02": "node scenarios/scenario02_shadow.js",
+    "verify:scenario03": "node scenarios/scenario03_command.js",
+    "verify:scenario04": "node scenarios/scenario04_telemetry.js",
+    "verify:scenario05": "node scenarios/scenario05_realtime.js",
+    "verify:scenario06": "node scenarios/scenario06_automation.js",
+    "verify:failures": "node scenarios/scenario07_failures.js",
+    "verify:chaos": "node scenarios/scenario08_chaos.js"
+  },
+  "dependencies": {
+    "aedes": "latest",
+    "axios": "^1.7.2",
+    "dotenv": "^16.4.5",
+    "mqtt": "^5.7.0",
+    "socket.io-client": "^4.7.5"
+  }
+}

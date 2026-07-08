@@ -184,7 +184,9 @@ async function handleAckMessage(topic, payload, clients, config, logger) {
  * @param {object} logger - logger instance
  */
 function setupMessageHandlers(mqttClient, clients, config, logger) {
+    logger.info('setupMessageHandlers: Registering message handler');
     mqttClient.on('message', async (topic, payload) => {
+        logger.info({ topic }, 'setupMessageHandlers: Received message on MQTT client');
         // Kiểm tra topic
         const cleanTopic = topic.startsWith('$share/')
             ? topic.split('/').slice(2).join('/')
@@ -193,6 +195,8 @@ function setupMessageHandlers(mqttClient, clients, config, logger) {
         const ackPattern = config.MQTT_ACK_TOPIC.replace(/\+/g, '[^/]+');
         const telemetryRegex = new RegExp(`^${telemetryPattern}$`);
         const ackRegex = new RegExp(`^${ackPattern}$`);
+
+        logger.info({ cleanTopic, telemetryPattern, telemetryMatch: telemetryRegex.test(cleanTopic) }, 'setupMessageHandlers: Topic matching details');
 
         if (telemetryRegex.test(cleanTopic)) {
             await handleTelemetryMessage(cleanTopic, payload, clients, config, logger);
