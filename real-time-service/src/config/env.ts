@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import dotenv from 'dotenv';
-import path from 'path';
 
 // Load .env file
 dotenv.config();

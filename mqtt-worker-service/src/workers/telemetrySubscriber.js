@@ -185,18 +185,20 @@ async function handleAckMessage(topic, payload, clients, config, logger) {
  */
 function setupMessageHandlers(mqttClient, clients, config, logger) {
     logger.info('setupMessageHandlers: Registering message handler');
+
+    // Pre-compile regexes once instead of on every message
+    const telemetryPattern = config.MQTT_TELEMETRY_TOPIC.replace(/\+/g, '[^/]+');
+    const ackPattern = config.MQTT_ACK_TOPIC.replace(/\+/g, '[^/]+');
+    const telemetryRegex = new RegExp(`^${telemetryPattern}$`);
+    const ackRegex = new RegExp(`^${ackPattern}$`);
+
     mqttClient.on('message', async (topic, payload) => {
-        logger.info({ topic }, 'setupMessageHandlers: Received message on MQTT client');
         // Kiểm tra topic
         const cleanTopic = topic.startsWith('$share/')
             ? topic.split('/').slice(2).join('/')
             : topic;
-        const telemetryPattern = config.MQTT_TELEMETRY_TOPIC.replace(/\+/g, '[^/]+');
-        const ackPattern = config.MQTT_ACK_TOPIC.replace(/\+/g, '[^/]+');
-        const telemetryRegex = new RegExp(`^${telemetryPattern}$`);
-        const ackRegex = new RegExp(`^${ackPattern}$`);
 
-        logger.info({ cleanTopic, telemetryPattern, telemetryMatch: telemetryRegex.test(cleanTopic) }, 'setupMessageHandlers: Topic matching details');
+        logger.debug({ cleanTopic, telemetryMatch: telemetryRegex.test(cleanTopic) }, 'setupMessageHandlers: Topic matching details');
 
         if (telemetryRegex.test(cleanTopic)) {
             await handleTelemetryMessage(cleanTopic, payload, clients, config, logger);
