@@ -1,0 +1,160 @@
+{
+  "@@locale": "vi",
+  "@@last_modified": "2026-07-13",
+
+  "appName": "SmartHome XuanLam",
+  "@appName": {
+    "description": "Tên ứng dụng"
+  },
+
+  "loading": "Đang tải...",
+  "@loading": { "description": "Trạng thái tải" },
+
+  "retry": "Thử lại",
+  "@retry": { "description": "Nút thử lại" },
+
+  "cancel": "Hủy",
+  "@cancel": { "description": "Nút hủy" },
+
+  "confirm": "Xác nhận",
+  "@confirm": { "description": "Nút xác nhận" },
+
+  "save": "Lưu",
+  "@save": { "description": "Nút lưu" },
+
+  "delete": "Xóa",
+  "@delete": { "description": "Nút xóa" },
+
+  "edit": "Chỉnh sửa",
+  "@edit": { "description": "Nút chỉnh sửa" },
+
+  "close": "Đóng",
+  "@close": { "description": "Nút đóng" },
+
+  "back": "Quay lại",
+  "@back": { "description": "Nút quay lại" },
+
+  "next": "Tiếp theo",
+  "@next": { "description": "Nút tiếp theo" },
+
+  "errorGeneric": "Đã có lỗi xảy ra. Vui lòng thử lại.",
+  "@errorGeneric": { "description": "Lỗi chung" },
+
+  "errorNetwork": "Không thể kết nối. Kiểm tra kết nối mạng.",
+  "@errorNetwork": { "description": "Lỗi mạng" },
+
+  "errorTimeout": "Hết thời gian chờ. Vui lòng thử lại.",
+  "@errorTimeout": { "description": "Lỗi timeout" },
+
+  "errorUnauthorized": "Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.",
+  "@errorUnauthorized": { "description": "Lỗi xác thực" },
+
+  "navDashboard": "Tổng quan",
+  "@navDashboard": { "description": "Tab tổng quan" },
+
+  "navRooms": "Phòng",
+  "@navRooms": { "description": "Tab phòng" },
+
+  "navScenes": "Cảnh",
+  "@navScenes": { "description": "Tab cảnh" },
+
+  "navProfile": "Tài khoản",
+  "@navProfile": { "description": "Tab tài khoản" },
+
+  "authLogin": "Đăng nhập",
+  "@authLogin": { "description": "Tiêu đề trang đăng nhập" },
+
+  "authRegister": "Đăng ký",
+  "@authRegister": { "description": "Tiêu đề trang đăng ký" },
+
+  "authEmail": "Email",
+  "@authEmail": { "description": "Label email" },
+
+  "authPassword": "Mật khẩu",
+  "@authPassword": { "description": "Label mật khẩu" },
+
+  "authPasswordConfirm": "Xác nhận mật khẩu",
+  "@authPasswordConfirm": { "description": "Label xác nhận mật khẩu" },
+
+  "authForgotPassword": "Quên mật khẩu?",
+  "@authForgotPassword": { "description": "Link quên mật khẩu" },
+
+  "authNoAccount": "Chưa có tài khoản? ",
+  "@authNoAccount": { "description": "Text dẫn sang đăng ký" },
+
+  "authHasAccount": "Đã có tài khoản? ",
+  "@authHasAccount": { "description": "Text dẫn sang đăng nhập" },
+
+  "authEmailInvalid": "Địa chỉ email không hợp lệ",
+  "@authEmailInvalid": { "description": "Lỗi validate email" },
+
+  "authPasswordTooShort": "Mật khẩu phải có ít nhất 8 ký tự",
+  "@authPasswordTooShort": { "description": "Lỗi validate mật khẩu" },
+
+  "authPasswordMismatch": "Mật khẩu xác nhận không khớp",
+  "@authPasswordMismatch": { "description": "Lỗi mật khẩu không khớp" },
+
+  "authLoginError": "Email hoặc mật khẩu không đúng",
+  "@authLoginError": { "description": "Lỗi đăng nhập" },
+
+  "authLogout": "Đăng xuất",
+  "@authLogout": { "description": "Nút đăng xuất" },
+
+  "dashboardGreetingMorning": "Chào buổi sáng",
+  "@dashboardGreetingMorning": { "description": "Lời chào buổi sáng" },
+
+  "dashboardGreetingAfternoon": "Chào buổi chiều",
+  "@dashboardGreetingAfternoon": { "description": "Lời chào buổi chiều" },
+
+  "dashboardGreetingEvening": "Chào buổi tối",
+  "@dashboardGreetingEvening": { "description": "Lời chào buổi tối" },
+
+  "dashboardDevicesOnline": "{count} thiết bị đang hoạt động",
+  "@dashboardDevicesOnline": {
+    "description": "Số thiết bị online",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+
+  "dashboardAllDevices": "Tất cả thiết bị",
+  "@dashboardAllDevices": { "description": "Tiêu đề danh sách thiết bị" },
+
+  "deviceOnline": "Đang hoạt động",
+  "@deviceOnline": { "description": "Trạng thái thiết bị online" },
+
+  "deviceOffline": "Không hoạt động",
+  "@deviceOffline": { "description": "Trạng thái thiết bị offline" },
+
+  "devicePending": "Đang xử lý...",
+  "@devicePending": { "description": "Trạng thái lệnh đang xử lý" },
+
+  "deviceControl": "Điều khiển",
+  "@deviceControl": { "description": "Nút điều khiển thiết bị" },
+
+  "deviceDetail": "Chi tiết thiết bị",
+  "@deviceDetail": { "description": "Tiêu đề trang chi tiết thiết bị" },
+
+  "deviceRename": "Đặt tên thiết bị",
+  "@deviceRename": { "description": "Label đặt tên thiết bị" },
+
+  "deviceLastSeen": "Lần cuối: {time}",
+  "@deviceLastSeen": {
+    "description": "Thời gian thiết bị hoạt động lần cuối",
+    "placeholders": {
+      "time": { "type": "String" }
+    }
+  },
+
+  "commandSent": "Lệnh đã được gửi",
+  "@commandSent": { "description": "Thông báo lệnh đã gửi" },
+
+  "commandAcked": "Thiết bị đã xác nhận",
+  "@commandAcked": { "description": "Thông báo thiết bị xác nhận lệnh" },
+
+  "commandFailed": "Gửi lệnh thất bại",
+  "@commandFailed": { "description": "Thông báo lệnh thất bại" },
+
+  "commandTimeout": "Thiết bị không phản hồi",
+  "@commandTimeout": { "description": "Thông báo lệnh timeout" }
+}
