@@ -12,7 +12,7 @@ void main() {
     await tester.pumpAndSettle();
     
     // Đảm bảo dashboard hiện lên đầu tiên
-    expect(find.text('Dashboard Content'), findsOneWidget);
+    expect(find.text('Nhà của Lâm'), findsOneWidget);
     
     // Đảm bảo có BottomNavigationBar (NeuBottomBar item)
     expect(find.text('Tổng quan'), findsOneWidget);
