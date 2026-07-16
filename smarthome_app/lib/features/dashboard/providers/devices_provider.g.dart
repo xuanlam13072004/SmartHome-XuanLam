@@ -6,7 +6,7 @@ part of 'devices_provider.dart';
 // RiverpodGenerator
 // **************************************************************************
 
-String _$deviceRepositoryHash() => r'acb5a766325c6dd45afdaab341b4ee1f8fb855d4';
+String _$deviceRepositoryHash() => r'fd5cf57ea38268cb1c573fe5bb75cde4bba5cc47';
 
 /// See also [deviceRepository].
 @ProviderFor(deviceRepository)
@@ -24,7 +24,7 @@ final deviceRepositoryProvider =
 @Deprecated('Will be removed in 3.0. Use Ref instead')
 // ignore: unused_element
 typedef DeviceRepositoryRef = AutoDisposeProviderRef<IDeviceRepository>;
-String _$devicesHash() => r'45bb84d4eb7b75ddf641c41c44925ba138c2a8de';
+String _$devicesHash() => r'90ce6bf84c5b208a8e23727047a2aa5daeb77082';
 
 /// See also [Devices].
 @ProviderFor(Devices)

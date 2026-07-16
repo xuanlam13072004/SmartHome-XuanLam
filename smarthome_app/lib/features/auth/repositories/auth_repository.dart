@@ -1,12 +1,64 @@
+import '../../../core/storage/token_storage.dart';
+import '../../../data/datasources/remote/auth_remote_data_source.dart';
+
 abstract class IAuthRepository {
+  Future<void> login(String email, String password);
+  Future<void> register(String email, String password);
+  Future<void> logout();
   Future<String?> getToken();
+  
+  // Future methods for scalability
+  // Future<void> loginWithGoogle();
+  // Future<void> loginWithApple();
 }
 
-class TestAuthRepositoryImpl implements IAuthRepository {
+class ApiAuthRepository implements IAuthRepository {
+  final IAuthRemoteDataSource remoteDataSource;
+  final ITokenStorage tokenStorage;
+
+  ApiAuthRepository({
+    required this.remoteDataSource,
+    required this.tokenStorage,
+  });
+
+  @override
+  Future<void> login(String email, String password) async {
+    final response = await remoteDataSource.login(email, password);
+    final accessToken = response['accessToken'] as String?;
+    final refreshToken = response['refreshToken'] as String?;
+    final user = response['user'] as Map<String, dynamic>?;
+    
+    if (accessToken != null && refreshToken != null) {
+      await tokenStorage.saveTokens(
+        accessToken: accessToken,
+        refreshToken: refreshToken,
+      );
+      if (user != null && user['id'] != null) {
+        await tokenStorage.saveUserId(user['id'] as String);
+      }
+    } else {
+      throw Exception('Invalid login response');
+    }
+  }
+
+  @override
+  Future<void> register(String email, String password) async {
+    await remoteDataSource.register(email, password);
+  }
+
+  @override
+  Future<void> logout() async {
+    final refreshToken = await tokenStorage.getRefreshToken();
+    if (refreshToken != null) {
+      try {
+        await remoteDataSource.logout(refreshToken);
+      } catch (_) {}
+    }
+    await tokenStorage.clearTokens();
+  }
+
   @override
   Future<String?> getToken() async {
-    // Mock JWT Token generated from backend scripts for testing WS
-    // Payload: { userId: 'test_user_123', email: 'test@example.com' }
-    return 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJ0ZXN0X3VzZXJfMTIzIiwiZW1haWwiOiJ0ZXN0QGV4YW1wbGUuY29tIiwiaWF0IjoxNzg0MTczODg2LCJleHAiOjE4MTU3MzE0ODZ9.6Cm-lbal3ITOxQ5Wz2cyByqUZBpKBDE_tuzAr4uBDho';
+    return await tokenStorage.getAccessToken();
   }
 }

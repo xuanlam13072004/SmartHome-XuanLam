@@ -14,6 +14,8 @@ class DashboardScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final devicesAsync = ref.watch(devicesProvider);
+    // Initialize WebSocket lifecycle (connects when authenticated)
+    ref.watch(webSocketLifecycleProvider);
     
     // Scaffold được bọc sẵn để tương thích AppShell
     return Scaffold(
@@ -268,7 +270,7 @@ class _ConnectionStatusIndicator extends ConsumerWidget {
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
+            color: color.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Row(

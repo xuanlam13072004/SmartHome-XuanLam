@@ -87,7 +87,7 @@ class WebSocketClient {
     try {
       final token = await authRepository.getToken();
       if (token == null) {
-        throw Exception("No token available");
+        throw Exception('No token available');
       }
       final authMessage = jsonEncode({
         'event': 'auth',
@@ -149,7 +149,7 @@ class WebSocketClient {
     
     _pongTimeoutTimer?.cancel();
     _pongTimeoutTimer = Timer(_pongTimeout, () {
-      debugPrint("❌ Ping timeout. Reconnecting...");
+      debugPrint('❌ Ping timeout. Reconnecting...');
       _reconnect();
     });
   }
@@ -171,7 +171,7 @@ class WebSocketClient {
   }
 
   void _onError(dynamic error) {
-    debugPrint("❌ WebSocket Error: $error");
+    debugPrint('❌ WebSocket Error: $error');
     if (_currentStatus != ConnectionStatus.reconnecting) {
       _updateStatus(ConnectionStatus.error);
     }
@@ -179,7 +179,7 @@ class WebSocketClient {
   }
 
   void _onDone() {
-    debugPrint("🔌 WebSocket connection closed");
+    debugPrint('🔌 WebSocket connection closed');
     _reconnect();
   }
 

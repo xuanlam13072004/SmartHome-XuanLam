@@ -7,6 +7,8 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../../features/splash/presentation/splash_screen.dart';
 import '../../features/init/presentation/init_screen.dart';
 import '../../features/auth/presentation/auth_screen.dart';
+import '../../features/auth/presentation/register_screen.dart';
+import '../../features/auth/providers/auth_provider.dart';
 import '../../features/dashboard/presentation/dashboard_screen.dart';
 import '../../features/dashboard/presentation/device_detail_screen.dart';
 import '../../features/rooms/presentation/rooms_screen.dart';
@@ -22,14 +24,61 @@ part 'app_router.g.dart';
 final GlobalKey<NavigatorState> _rootNavigatorKey =
     GlobalKey<NavigatorState>(debugLabel: 'root');
 
+// Navigator keys for shell branches — defined once at top-level to avoid
+// recreation on every GoRouter rebuild.
+final GlobalKey<NavigatorState> _dashboardNavKey =
+    GlobalKey<NavigatorState>(debugLabel: 'dashboardNav');
+final GlobalKey<NavigatorState> _roomsNavKey =
+    GlobalKey<NavigatorState>(debugLabel: 'roomsNav');
+final GlobalKey<NavigatorState> _scenesNavKey =
+    GlobalKey<NavigatorState>(debugLabel: 'scenesNav');
+final GlobalKey<NavigatorState> _profileNavKey =
+    GlobalKey<NavigatorState>(debugLabel: 'profileNav');
+
 @riverpod
 GoRouter router(Ref ref) {
-  return GoRouter(
+  // Listen to auth state changes and refresh the router.
+  // Using `ref.listen` instead of `ref.watch` avoids recreating the GoRouter
+  // object every time the auth state changes. Instead we call `.refresh()`
+  // which re-evaluates the redirect without rebuilding the entire route tree.
+  final authNotifier = ValueNotifier<AuthState>(AuthState.unknown);
+  ref.listen<AuthState>(authControllerProvider, (_, next) {
+    authNotifier.value = next;
+  });
+  // Also initialise with current value.
+  authNotifier.value = ref.read(authControllerProvider);
+
+  final router = GoRouter(
     navigatorKey: _rootNavigatorKey,
-    // Ở Phase 3, chúng ta trỏ thẳng vào dashboard để test AppShell
-    // Phase sau sẽ đổi về AppRoutes.splash
-    initialLocation: AppRoutes.dashboard,
+    initialLocation: AppRoutes.splash,
     debugLogDiagnostics: kDebugMode,
+    refreshListenable: authNotifier,
+    redirect: (context, state) {
+      final authState = authNotifier.value;
+      final isSplash = state.uri.path == AppRoutes.splash;
+      final isAuth = state.uri.path == AppRoutes.auth;
+      final isRegister = state.uri.path == AppRoutes.register;
+
+      if (authState == AuthState.unknown || authState == AuthState.checking) {
+        if (!isSplash) return AppRoutes.splash;
+        return null;
+      }
+
+      if (authState == AuthState.unauthenticated || authState == AuthState.expired) {
+        if (!isAuth && !isRegister) {
+          return AppRoutes.auth;
+        }
+        return null;
+      }
+
+      if (authState == AuthState.authenticated) {
+        if (isSplash || isAuth || isRegister) {
+          return AppRoutes.dashboard;
+        }
+      }
+
+      return null;
+    },
     routes: [
       // ── App Lifecycle Routes ───────────────────────────────────────────────
       GoRoute(
@@ -47,6 +96,11 @@ GoRouter router(Ref ref) {
         parentNavigatorKey: _rootNavigatorKey,
         builder: (context, state) => const AuthScreen(),
       ),
+      GoRoute(
+        path: AppRoutes.register,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const RegisterScreen(),
+      ),
 
       // ── Main Shell Routes ────────────────────────────────────────────────
       StatefulShellRoute.indexedStack(
@@ -56,7 +110,7 @@ GoRouter router(Ref ref) {
         branches: [
           // Tab 0: Dashboard
           StatefulShellBranch(
-            navigatorKey: GlobalKey<NavigatorState>(debugLabel: 'dashboardNav'),
+            navigatorKey: _dashboardNavKey,
             routes: [
               GoRoute(
                 path: AppRoutes.dashboard,
@@ -70,7 +124,7 @@ GoRouter router(Ref ref) {
           ),
           // Tab 1: Rooms
           StatefulShellBranch(
-            navigatorKey: GlobalKey<NavigatorState>(debugLabel: 'roomsNav'),
+            navigatorKey: _roomsNavKey,
             routes: [
               GoRoute(
                 path: AppRoutes.rooms,
@@ -84,7 +138,7 @@ GoRouter router(Ref ref) {
           ),
           // Tab 2: Scenes
           StatefulShellBranch(
-            navigatorKey: GlobalKey<NavigatorState>(debugLabel: 'scenesNav'),
+            navigatorKey: _scenesNavKey,
             routes: [
               GoRoute(
                 path: AppRoutes.scenes,
@@ -98,7 +152,7 @@ GoRouter router(Ref ref) {
           ),
           // Tab 3: Profile
           StatefulShellBranch(
-            navigatorKey: GlobalKey<NavigatorState>(debugLabel: 'profileNav'),
+            navigatorKey: _profileNavKey,
             routes: [
               GoRoute(
                 path: AppRoutes.profile,
@@ -132,7 +186,6 @@ GoRouter router(Ref ref) {
         GoRoute(
           path: AppRoutes.debugWidgets,
           parentNavigatorKey: _rootNavigatorKey,
-          // Sử dụng slide transition cho màn hình push thông thường
           pageBuilder: (context, state) => _buildPageWithSlideTransition(
             context,
             state,
@@ -141,6 +194,13 @@ GoRouter router(Ref ref) {
         ),
     ],
   );
+
+  ref.onDispose(() {
+    authNotifier.dispose();
+    router.dispose();
+  });
+
+  return router;
 }
 
 // ── Transition Builders ────────────────────────────────────────────────────

@@ -11,7 +11,7 @@ part 'realtime_provider.g.dart';
 WebSocketClient webSocketClient(Ref ref) {
   final authRepo = ref.watch(authRepositoryProvider);
   
-  // Convert API baseUrl to WebSocket URL (e.g. http://10.0.2.2:3000 -> ws://10.0.2.2:3001/ws)
+  // Convert API baseUrl to WebSocket URL (e.g. http://localhost:3000 -> ws://localhost:3001/ws)
   final uri = Uri.parse(AppConfig.baseUrl);
   final wsHost = uri.host;
   final wsScheme = uri.scheme == 'https' ? 'wss' : 'ws';
@@ -21,10 +21,25 @@ WebSocketClient webSocketClient(Ref ref) {
   final client = WebSocketClient(url: wsUrl, authRepository: authRepo);
   ref.onDispose(() => client.disconnect());
   
-  // Start connection
-  client.connect();
-  
+  // Do NOT auto-connect here. Connection is triggered by auth state change below.
   return client;
+}
+
+/// Listens to auth state changes and connects/disconnects WebSocket accordingly.
+@Riverpod(keepAlive: true)
+void webSocketLifecycle(Ref ref) {
+  final authState = ref.watch(authControllerProvider);
+  final client = ref.watch(webSocketClientProvider);
+  
+  if (authState == AuthState.authenticated) {
+    // Only connect if not already connected
+    if (client.currentStatus == ConnectionStatus.disconnected ||
+        client.currentStatus == ConnectionStatus.error) {
+      client.connect();
+    }
+  } else if (authState == AuthState.unauthenticated) {
+    client.disconnect();
+  }
 }
 
 @Riverpod(keepAlive: true)

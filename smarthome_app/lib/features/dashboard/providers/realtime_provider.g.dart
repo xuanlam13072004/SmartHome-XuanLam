@@ -6,7 +6,7 @@ part of 'realtime_provider.dart';
 // RiverpodGenerator
 // **************************************************************************
 
-String _$webSocketClientHash() => r'108bc618ce884faee54378c1e5b421d5f8cb5d37';
+String _$webSocketClientHash() => r'44da7010fbc464ef1bf7ebe53b9668ce6676c213';
 
 /// See also [webSocketClient].
 @ProviderFor(webSocketClient)
@@ -23,6 +23,26 @@ final webSocketClientProvider = Provider<WebSocketClient>.internal(
 @Deprecated('Will be removed in 3.0. Use Ref instead')
 // ignore: unused_element
 typedef WebSocketClientRef = ProviderRef<WebSocketClient>;
+String _$webSocketLifecycleHash() =>
+    r'88972e30e899a5175793fc892213d5e3734c5c0b';
+
+/// Listens to auth state changes and connects/disconnects WebSocket accordingly.
+///
+/// Copied from [webSocketLifecycle].
+@ProviderFor(webSocketLifecycle)
+final webSocketLifecycleProvider = Provider<void>.internal(
+  webSocketLifecycle,
+  name: r'webSocketLifecycleProvider',
+  debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
+      ? null
+      : _$webSocketLifecycleHash,
+  dependencies: null,
+  allTransitiveDependencies: null,
+);
+
+@Deprecated('Will be removed in 3.0. Use Ref instead')
+// ignore: unused_element
+typedef WebSocketLifecycleRef = ProviderRef<void>;
 String _$realtimeRepositoryHash() =>
     r'6e506e2a0efcac0f52d99c4b00615d5910f84219';
 

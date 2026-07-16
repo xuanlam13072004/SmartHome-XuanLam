@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/core.dart';
 import '../../../core/widgets/widgets.dart';
+import '../../auth/providers/auth_provider.dart';
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return PageScaffold(
       appBar: AppBar(
         title: const Text('Cá nhân'),
@@ -111,7 +113,9 @@ class ProfileScreen extends StatelessWidget {
                   title: 'Đăng xuất',
                   iconColor: context.colorScheme.error,
                   textColor: context.colorScheme.error,
-                  onTap: () {},
+                  onTap: () {
+                    ref.read(authControllerProvider.notifier).logout();
+                  },
                 ),
               ],
             ),

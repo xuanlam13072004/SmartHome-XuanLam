@@ -1,12 +1,8 @@
-import 'package:flutter/material.dart';
+// auth_screen.dart now delegates to LoginScreen.
+// This file exists for backwards compatibility with router imports.
+export 'login_screen.dart' show LoginScreen;
 
-class AuthScreen extends StatelessWidget {
-  const AuthScreen({super.key});
+// Re-export LoginScreen as AuthScreen alias so existing router reference works.
+import 'login_screen.dart';
 
-  @override
-  Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(child: Text('Authentication Screen')),
-    );
-  }
-}
+typedef AuthScreen = LoginScreen;

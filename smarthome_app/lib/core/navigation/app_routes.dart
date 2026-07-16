@@ -3,6 +3,7 @@ abstract final class AppRoutes {
   static const String splash = '/';
   static const String init = '/init';
   static const String auth = '/auth';
+  static const String register = '/register';
 
   // Main Shell Tabs
   static const String dashboard = '/dashboard';
