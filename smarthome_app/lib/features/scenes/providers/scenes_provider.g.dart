@@ -6,7 +6,7 @@ part of 'scenes_provider.dart';
 // RiverpodGenerator
 // **************************************************************************
 
-String _$sceneRepositoryHash() => r'30d0f5d822a1a1be80bfb16ca4dd1e48612b8018';
+String _$sceneRepositoryHash() => r'4e731cc7c641e964dc8212aba7e3547f997fdd59';
 
 /// See also [sceneRepository].
 @ProviderFor(sceneRepository)

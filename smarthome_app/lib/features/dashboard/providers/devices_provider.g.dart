@@ -6,7 +6,7 @@ part of 'devices_provider.dart';
 // RiverpodGenerator
 // **************************************************************************
 
-String _$deviceRepositoryHash() => r'840cc953b29bb0ec90d64010ceb0df97dc54ead0';
+String _$deviceRepositoryHash() => r'398c17b4ef48646d3b7d3abedd108db9be8b4998';
 
 /// See also [deviceRepository].
 @ProviderFor(deviceRepository)
@@ -24,12 +24,12 @@ final deviceRepositoryProvider =
 @Deprecated('Will be removed in 3.0. Use Ref instead')
 // ignore: unused_element
 typedef DeviceRepositoryRef = AutoDisposeProviderRef<IDeviceRepository>;
-String _$devicesHash() => r'8ef1cab717f49af709282ac9e785fbe7aa85965f';
+String _$devicesHash() => r'd2cce7cf3582b349f492b1a6a04b1c93ca449914';
 
 /// See also [Devices].
 @ProviderFor(Devices)
 final devicesProvider =
-    AutoDisposeAsyncNotifierProvider<Devices, List<DeviceMock>>.internal(
+    AutoDisposeAsyncNotifierProvider<Devices, List<DeviceModel>>.internal(
   Devices.new,
   name: r'devicesProvider',
   debugGetCreateSourceHash:
@@ -38,6 +38,6 @@ final devicesProvider =
   allTransitiveDependencies: null,
 );
 
-typedef _$Devices = AutoDisposeAsyncNotifier<List<DeviceMock>>;
+typedef _$Devices = AutoDisposeAsyncNotifier<List<DeviceModel>>;
 // ignore_for_file: type=lint
 // ignore_for_file: subtype_of_sealed_class, invalid_use_of_internal_member, invalid_use_of_visible_for_testing_member, deprecated_member_use_from_same_package

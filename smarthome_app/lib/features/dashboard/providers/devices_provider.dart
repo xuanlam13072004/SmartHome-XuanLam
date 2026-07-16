@@ -1,19 +1,21 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
-import '../models/device_mock.dart';
+import '../../../domain/models/device_model.dart';
 import '../repositories/device_repository.dart';
+import '../../../data/datasources/remote/device_remote_data_source.dart';
 
 part 'devices_provider.g.dart';
 
 @riverpod
 IDeviceRepository deviceRepository(Ref ref) {
-  return MockDeviceRepository();
+  final remoteDataSource = ref.watch(deviceRemoteDataSourceProvider);
+  return ApiDeviceRepository(remoteDataSource);
 }
 
 @riverpod
 class Devices extends _$Devices {
   @override
-  FutureOr<List<DeviceMock>> build() async {
+  FutureOr<List<DeviceModel>> build() async {
     return ref.read(deviceRepositoryProvider).getDevices();
   }
 
@@ -23,27 +25,39 @@ class Devices extends _$Devices {
     // Optimistic Update: Cập nhật UI ngay lập tức
     if (state.value != null) {
       final devices = List.of(state.value!);
-      final deviceIndex = devices.indexWhere((d) => d.id == deviceId);
-      if (deviceIndex != -1) {
-        final device = devices[deviceIndex];
-        final capIndex = device.capabilities.indexWhere((c) => c.id == capabilityId);
-        if (capIndex != -1) {
-          final updatedCap = device.capabilities[capIndex].copyWith(value: value);
-          final newCapabilities = List.of(device.capabilities);
-          newCapabilities[capIndex] = updatedCap;
-          
-          devices[deviceIndex] = device.copyWith(capabilities: newCapabilities);
-          state = AsyncData(devices); // Cập nhật lại UI lập tức
-        }
-      }
-    }
+      
+      state = AsyncData(devices.map((device) {
+        if (device.id == deviceId) {
+          final newCapabilities = device.capabilities.map((cap) {
+            if (cap.id == capabilityId) {
+              return cap.copyWith(value: value);
+            }
+            return cap;
+          }).toList();
 
-    try {
-      // Gọi xuống Backend/Mock Repository
-      await ref.read(deviceRepositoryProvider).updateCapability(deviceId, capabilityId, value);
-    } catch (e) {
-      // Revert lại state cũ nếu có lỗi
-      state = previousState;
+          // Cập nhật giá trị trực tiếp vào rawState để giữ consistency (Tùy chọn)
+          final newRawState = Map<String, dynamic>.from(device.rawState);
+          newRawState[capabilityId] = value;
+
+          return device.copyWith(
+            capabilities: newCapabilities,
+            rawState: newRawState,
+          );
+        }
+        return device;
+      }).toList());
+
+      try {
+        final repo = ref.read(deviceRepositoryProvider);
+        // Background Update: Gọi xuống Repository (gọi API thật)
+        await repo.updateCapability(deviceId, capabilityId, value);
+        
+        // Bạn có thể trigger refresh nếu muốn lấy lại toàn bộ state từ Server
+        // ref.invalidateSelf();
+      } catch (e) {
+        // Revert lại state cũ nếu có lỗi
+        state = previousState;
+      }
     }
   }
 }

@@ -1,38 +1,53 @@
-import '../models/device_mock.dart';
+import '../../../domain/models/device_model.dart';
+import '../../../domain/models/product_model.dart';
+import '../../../data/datasources/remote/device_remote_data_source.dart';
+import '../../../domain/mappers/capability_assembler.dart';
+import '../../../domain/mappers/product_mapper.dart';
 
 abstract class IDeviceRepository {
-  Future<List<DeviceMock>> getDevices();
+  Future<List<DeviceModel>> getDevices();
   Future<void> updateCapability(String deviceId, String capabilityId, dynamic value);
 }
 
-class MockDeviceRepository implements IDeviceRepository {
-  // Biến tĩnh lưu trữ state giả lập trong RAM để giữ nguyên state khi điều hướng
-  final List<DeviceMock> _inMemoryDevices = List.from(DeviceMock.staticDevices);
+class ApiDeviceRepository implements IDeviceRepository {
+  final IDeviceRemoteDataSource remoteDataSource;
+  
+  // In-memory cache for Product Catalog
+  List<ProductModel>? _cachedProducts;
+
+  ApiDeviceRepository(this.remoteDataSource);
+
+  Future<List<ProductModel>> _getProducts() async {
+    if (_cachedProducts != null) return _cachedProducts!;
+    
+    try {
+      final productDtos = await remoteDataSource.getProducts();
+      _cachedProducts = productDtos.map((dto) => ProductMapper.fromDto(dto)).toList();
+      return _cachedProducts!;
+    } catch (e) {
+      return [];
+    }
+  }
 
   @override
-  Future<List<DeviceMock>> getDevices() async {
-    // Mô phỏng API delay
-    await Future<void>.delayed(const Duration(milliseconds: 500));
-    return _inMemoryDevices;
+  Future<List<DeviceModel>> getDevices() async {
+    final products = await _getProducts();
+    final deviceDtos = await remoteDataSource.getDevices();
+
+    return deviceDtos.map((dto) {
+      final product = products.where((p) => p.id == dto.productId).firstOrNull;
+      return CapabilityAssembler.assemble(dto, product);
+    }).toList();
   }
 
   @override
   Future<void> updateCapability(String deviceId, String capabilityId, dynamic value) async {
-    // Mô phỏng API delay
-    await Future<void>.delayed(const Duration(milliseconds: 300));
+    // Backend endpoint: /devices/:mac/commands
+    // deviceId chính là mac address
+    final action = 'set_$capabilityId'; // Dựa theo rule chung, ví dụ set_on_off, set_brightness
     
-    final deviceIndex = _inMemoryDevices.indexWhere((d) => d.id == deviceId);
-    if (deviceIndex == -1) throw Exception('Device not found');
-
-    final device = _inMemoryDevices[deviceIndex];
-    final capIndex = device.capabilities.indexWhere((c) => c.id == capabilityId);
-    if (capIndex == -1) throw Exception('Capability not found');
-
-    // Cập nhật giá trị
-    final updatedCap = device.capabilities[capIndex].copyWith(value: value);
-    final newCapabilities = List.of(device.capabilities);
-    newCapabilities[capIndex] = updatedCap;
-
-    _inMemoryDevices[deviceIndex] = device.copyWith(capabilities: newCapabilities);
+    await remoteDataSource.sendCommand(deviceId, action, 'default', {
+      'value': value,
+    });
   }
 }

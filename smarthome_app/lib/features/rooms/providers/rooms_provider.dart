@@ -2,7 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../models/room_mock.dart';
 import '../repositories/room_repository.dart';
-import '../../dashboard/models/device_mock.dart';
+import '../../../domain/models/device_model.dart';
 import '../../dashboard/providers/devices_provider.dart';
 
 part 'rooms_provider.g.dart';
@@ -26,7 +26,7 @@ class Rooms extends _$Rooms {
 int activeDevicesInRoom(Ref ref, String roomName) {
   final devicesAsync = ref.watch(devicesProvider);
   return devicesAsync.maybeWhen(
-    data: (List<DeviceMock> devices) {
+    data: (List<DeviceModel> devices) {
       return devices.where((d) => d.room == roomName && d.isPrimaryOn).length;
     },
     orElse: () => 0,
