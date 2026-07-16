@@ -8,6 +8,7 @@ import '../../features/splash/presentation/splash_screen.dart';
 import '../../features/init/presentation/init_screen.dart';
 import '../../features/auth/presentation/auth_screen.dart';
 import '../../features/dashboard/presentation/dashboard_screen.dart';
+import '../../features/dashboard/presentation/device_detail_screen.dart';
 import '../../features/rooms/presentation/rooms_screen.dart';
 import '../../features/scenes/presentation/scenes_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
@@ -110,6 +111,20 @@ GoRouter router(Ref ref) {
             ],
           ),
         ],
+      ),
+
+      // ── Feature Routes ───────────────────────────────────────────────────
+      GoRoute(
+        path: AppRoutes.deviceDetail,
+        parentNavigatorKey: _rootNavigatorKey,
+        pageBuilder: (context, state) {
+          final id = state.pathParameters['id']!;
+          return _buildPageWithSlideTransition(
+            context,
+            state,
+            DeviceDetailScreen(deviceId: id),
+          );
+        },
       ),
 
       // ── Debug Routes ─────────────────────────────────────────────────────

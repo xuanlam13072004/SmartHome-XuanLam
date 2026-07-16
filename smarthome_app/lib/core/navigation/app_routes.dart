@@ -10,6 +10,9 @@ abstract final class AppRoutes {
   static const String scenes = '/scenes';
   static const String profile = '/profile';
 
+  // Feature Routes
+  static const String deviceDetail = '/device/:id';
+
   // Debug Routes
   static const String debugWidgets = '/debug/widgets';
   static const String debugTheme = '/debug/theme';

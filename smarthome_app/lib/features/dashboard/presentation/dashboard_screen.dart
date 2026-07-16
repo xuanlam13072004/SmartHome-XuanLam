@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../../core/core.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/widgets/widgets.dart';
-import '../models/device_mock.dart';
+import '../providers/devices_provider.dart';
 
-class DashboardScreen extends StatelessWidget {
+class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final devicesAsync = ref.watch(devicesProvider);
+    
     // Scaffold được bọc sẵn để tương thích AppShell
     return Scaffold(
       backgroundColor: context.colorScheme.surface,
@@ -163,39 +167,60 @@ class DashboardScreen extends StatelessWidget {
           ),
 
           // ── Device Grid (Responsive) ─────────────────────────────────────
-          SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-            sliver: SliverGrid(
-              // Responsive: 2 cột trên điện thoại, tự giãn ra nếu màn hình lớn
-              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 220, // Độ rộng tối đa mỗi thẻ
-                mainAxisSpacing: AppSpacing.md,
-                crossAxisSpacing: AppSpacing.md,
-                childAspectRatio: 0.9, // Tỉ lệ chiều rộng / chiều cao của thẻ
-              ),
-              delegate: SliverChildBuilderDelegate(
-                (context, index) {
-                  final device = DeviceMock.staticDevices[index];
-                  return DeviceCard(
-                    title: device.title,
-                    subtitle: device.subtitle,
-                    icon: device.icon,
-                    status: device.status,
-                    iconColor: device.isOn ? context.colorScheme.primary : null,
-                    // Tạm thời hiển thị Toggle cho mọi thiết bị online
-                    actionWidget: device.status == DeviceStatus.online
-                        ? NeuToggle(
-                            value: device.isOn,
-                            onChanged: (_) {},
-                            width: 44,
-                            height: 24,
-                          )
-                        : null,
-                  );
-                },
-                childCount: DeviceMock.staticDevices.length,
-              ),
+          devicesAsync.when(
+            loading: () => const SliverToBoxAdapter(
+              child: Center(child: CircularProgressIndicator()),
             ),
+            error: (err, stack) => SliverToBoxAdapter(
+              child: Center(child: Text('Lỗi tải thiết bị: $err')),
+            ),
+            data: (devices) {
+              return SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                sliver: SliverGrid(
+                  // Responsive: 2 cột trên điện thoại, tự giãn ra nếu màn hình lớn
+                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 220, // Độ rộng tối đa mỗi thẻ
+                    mainAxisSpacing: AppSpacing.md,
+                    crossAxisSpacing: AppSpacing.md,
+                    childAspectRatio: 0.9, // Tỉ lệ chiều rộng / chiều cao của thẻ
+                  ),
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) {
+                      final device = devices[index];
+                      
+                      // Lấy primary capability (on_off) nếu có
+                      Widget? actionWidget;
+                      final onOffCap = device.capabilities.where((c) => c.type == 'on_off').firstOrNull;
+                      
+                      if (onOffCap != null && device.status == DeviceStatus.online) {
+                        actionWidget = NeuToggle(
+                          value: onOffCap.value as bool? ?? false,
+                          onChanged: (val) {
+                            ref.read(devicesProvider.notifier).updateCapability(device.id, onOffCap.id, val);
+                          },
+                          width: 44,
+                          height: 24,
+                        );
+                      }
+
+                      return DeviceCard(
+                        title: device.name,
+                        subtitle: device.room,
+                        icon: device.icon,
+                        status: device.status,
+                        iconColor: device.isPrimaryOn ? context.colorScheme.primary : null,
+                        actionWidget: actionWidget,
+                        onTap: () {
+                          context.push('/device/${device.id}');
+                        },
+                      );
+                    },
+                    childCount: devices.length,
+                  ),
+                ),
+              );
+            },
           ),
 
           // Padding dưới cùng cho ScrollView để không bị lẹm vào BottomBar
