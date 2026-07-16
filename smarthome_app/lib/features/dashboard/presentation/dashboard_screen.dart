@@ -5,6 +5,8 @@ import '../../../core/core.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/widgets/widgets.dart';
 import '../providers/devices_provider.dart';
+import '../providers/realtime_provider.dart';
+import '../../../core/network/websocket_client.dart';
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
@@ -64,6 +66,7 @@ class DashboardScreen extends ConsumerWidget {
                       iconColor: context.neu.categoryLight,
                       shape: BoxShape.circle,
                     ),
+                    const _ConnectionStatusIndicator(),
                   ],
                 ),
               ),
@@ -229,6 +232,60 @@ class DashboardScreen extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _ConnectionStatusIndicator extends ConsumerWidget {
+  const _ConnectionStatusIndicator();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final statusAsync = ref.watch(connectionStatusProvider);
+    
+    return statusAsync.when(
+      data: (status) {
+        Color color;
+        IconData icon;
+        switch (status) {
+          case ConnectionStatus.connected:
+            color = Colors.green;
+            icon = LucideIcons.wifi;
+            break;
+          case ConnectionStatus.connecting:
+          case ConnectionStatus.authenticating:
+          case ConnectionStatus.reconnecting:
+            color = Colors.orange;
+            icon = LucideIcons.loader;
+            break;
+          case ConnectionStatus.disconnected:
+          case ConnectionStatus.error:
+            color = Colors.red;
+            icon = LucideIcons.wifiOff;
+            break;
+        }
+        
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 12, color: color),
+              const SizedBox(width: 4),
+              Text(
+                status.name,
+                style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+        );
+      },
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
     );
   }
 }
