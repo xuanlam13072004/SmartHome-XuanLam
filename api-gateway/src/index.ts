@@ -30,7 +30,7 @@ const start = async () => {
             }
         });
 
-        app.decorate('catalogCache', null);
+        app.decorate('catalogCache', null as unknown as CatalogCache);
 
         // Load all plugins and decorators first
         await app.ready();

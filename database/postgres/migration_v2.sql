@@ -3,6 +3,8 @@
 -- Goal: Introduce event_version concurrency control & decouple workers
 -- ============================================================================
 
+SET search_path TO public;
+
 -- 1. Add event_version concurrency control column
 ALTER TABLE device_commands ADD COLUMN IF NOT EXISTS event_version BIGINT NOT NULL DEFAULT 0;
 

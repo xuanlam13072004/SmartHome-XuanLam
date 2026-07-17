@@ -1,0 +1,116 @@
+
+networks:
+  smarthome_net:
+    driver: bridge
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: smarthome
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    networks:
+      - smarthome_net
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    networks:
+      - smarthome_net
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: mosquitto
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
+    networks:
+      - smarthome_net
+    healthcheck:
+      test: [ "CMD-SHELL", "mosquitto_sub -t '$$SYS/#' -C 1 || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  db-migrate:
+    build:
+      context: .
+      dockerfile: api-gateway/Dockerfile
+    container_name: db-migrate
+    env_file:
+      - api-gateway/.env.docker
+    # Override command to run migration and seed script
+    command: [ "node", "/app/api-gateway/database/seeds/run_migration_and_seeds.js" ]
+    networks:
+      - smarthome_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: api-gateway/Dockerfile
+    container_name: api-gateway
+    env_file:
+      - api-gateway/.env.docker
+    ports:
+      - "3000:3000"
+    networks:
+      - smarthome_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
+
+  real-time-service:
+    build:
+      context: .
+      dockerfile: real-time-service/Dockerfile
+    container_name: real-time-service
+    env_file:
+      - real-time-service/.env.docker
+    ports:
+      - "3001:3001"
+    networks:
+      - smarthome_net
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  mqtt-worker-service:
+    build:
+      context: .
+      dockerfile: mqtt-worker-service/Dockerfile
+    container_name: mqtt-worker-service
+    env_file:
+      - mqtt-worker-service/.env.docker
+    networks:
+      - smarthome_net
+    depends_on:
+      redis:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

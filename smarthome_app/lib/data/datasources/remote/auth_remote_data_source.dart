@@ -2,7 +2,7 @@ import 'package:dio/dio.dart';
 
 abstract class IAuthRemoteDataSource {
   Future<Map<String, dynamic>> login(String email, String password);
-  Future<Map<String, dynamic>> register(String username, String email, String password);
+  Future<Map<String, dynamic>> register(String username, String email, String password, String fullName);
   Future<Map<String, dynamic>> refresh(String sessionId, String refreshToken);
   Future<void> logout(String sessionId, String refreshToken);
 }
@@ -26,13 +26,14 @@ class AuthRemoteDataSourceImpl implements IAuthRemoteDataSource {
   }
 
   @override
-  Future<Map<String, dynamic>> register(String username, String email, String password) async {
+  Future<Map<String, dynamic>> register(String username, String email, String password, String fullName) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '/auth/register',
       data: {
         'username': username,
         'email': email,
         'password': password,
+        'full_name': fullName,
       },
       options: Options(extra: {'skipAuth': true}),
     );

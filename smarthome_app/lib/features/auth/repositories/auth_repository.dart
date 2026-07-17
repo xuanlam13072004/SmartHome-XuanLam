@@ -3,7 +3,7 @@ import '../../../data/datasources/remote/auth_remote_data_source.dart';
 
 abstract class IAuthRepository {
   Future<void> login(String email, String password);
-  Future<void> register(String username, String email, String password);
+  Future<void> register(String username, String email, String password, String fullName);
   Future<void> logout();
   Future<String?> getToken();
   
@@ -44,8 +44,8 @@ class ApiAuthRepository implements IAuthRepository {
   }
 
   @override
-  Future<void> register(String username, String email, String password) async {
-    await remoteDataSource.register(username, email, password);
+  Future<void> register(String username, String email, String password, String fullName) async {
+    await remoteDataSource.register(username, email, password, fullName);
   }
 
   @override
