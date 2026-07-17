@@ -1,6 +1,5 @@
-const { validateValueAgainstSchema } = require('../../../shared/validation');
-const { REDIS_CHANNELS } = require('../../../shared/constants');
-const { recordCatalogReload } = require('../monitoring/metrics');
+const { validateValueAgainstSchema } = require('./validation');
+const { REDIS_CHANNELS } = require('./constants');
 
 /**
  * deepFreeze: Đóng băng sâu (Deep Freeze) một đối tượng bao gồm cả Map, Set đệ quy
@@ -87,6 +86,7 @@ class CatalogCache {
         this.capabilities = new Map();
         this.isInitialized = false;
         this.catalogVersion = 0;
+        this.options = arguments[3] || {};
     }
 
     async start() {
@@ -324,10 +324,12 @@ class CatalogCache {
         this.products = prodMap;
         this.catalogVersion = nextVersion;
 
-        try {
-            recordCatalogReload();
-        } catch (mErr) {
-            // Ignore if metrics not fully initialized
+        if (this.options?.onReloadSuccess) {
+            try {
+                this.options.onReloadSuccess();
+            } catch (err) {
+                // Ignore errors from callback
+            }
         }
 
         this.log.info(

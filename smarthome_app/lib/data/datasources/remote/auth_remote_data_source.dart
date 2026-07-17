@@ -2,9 +2,9 @@ import 'package:dio/dio.dart';
 
 abstract class IAuthRemoteDataSource {
   Future<Map<String, dynamic>> login(String email, String password);
-  Future<Map<String, dynamic>> register(String email, String password);
-  Future<Map<String, dynamic>> refresh(String refreshToken);
-  Future<void> logout(String refreshToken);
+  Future<Map<String, dynamic>> register(String username, String email, String password);
+  Future<Map<String, dynamic>> refresh(String sessionId, String refreshToken);
+  Future<void> logout(String sessionId, String refreshToken);
 }
 
 class AuthRemoteDataSourceImpl implements IAuthRemoteDataSource {
@@ -26,10 +26,11 @@ class AuthRemoteDataSourceImpl implements IAuthRemoteDataSource {
   }
 
   @override
-  Future<Map<String, dynamic>> register(String email, String password) async {
+  Future<Map<String, dynamic>> register(String username, String email, String password) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '/auth/register',
       data: {
+        'username': username,
         'email': email,
         'password': password,
       },
@@ -39,11 +40,12 @@ class AuthRemoteDataSourceImpl implements IAuthRemoteDataSource {
   }
 
   @override
-  Future<Map<String, dynamic>> refresh(String refreshToken) async {
+  Future<Map<String, dynamic>> refresh(String sessionId, String refreshToken) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '/auth/refresh',
       data: {
-        'refreshToken': refreshToken,
+        'session_id': sessionId,
+        'refresh_token': refreshToken,
       },
       options: Options(extra: {'skipAuth': true}),
     );
@@ -51,11 +53,12 @@ class AuthRemoteDataSourceImpl implements IAuthRemoteDataSource {
   }
 
   @override
-  Future<void> logout(String refreshToken) async {
+  Future<void> logout(String sessionId, String refreshToken) async {
     await _dio.post<void>(
       '/auth/logout',
       data: {
-        'refreshToken': refreshToken,
+        'session_id': sessionId,
+        'refresh_token': refreshToken,
       },
       options: Options(extra: {'skipAuth': true}),
     );

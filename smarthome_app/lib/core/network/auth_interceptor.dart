@@ -59,24 +59,27 @@ class AuthInterceptor extends Interceptor {
 
       try {
         final refreshToken = await tokenStorage.getRefreshToken();
-        if (refreshToken == null) {
-          throw Exception('No refresh token');
+        final sessionId = await tokenStorage.getSessionId();
+        if (refreshToken == null || sessionId == null) {
+          throw Exception('No refresh token or session id');
         }
 
         final res = await dio.post<Map<String, dynamic>>(
           '/auth/refresh',
-          data: {'refreshToken': refreshToken},
+          data: {'session_id': sessionId, 'refresh_token': refreshToken},
           options: Options(extra: {'skipAuth': true}),
         );
         
         final data = res.data!;
-        final newAccessToken = data['accessToken'] as String?;
-        final newRefreshToken = data['refreshToken'] as String?;
+        final newAccessToken = data['access_token'] as String?;
+        final newRefreshToken = data['refresh_token'] as String?;
+        final newSessionId = data['session_id'] as String?;
         
-        if (newAccessToken != null && newRefreshToken != null) {
+        if (newAccessToken != null && newRefreshToken != null && newSessionId != null) {
           await tokenStorage.saveTokens(
             accessToken: newAccessToken,
             refreshToken: newRefreshToken,
+            sessionId: newSessionId,
           );
           
           _refreshTokenCompleter?.complete(true);
@@ -87,6 +90,7 @@ class AuthInterceptor extends Interceptor {
           throw Exception('Invalid token response');
         }
       } catch (e) {
+        await tokenStorage.clearTokens();
         _refreshTokenCompleter?.complete(false);
         _isRefreshing = false;
         return handler.next(err);

@@ -21,16 +21,42 @@ async function runPostgresMigration() {
     await client.connect();
 
     try {
-        const sqlPath = path.join(__dirname, '../postgres/migration_v3.sql');
-        console.log(`Reading SQL migration from: ${sqlPath}`);
-        const sqlContent = fs.readFileSync(sqlPath, 'utf8');
+        console.log('Checking if public.accounts table exists...');
+        const res = await client.query("SELECT to_regclass('public.accounts') as exists");
+        const accountsExists = res.rows[0].exists !== null;
 
-        console.log('Executing PostgreSQL migration...');
-        await client.query(sqlContent);
+        if (!accountsExists) {
+            console.log('Database is empty. Running schema.sql...');
+            const schemaPath = path.join(__dirname, '../postgres/schema.sql');
+            const schemaSql = fs.readFileSync(schemaPath, 'utf8');
+            await client.query(schemaSql);
+            console.log('schema.sql applied successfully.');
+        } else {
+            console.log('Database already initialized. Running migrations...');
+        }
+
+        // Run migration v2
+        const v2Path = path.join(__dirname, '../postgres/migration_v2.sql');
+        if (fs.existsSync(v2Path)) {
+            console.log(`Applying migration v2: ${v2Path}`);
+            const v2Sql = fs.readFileSync(v2Path, 'utf8');
+            await client.query(v2Sql);
+            console.log('migration_v2.sql applied successfully.');
+        }
+
+        // Run migration v3
+        const v3Path = path.join(__dirname, '../postgres/migration_v3.sql');
+        if (fs.existsSync(v3Path)) {
+            console.log(`Applying migration v3: ${v3Path}`);
+            const v3Sql = fs.readFileSync(v3Path, 'utf8');
+            await client.query(v3Sql);
+            console.log('migration_v3.sql applied successfully.');
+        }
+
         console.log('PostgreSQL migration completed successfully.');
     } catch (err) {
         console.error('PostgreSQL migration failed:', err);
-        throw err;
+        throw err; // Stop process if Postgres fails
     } finally {
         await client.end();
     }
@@ -112,11 +138,7 @@ async function runMongoSeeding() {
 
 async function main() {
     try {
-        try {
-            await runPostgresMigration();
-        } catch (pgErr) {
-            console.warn('PostgreSQL migration failed or already applied. Continuing to MongoDB seeding...', pgErr.message);
-        }
+        await runPostgresMigration();
         await runMongoSeeding();
         console.log('\n====================================');
         console.log(' DATABASE MIGRATION & SEEDING DONE! ');

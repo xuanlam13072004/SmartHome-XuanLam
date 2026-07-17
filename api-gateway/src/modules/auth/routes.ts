@@ -16,6 +16,10 @@ const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
     app.post('/auth/register', {
         config: typedRouteConfig({
             zodSchema: registerSchema,
+            rateLimit: {
+                max: 5,
+                timeWindow: '1 minute',
+            },
         }),
     }, async (request) => {
         const body = request.body as any;

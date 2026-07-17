@@ -8,14 +8,26 @@ import fp from 'fastify-plugin';
  */
 const errorHandlerPlugin: FastifyPluginAsync = async (app: FastifyInstance) => {
     app.setErrorHandler((error: FastifyError, request, reply) => {
-        const statusCode = error.statusCode || 500;
+        let statusCode = error.statusCode || 500;
+        let errorCode = error.code || 'INTERNAL_ERROR';
+        let errorMessage = error.message || 'Internal server error';
+
+        // Map riêng lỗi Postgres unique constraint (23505) -> 409
+        if ((error as any).code === '23505') {
+            statusCode = 409;
+            errorCode = 'CONFLICT';
+            errorMessage = 'Resource already exists or constraint violation.';
+        } else if (statusCode >= 500) {
+            // Ẩn chi tiết lỗi với các lỗi 5xx
+            errorMessage = 'Internal server error';
+        }
 
         // Default response format
         const response = {
             success: false,
             error: {
-                code: error.code || 'INTERNAL_ERROR',
-                message: error.message || 'Internal server error',
+                code: errorCode,
+                message: errorMessage,
             },
             meta: {
                 requestId: request.id,

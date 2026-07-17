@@ -8,6 +8,8 @@ import jwtPlugin from './plugins/jwt';
 import errorHandlerPlugin from './plugins/errorHandler';
 import validationPlugin from './plugins/validation';
 import rateLimitPlugin from './plugins/rateLimit';
+import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
 
 /**
  * buildApp
@@ -19,6 +21,10 @@ export function buildApp(): FastifyInstance {
     const app = fastify({
         logger: true,
     });
+
+    // Security plugins
+    app.register(helmet);
+    app.register(cors, { origin: true }); // Allow all origins in dev
 
     // Register global error handler
     app.register(errorHandlerPlugin);

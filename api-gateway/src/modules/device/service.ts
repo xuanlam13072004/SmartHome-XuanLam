@@ -387,7 +387,7 @@ export async function sendDeviceCommand(app: FastifyInstance, input: {
 
 export async function getDeviceState(app: FastifyInstance, mac: string, ownerId: string) {
     const ownership = await app.pg.query(
-        'SELECT 1 FROM device_metadata WHERE owner_id = $1 AND mac = $2',
+        'SELECT 1 FROM device_metadata WHERE owner_id = $1 AND mac = $2 AND is_active = true',
         [ownerId, mac]
     );
 

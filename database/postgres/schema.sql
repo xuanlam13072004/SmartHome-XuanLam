@@ -2,7 +2,6 @@
 -- PostgreSQL database dump
 --
 
-\restrict 4cU9hPYYoVoycUQOb5hjE3XcdpVsvxABZTLaDiamA3pFd0rC9s9YeFn7LTp1yaX
 
 -- Dumped from database version 18.3
 -- Dumped by pg_dump version 18.3
@@ -86,12 +85,12 @@ CREATE TABLE public.device_metadata (
     owner_id uuid NOT NULL,
     mac character varying(17) NOT NULL,
     name text NOT NULL,
-    role text NOT NULL,
+    product_id text NOT NULL,
+    gateway_id uuid,
     is_active boolean DEFAULT true,
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
-    CONSTRAINT check_mac_format CHECK (((mac)::text ~ '^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$'::text)),
-    CONSTRAINT device_metadata_role_check CHECK ((role = ANY (ARRAY['hub'::text, 'node'::text, 'relay'::text])))
+    CONSTRAINT check_mac_format CHECK (((mac)::text ~ '^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$'::text))
 );
 
 
@@ -104,7 +103,7 @@ ALTER TABLE public.device_metadata OWNER TO postgres;
 CREATE TABLE public.factory_devices (
     mac text NOT NULL,
     secret_key text NOT NULL,
-    role text NOT NULL,
+    product_id text NOT NULL,
     is_claimed boolean DEFAULT false,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
@@ -321,6 +320,4 @@ ALTER TABLE ONLY public.user_sessions
 --
 -- PostgreSQL database dump complete
 --
-
-\unrestrict 4cU9hPYYoVoycUQOb5hjE3XcdpVsvxABZTLaDiamA3pFd0rC9s9YeFn7LTp1yaX
 

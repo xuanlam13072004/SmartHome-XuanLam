@@ -29,7 +29,7 @@ export async function registerUser(app: FastifyInstance, input: {
     );
 
     if (existing.rows.length > 0) {
-        const err = new Error('Email or username already exists') as any;
+        const err = new Error('An account with this email or username already exists.') as any;
         err.statusCode = 409;
         err.code = 'ACCOUNT_EXISTS';
         throw err;
@@ -138,8 +138,11 @@ export async function refreshSession(app: FastifyInstance, input: {
         throw err;
     }
 
+    const userResult = await app.pg.query('SELECT email FROM accounts WHERE id = $1', [session.owner_id]);
+    const email = userResult.rows[0]?.email;
+
     const accessToken = app.jwt.sign(
-        { userId: session.owner_id },
+        { userId: session.owner_id, email },
         { expiresIn: env.JWT_EXPIRES_IN }
     );
 

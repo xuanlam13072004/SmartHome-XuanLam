@@ -12,7 +12,7 @@ import { env } from './config/env';
 import { buildApp } from './app';
 import { syncOwnershipToRedis } from './modules/device/service';
 import { CommandStatusConsumer } from './workers/commandStatusConsumer';
-import { CatalogCache } from './modules/device/catalogCache';
+import { CatalogCache } from '../../shared/catalogCache';
 
 const app = buildApp();
 

@@ -19,6 +19,10 @@ const deviceRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         preHandler: [app.authenticate],
         config: typedRouteConfig({
             zodSchema: claimSchema,
+            rateLimit: {
+                max: 10,
+                timeWindow: '1 minute',
+            },
         }),
     }, async (request) => {
         const body = request.body as any;
@@ -41,6 +45,10 @@ const deviceRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         preHandler: [app.authenticate],
         config: typedRouteConfig({
             zodSchema: commandSchema,
+            rateLimit: {
+                max: 30,
+                timeWindow: '1 minute',
+            },
         }),
     }, async (request) => {
         const params = request.params as any;

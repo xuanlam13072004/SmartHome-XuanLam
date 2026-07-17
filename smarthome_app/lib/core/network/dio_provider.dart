@@ -4,6 +4,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../config/app_config.dart';
 import '../storage/token_storage_provider.dart';
 import 'auth_interceptor.dart';
+import 'package:flutter/foundation.dart';
 
 part 'dio_provider.g.dart';
 
@@ -17,16 +18,19 @@ Dio dio(Ref ref) {
     ),
   );
 
-  dio.interceptors.add(
-    LogInterceptor(
-      request: true,
-      requestHeader: true,
-      requestBody: true,
-      responseHeader: true,
-      responseBody: true,
-      error: true,
-    ),
-  );
+  if (kDebugMode) {
+    dio.interceptors.add(
+      LogInterceptor(
+        request: true,
+        requestHeader: true,
+        requestBody: true,
+        responseHeader: true,
+        responseBody: true,
+        error: true,
+      ),
+    );
+  }
+  
   dio.interceptors.add(
     AuthInterceptor(
       tokenStorage: ref.watch(tokenStorageProvider),

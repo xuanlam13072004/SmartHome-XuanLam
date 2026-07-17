@@ -3,7 +3,7 @@ import '../../../data/datasources/remote/auth_remote_data_source.dart';
 
 abstract class IAuthRepository {
   Future<void> login(String email, String password);
-  Future<void> register(String email, String password);
+  Future<void> register(String username, String email, String password);
   Future<void> logout();
   Future<String?> getToken();
   
@@ -24,14 +24,16 @@ class ApiAuthRepository implements IAuthRepository {
   @override
   Future<void> login(String email, String password) async {
     final response = await remoteDataSource.login(email, password);
-    final accessToken = response['accessToken'] as String?;
-    final refreshToken = response['refreshToken'] as String?;
+    final accessToken = response['access_token'] as String?;
+    final refreshToken = response['refresh_token'] as String?;
+    final sessionId = response['session_id'] as String?;
     final user = response['user'] as Map<String, dynamic>?;
     
-    if (accessToken != null && refreshToken != null) {
+    if (accessToken != null && refreshToken != null && sessionId != null) {
       await tokenStorage.saveTokens(
         accessToken: accessToken,
         refreshToken: refreshToken,
+        sessionId: sessionId,
       );
       if (user != null && user['id'] != null) {
         await tokenStorage.saveUserId(user['id'] as String);
@@ -42,16 +44,17 @@ class ApiAuthRepository implements IAuthRepository {
   }
 
   @override
-  Future<void> register(String email, String password) async {
-    await remoteDataSource.register(email, password);
+  Future<void> register(String username, String email, String password) async {
+    await remoteDataSource.register(username, email, password);
   }
 
   @override
   Future<void> logout() async {
     final refreshToken = await tokenStorage.getRefreshToken();
-    if (refreshToken != null) {
+    final sessionId = await tokenStorage.getSessionId();
+    if (refreshToken != null && sessionId != null) {
       try {
-        await remoteDataSource.logout(refreshToken);
+        await remoteDataSource.logout(sessionId, refreshToken);
       } catch (_) {}
     }
     await tokenStorage.clearTokens();

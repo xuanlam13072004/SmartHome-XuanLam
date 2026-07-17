@@ -10,7 +10,8 @@ const config = require('./config/env');
 const { createRedisClient } = require('./infra/redisClient');
 const { createMqttClient } = require('./infra/mqttClient');
 const { createMongoClient } = require('./infra/mongoClient');
-const { CatalogCache } = require('./services/catalogCache');
+const { CatalogCache } = require('../../shared/catalogCache');
+const { recordCatalogReload } = require('./monitoring/metrics');
 const { startCommandConsumer } = require('./workers/commandConsumer');
 const { startTelemetrySubscriber } = require('./workers/telemetrySubscriber');
 const { startPresenceWorker } = require('./workers/presenceWorker');
@@ -197,7 +198,7 @@ async function start() {
     }
 
     // Khởi động Catalog Cache
-    const catalogCache = new CatalogCache(state.mongoClient.db(config.MONGO_DB_NAME), state.redis, logger);
+    const catalogCache = new CatalogCache(state.mongoClient.db(config.MONGO_DB_NAME), state.redis, logger, { onReloadSuccess: recordCatalogReload });
     await catalogCache.start();
     state.catalogCache = catalogCache;
 
