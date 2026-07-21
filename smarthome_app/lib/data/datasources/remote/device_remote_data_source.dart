@@ -35,10 +35,6 @@ class DeviceRemoteDataSourceImpl implements IDeviceRemoteDataSource {
 
   @override
   Future<List<DeviceDto>> getDevices() async {
-    // Note: Ở backend thực tế có preHandler authenticate, nên endpoint này 
-    // có thể cần auth_token mới pass được.
-    // Tạm thời ta thiết kế luồng, phần Auth sẽ handle sau (nếu backend require auth).
-    // Có thể cần mock token interceptor ở dioProvider nếu api gateway trả về 401.
     final response = await _dio.get<Map<String, dynamic>>('/devices');
     if (response.data != null && response.data!['success'] == true) {
       final devicesJson = response.data!['devices'] as List;

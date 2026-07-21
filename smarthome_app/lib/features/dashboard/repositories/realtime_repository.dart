@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import '../../../core/network/websocket_client.dart';
 import '../../../domain/models/ws_events.dart';
 
@@ -14,7 +15,7 @@ class RealtimeRepositoryImpl implements IRealtimeRepository {
   final _eventController = StreamController<WsEvent>.broadcast();
   StreamSubscription<dynamic>? _sub;
 
-  // Deduplication cache: mac -> last rawState JSON string
+  // Deduplication cache: mac -> last rawState canonical JSON string
   final Map<String, String> _lastStateCache = {};
 
   RealtimeRepositoryImpl(this._client) {
@@ -24,9 +25,9 @@ class RealtimeRepositoryImpl implements IRealtimeRepository {
   void _onRawMessage(String rawJson) {
     final event = WsEventParser.parse(rawJson);
     
-    // Deduplication Logic
+    // Deduplication Logic — use canonical JSON for reliable comparison
     if (event is TelemetryEvent) {
-      final stateStr = event.payload.toString(); 
+      final stateStr = jsonEncode(event.payload);
       if (_lastStateCache[event.mac] == stateStr) {
         return; // Ignore duplicate
       }

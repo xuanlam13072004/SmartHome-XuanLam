@@ -85,9 +85,10 @@ class WebSocketClient {
   Future<void> _authenticate() async {
     _updateStatus(ConnectionStatus.authenticating);
     try {
-      final token = await authRepository.getToken();
+      // Use getValidToken which checks expiry and auto-refreshes if needed
+      final token = await authRepository.getValidToken();
       if (token == null) {
-        throw Exception('No token available');
+        throw Exception('No valid token available');
       }
       final authMessage = jsonEncode({
         'event': 'auth',

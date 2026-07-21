@@ -44,7 +44,7 @@ final webSocketLifecycleProvider = Provider<void>.internal(
 // ignore: unused_element
 typedef WebSocketLifecycleRef = ProviderRef<void>;
 String _$realtimeRepositoryHash() =>
-    r'6e506e2a0efcac0f52d99c4b00615d5910f84219';
+    r'62d009ceea8319d36fba80473bfdb523c9c21608';
 
 /// See also [realtimeRepository].
 @ProviderFor(realtimeRepository)

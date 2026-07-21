@@ -341,6 +341,10 @@ class CatalogCache {
     getProduct(productId) {
         return this.products.get(productId);
     }
+
+    getAllProducts() {
+        return Array.from(this.products.values());
+    }
 }
 
 module.exports = {

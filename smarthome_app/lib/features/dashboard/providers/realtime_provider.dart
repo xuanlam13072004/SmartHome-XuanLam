@@ -45,7 +45,9 @@ void webSocketLifecycle(Ref ref) {
 @Riverpod(keepAlive: true)
 IRealtimeRepository realtimeRepository(Ref ref) {
   final client = ref.watch(webSocketClientProvider);
-  return RealtimeRepositoryImpl(client);
+  final repo = RealtimeRepositoryImpl(client);
+  ref.onDispose(() => repo.dispose());
+  return repo;
 }
 
 @riverpod

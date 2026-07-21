@@ -12,7 +12,7 @@ abstract final class AppRoutes {
   static const String profile = '/profile';
 
   // Feature Routes
-  static const String deviceDetail = '/device/:id';
+  static const String deviceDetail = '/device/:mac';
 
   // Debug Routes
   static const String debugWidgets = '/debug/widgets';

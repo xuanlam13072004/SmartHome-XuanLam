@@ -9,10 +9,10 @@ import '../widgets/capabilities/capability_registry.dart';
 class DeviceDetailScreen extends ConsumerWidget {
   const DeviceDetailScreen({
     super.key,
-    required this.deviceId,
+    required this.deviceMac,
   });
 
-  final String deviceId;
+  final String deviceMac;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -23,15 +23,42 @@ class DeviceDetailScreen extends ConsumerWidget {
         appBar: null,
         child: Center(child: CircularProgressIndicator()),
       ),
-      error: (err, stack) => PageScaffold(
+      error: (err, stack) => const PageScaffold(
         appBar: null,
-        child: Center(child: Text('Lỗi: $err')),
+        child: Center(child: Text('Không thể tải thông tin thiết bị')),
       ),
       data: (devices) {
-        final device = devices.firstWhere(
-          (d) => d.id == deviceId,
-          orElse: () => devices.first, // fallback
-        );
+        final deviceIndex = devices.indexWhere((d) => d.mac == deviceMac);
+        
+        // Safe fallback: show error instead of crashing or wrong device
+        if (deviceIndex == -1) {
+          return PageScaffold(
+            appBar: AppBar(
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () => context.pop(),
+              ),
+              title: const Text('Thiết bị'),
+            ),
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.device_unknown, size: 64, color: context.colorScheme.onSurfaceVariant),
+                  const SizedBox(height: AppSpacing.md),
+                  Text(
+                    'Không tìm thấy thiết bị',
+                    style: context.textTheme.titleMedium?.copyWith(
+                      color: context.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        final device = devices[deviceIndex];
 
         return PageScaffold(
           appBar: AppBar(
@@ -73,7 +100,18 @@ class DeviceDetailScreen extends ConsumerWidget {
                 context,
                 device.capabilities,
                 (capId, value) {
-                  ref.read(devicesProvider.notifier).updateCapability(deviceId, capId, value);
+                  // Find the capability to get its real action and instance
+                  final cap = device.capabilities.firstWhere(
+                    (c) => c.id == capId,
+                    orElse: () => device.capabilities.first,
+                  );
+                  ref.read(devicesProvider.notifier).updateCapability(
+                    deviceMac,
+                    capId,
+                    cap.instance,
+                    cap.action ?? capId,
+                    value,
+                  );
                 },
               ),
             ],
@@ -83,4 +121,3 @@ class DeviceDetailScreen extends ConsumerWidget {
     );
   }
 }
-

@@ -2,8 +2,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../models/room_mock.dart';
 import '../repositories/room_repository.dart';
-import '../../../domain/models/device_model.dart';
-import '../../dashboard/providers/devices_provider.dart';
 
 part 'rooms_provider.g.dart';
 
@@ -20,15 +18,7 @@ class Rooms extends _$Rooms {
   }
 }
 
-/// Tính số lượng thiết bị đang bật trong 1 phòng, dựa vào devicesProvider.
-/// Khi Devices thay đổi trạng thái, Provider này sẽ tự tính toán lại.
-@riverpod
-int activeDevicesInRoom(Ref ref, String roomName) {
-  final devicesAsync = ref.watch(devicesProvider);
-  return devicesAsync.maybeWhen(
-    data: (List<DeviceModel> devices) {
-      return devices.where((d) => d.room == roomName && d.isPrimaryOn).length;
-    },
-    orElse: () => 0,
-  );
-}
+// Note: activeDevicesInRoom provider has been removed.
+// Backend does not support room assignment for devices.
+// When backend adds room support, this provider should be re-added
+// using the actual room_id field from the device data model.

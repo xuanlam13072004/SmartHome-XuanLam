@@ -9,6 +9,10 @@ abstract class ITokenStorage {
   Future<void> clearTokens();
   Future<void> saveUserId(String userId);
   Future<String?> getUserId();
+  Future<void> saveUserProfile({required String fullName, required String email, required String username});
+  Future<String?> getUserFullName();
+  Future<String?> getUserEmail();
+  Future<String?> getUserUsername();
 }
 
 class SecureTokenStorageImpl implements ITokenStorage {
@@ -46,6 +50,9 @@ class SecureTokenStorageImpl implements ITokenStorage {
     await _storage.delete(key: StorageKeys.refreshToken);
     await _storage.delete(key: StorageKeys.sessionId);
     await _storage.delete(key: StorageKeys.userId);
+    await _storage.delete(key: StorageKeys.userFullName);
+    await _storage.delete(key: StorageKeys.userEmail);
+    await _storage.delete(key: StorageKeys.userUsername);
   }
 
   @override
@@ -56,5 +63,27 @@ class SecureTokenStorageImpl implements ITokenStorage {
   @override
   Future<String?> getUserId() async {
     return await _storage.read(key: StorageKeys.userId);
+  }
+
+  @override
+  Future<void> saveUserProfile({required String fullName, required String email, required String username}) async {
+    await _storage.write(key: StorageKeys.userFullName, value: fullName);
+    await _storage.write(key: StorageKeys.userEmail, value: email);
+    await _storage.write(key: StorageKeys.userUsername, value: username);
+  }
+
+  @override
+  Future<String?> getUserFullName() async {
+    return await _storage.read(key: StorageKeys.userFullName);
+  }
+
+  @override
+  Future<String?> getUserEmail() async {
+    return await _storage.read(key: StorageKeys.userEmail);
+  }
+
+  @override
+  Future<String?> getUserUsername() async {
+    return await _storage.read(key: StorageKeys.userUsername);
   }
 }

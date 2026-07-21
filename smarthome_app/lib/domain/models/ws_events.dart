@@ -10,7 +10,7 @@ class AuthSuccessEvent extends WsEvent {
 }
 
 class InitialStateEvent extends WsEvent {
-  final List<dynamic> rawDevices; // We keep it as dynamic to let Assembler handle it
+  final List<dynamic> rawDevices;
   InitialStateEvent(this.rawDevices) : super('initial_state');
 }
 
@@ -36,6 +36,24 @@ class DeviceStatusEvent extends WsEvent {
   }) : super('device_status');
 }
 
+class CommandStatusEvent extends WsEvent {
+  final String mac;
+  final Map<String, dynamic> payload;
+  final String timestamp;
+
+  CommandStatusEvent({
+    required this.mac,
+    required this.payload,
+    required this.timestamp,
+  }) : super('command_status');
+}
+
+class ActiveCommandsEvent extends WsEvent {
+  final List<dynamic> commands;
+
+  ActiveCommandsEvent(this.commands) : super('active_commands');
+}
+
 class UnknownEvent extends WsEvent {
   final String rawData;
   UnknownEvent(this.rawData) : super('unknown');
@@ -59,13 +77,21 @@ class WsEventParser {
             timestamp: data['timestamp'] as String? ?? '',
           );
         case 'device_status':
-          // Depending on backend payload structure, typically:
-          // payload: { is_online: true } or directly mapped
-          final isOnline = data['payload']?['is_online'] as bool? ?? false;
+          // Backend sends: { event: 'device_status', mac, payload: { is_online } }
+          final payload = data['payload'] as Map<String, dynamic>? ?? <String, dynamic>{};
+          final isOnline = payload['is_online'] as bool? ?? false;
           return DeviceStatusEvent(
             mac: data['mac'] as String? ?? '',
             isOnline: isOnline,
           );
+        case 'command_status':
+          return CommandStatusEvent(
+            mac: data['mac'] as String? ?? '',
+            payload: data['payload'] as Map<String, dynamic>? ?? <String, dynamic>{},
+            timestamp: data['timestamp'] as String? ?? '',
+          );
+        case 'active_commands':
+          return ActiveCommandsEvent(data['commands'] as List<dynamic>? ?? []);
         default:
           return UnknownEvent(rawJson);
       }

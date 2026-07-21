@@ -1,25 +1,37 @@
 import '../../../domain/models/device_model.dart';
 import '../../../domain/models/product_model.dart';
 import '../../../data/datasources/remote/device_remote_data_source.dart';
+import '../../../data/models/dto/device_dto.dart';
 import '../../../domain/mappers/capability_assembler.dart';
 import '../../../domain/mappers/product_mapper.dart';
 import '../../../core/network/websocket_client.dart';
+import '../../../core/widgets/indicators/status_badge.dart' show DeviceStatus;
 import 'dart:async';
 
 abstract class IDeviceRepository {
   Future<List<DeviceModel>> getDevices();
-  Future<void> updateCapability(String deviceId, String capabilityId, dynamic value);
+  Future<void> updateCapability(String mac, String capabilityId, String instance, String action, dynamic value);
   Future<ProductModel?> getProduct(String productId);
+
+  /// Assemble a DeviceModel from raw WS JSON data.
+  Future<DeviceModel> assembleFromWsJson(Map<String, dynamic> rawJson);
+
+  /// Build updated DeviceModel from telemetry event payload merge.
+  Future<DeviceModel> mergeDeviceTelemetry(DeviceModel device, Map<String, dynamic> newPayload);
+
+  /// Build updated DeviceModel with new online status.
+  DeviceModel updateDeviceStatus(DeviceModel device, bool isOnline);
+
   void dispose();
 }
 
 class ApiDeviceRepository implements IDeviceRepository {
   final IDeviceRemoteDataSource remoteDataSource;
   final WebSocketClient webSocketClient;
-  
+
   // In-memory cache for Product Catalog
   List<ProductModel>? _cachedProducts;
-  
+
   // Pending Command Queue
   final List<Map<String, dynamic>> _pendingCommands = [];
   StreamSubscription<ConnectionStatus>? _wsStatusSub;
@@ -34,14 +46,14 @@ class ApiDeviceRepository implements IDeviceRepository {
 
   void _flushPendingCommands() async {
     if (_pendingCommands.isEmpty) return;
-    
+
     final queue = List<Map<String, dynamic>>.from(_pendingCommands);
     _pendingCommands.clear();
 
     for (final cmd in queue) {
       try {
         await remoteDataSource.sendCommand(
-          cmd['deviceId'] as String,
+          cmd['mac'] as String,
           cmd['action'] as String,
           cmd['instance'] as String,
           cmd['payload'] as Map<String, dynamic>,
@@ -60,7 +72,7 @@ class ApiDeviceRepository implements IDeviceRepository {
 
   Future<List<ProductModel>> _getProducts() async {
     if (_cachedProducts != null) return _cachedProducts!;
-    
+
     try {
       final productDtos = await remoteDataSource.getProducts();
       _cachedProducts = productDtos.map((dto) => ProductMapper.fromDto(dto)).toList();
@@ -88,28 +100,65 @@ class ApiDeviceRepository implements IDeviceRepository {
   }
 
   @override
-  Future<void> updateCapability(String deviceId, String capabilityId, dynamic value) async {
-    // Backend endpoint: /devices/:mac/commands
-    final action = 'set_$capabilityId';
+  Future<DeviceModel> assembleFromWsJson(Map<String, dynamic> rawJson) async {
+    final dto = DeviceDto.fromJson(rawJson);
+    final product = await getProduct(dto.productId);
+    return CapabilityAssembler.assemble(dto, product);
+  }
+
+  @override
+  Future<DeviceModel> mergeDeviceTelemetry(DeviceModel device, Map<String, dynamic> newPayload) async {
+    final newRawState = Map<String, dynamic>.from(device.rawState);
+    newRawState.addAll(newPayload);
+
+    final product = await getProduct(device.productId);
+
+    final dto = DeviceDto(
+      mac: device.mac,
+      ownerId: device.ownerId,
+      name: device.name,
+      productId: device.productId,
+      isActive: true,
+      isOnline: device.status == DeviceStatus.online,
+      state: newRawState,
+      diagnostics: device.diagnostics,
+      lastSeen: device.lastSeen,
+      rssi: device.rssi,
+      battery: device.battery,
+    );
+
+    return CapabilityAssembler.assemble(dto, product);
+  }
+
+  @override
+  DeviceModel updateDeviceStatus(DeviceModel device, bool isOnline) {
+    return device.copyWith(
+      status: isOnline ? DeviceStatus.online : DeviceStatus.offline,
+    );
+  }
+
+  @override
+  Future<void> updateCapability(String mac, String capabilityId, String instance, String action, dynamic value) async {
+    // Use the actual action and instance from the capability model
     final payload = {'value': value};
-    
+
     if (webSocketClient.currentStatus != ConnectionStatus.connected) {
       _pendingCommands.add({
-        'deviceId': deviceId,
+        'mac': mac,
         'action': action,
-        'instance': 'default',
+        'instance': instance,
         'payload': payload,
       });
       return;
     }
 
     try {
-      await remoteDataSource.sendCommand(deviceId, action, 'default', payload);
+      await remoteDataSource.sendCommand(mac, action, instance, payload);
     } catch (e) {
       _pendingCommands.add({
-        'deviceId': deviceId,
+        'mac': mac,
         'action': action,
-        'instance': 'default',
+        'instance': instance,
         'payload': payload,
       });
     }

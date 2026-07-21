@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/core.dart';
 import '../../../core/widgets/widgets.dart';
 import '../models/room_mock.dart';
-import '../providers/rooms_provider.dart';
 
 class RoomCard extends ConsumerWidget {
   const RoomCard({
@@ -17,9 +16,6 @@ class RoomCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Tự động tính toán số thiết bị đang bật trong phòng này
-    final activeCount = ref.watch(activeDevicesInRoomProvider(room.name));
-
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
@@ -33,8 +29,7 @@ class RoomCard extends ConsumerWidget {
               children: [
                 NeuIconBox(
                   icon: room.icon,
-                  isActive: activeCount > 0,
-                  iconColor: activeCount > 0 ? context.colorScheme.primary : null,
+                  isActive: false,
                 ),
                 Icon(
                   Icons.more_vert,
@@ -54,7 +49,7 @@ class RoomCard extends ConsumerWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              '$activeCount/${room.totalDevices} thiết bị đang bật',
+              'Sắp ra mắt',
               style: context.textTheme.bodySmall?.copyWith(
                 color: context.colorScheme.onSurfaceVariant,
               ),
@@ -65,4 +60,3 @@ class RoomCard extends ConsumerWidget {
     );
   }
 }
-

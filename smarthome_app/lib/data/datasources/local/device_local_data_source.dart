@@ -10,8 +10,7 @@ abstract class IDeviceLocalDataSource {
 }
 
 class DeviceLocalDataSourceImpl implements IDeviceLocalDataSource {
-  // TODO: Implement later with Hive or SQLite
-  // Tạm thời dùng In-memory
+  // In-memory cache (suitable for current scale)
   List<ProductDto> _cachedProducts = [];
   List<DeviceDto> _cachedDevices = [];
 

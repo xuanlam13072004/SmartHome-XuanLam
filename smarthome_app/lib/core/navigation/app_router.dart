@@ -172,11 +172,11 @@ GoRouter router(Ref ref) {
         path: AppRoutes.deviceDetail,
         parentNavigatorKey: _rootNavigatorKey,
         pageBuilder: (context, state) {
-          final id = state.pathParameters['id']!;
+          final mac = state.pathParameters['mac']!;
           return _buildPageWithSlideTransition(
             context,
             state,
-            DeviceDetailScreen(deviceId: id),
+            DeviceDetailScreen(deviceMac: mac),
           );
         },
       ),

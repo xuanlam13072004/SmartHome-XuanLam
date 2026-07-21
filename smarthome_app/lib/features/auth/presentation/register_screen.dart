@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/core.dart';
+import '../../../core/utils/app_error_mapper.dart';
 import '../providers/auth_provider.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
@@ -41,7 +42,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Đăng ký thất bại: $e')),
+        SnackBar(content: Text(AppErrorMapper.mapError(e))),
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);

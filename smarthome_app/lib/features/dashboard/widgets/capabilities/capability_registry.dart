@@ -4,6 +4,7 @@ import 'capability_toggle_widget.dart';
 import 'capability_slider_widget.dart';
 import 'capability_sensor_widget.dart';
 import 'capability_mode_widget.dart';
+import 'capability_generic_widget.dart';
 
 typedef CapabilityWidgetBuilder = Widget Function(
   BuildContext context,
@@ -58,20 +59,16 @@ class CapabilityRegistry {
     if (builder != null) {
       return builder(context, capability, onChanged);
     }
-    // Fallback widget nếu không tìm thấy type tương ứng
-    return Padding(
-      padding: const EdgeInsets.all(8.0),
-      child: Text(
-        'Unknown capability: ${capability.type}',
-        style: const TextStyle(color: Colors.red),
-      ),
+    // Generic fallback for unknown capability types — shows name + current value
+    return CapabilityGenericWidget(
+      capability: capability,
     );
   }
 
   List<Widget> buildWidgets(BuildContext context, List<CapabilityModel> capabilities, void Function(String id, dynamic value) onCapabilityChanged) {
     return capabilities.map((cap) {
       return Padding(
-        padding: const EdgeInsets.only(bottom: 16.0), // AppSpacing.md
+        padding: const EdgeInsets.only(bottom: 16.0),
         child: buildWidget(
           context,
           cap,
@@ -82,5 +79,5 @@ class CapabilityRegistry {
   }
 }
 
-// Global instance tiện ích
+// Global instance
 final capabilityRegistry = CapabilityRegistry()..initDefaultCapabilities();

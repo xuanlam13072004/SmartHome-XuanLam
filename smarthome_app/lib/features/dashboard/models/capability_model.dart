@@ -1,12 +1,14 @@
-/// Mô phỏng cấu trúc JSON trả về từ backend cho một capability.
-/// Frontend không cần quan tâm đây là thiết bị gì, chỉ render dựa trên type.
+/// Represents a single capability rendered in the device detail UI.
+/// Built from Product Catalog data + device state, NOT hardcoded.
 class CapabilityModel {
-  final String id;
-  final String type; // 'on_off', 'range', 'sensor', 'enum'
-  final String name; // 'Nhiệt độ', 'Chế độ', 'Độ sáng'
-  final dynamic value; // Giá trị hiện tại: bool, double, int, String
-  final Map<String, dynamic> properties; // metadata: min, max, step, options...
-  final bool isReadOnly; // sensor thì readOnly = true
+  final String id; // State key (e.g. 'on_off', 'brightness')
+  final String type; // Widget type: 'on_off', 'range', 'sensor', 'enum', 'unknown'
+  final String name; // Display name
+  final dynamic value; // Current value from device state
+  final Map<String, dynamic> properties; // metadata: min, max, step, options, unit...
+  final bool isReadOnly; // sensor/diagnostic = true
+  final String instance; // Backend capability instance (e.g. 'main', 'warm_white')
+  final String? action; // Command action to send (e.g. 'turn_on', 'set_brightness')
 
   const CapabilityModel({
     required this.id,
@@ -15,9 +17,10 @@ class CapabilityModel {
     this.value,
     this.properties = const {},
     this.isReadOnly = false,
+    this.instance = '',
+    this.action,
   });
 
-  /// Clone model (Dùng để thay đổi value tạm thời trong UI tĩnh)
   CapabilityModel copyWith({
     String? id,
     String? type,
@@ -25,6 +28,8 @@ class CapabilityModel {
     dynamic value,
     Map<String, dynamic>? properties,
     bool? isReadOnly,
+    String? instance,
+    String? action,
   }) {
     return CapabilityModel(
       id: id ?? this.id,
@@ -33,6 +38,8 @@ class CapabilityModel {
       value: value ?? this.value,
       properties: properties ?? this.properties,
       isReadOnly: isReadOnly ?? this.isReadOnly,
+      instance: instance ?? this.instance,
+      action: action ?? this.action,
     );
   }
 }

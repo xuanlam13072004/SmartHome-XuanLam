@@ -8,10 +8,15 @@ class ProductMapper {
       manufacturer: dto.manufacturer,
       modelName: dto.modelName,
       displayName: dto.displayName,
+      firmwareFamily: dto.firmwareFamily,
+      connectivity: dto.connectivity,
       category: dto.category,
       icon: dto.icon,
+      description: dto.description,
       defaultState: dto.defaultState,
-      allowedCommandActions: dto.allowedCommandActions,
+      capabilityInstances: dto.capabilityInstances
+          .map((json) => CapabilityInstance.fromJson(json))
+          .toList(),
     );
   }
 }

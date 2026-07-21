@@ -36,7 +36,8 @@ class AuthController extends _$AuthController {
 
   Future<void> checkAuth() async {
     state = AuthState.checking;
-    final token = await ref.read(authRepositoryProvider).getToken();
+    // Use getValidToken which checks expiry and auto-refreshes if needed
+    final token = await ref.read(authRepositoryProvider).getValidToken();
     if (token != null) {
       state = AuthState.authenticated;
     } else {

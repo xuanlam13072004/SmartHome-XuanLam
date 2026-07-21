@@ -13,6 +13,8 @@ services:
       POSTGRES_DB: smarthome
     volumes:
       - postgres_data:/var/lib/postgresql
+    ports:
+      - "5433:5432"
     networks:
       - smarthome_net
     healthcheck:
