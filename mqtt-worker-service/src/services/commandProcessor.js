@@ -107,8 +107,20 @@ async function updateCommandStatus(redis, config, commandId, status, errorMessag
             await redis.expire(versionKey, 600); // TTL 10 phút
         }
 
-        // Ghi nhận trạng thái tạm thời trong Redis để theo dõi nhanh
-        await redis.set(lockKey, status, 'EX', 60); // Lưu giữ trạng thái trong 60 giây
+        // Terminal/sent states must outlive outbox retries; transient states only
+        // need to cover the active processing window.
+        const statusTtl = ['sent', 'acked', 'failed', 'timeout'].includes(status)
+            ? config.COMMAND_IDEMPOTENCY_TTL_SECONDS
+            : config.COMMAND_PROCESSING_TTL_SECONDS;
+        await redis.set(lockKey, status, 'EX', statusTtl);
+        if (['acked', 'failed', 'timeout'].includes(status)) {
+            await redis.set(
+                `command_done:${commandId}`,
+                '1',
+                'EX',
+                config.COMMAND_IDEMPOTENCY_TTL_SECONDS
+            );
+        }
 
         const payload = {
             command_id: commandId,
@@ -144,19 +156,24 @@ async function updateCommandStatus(redis, config, commandId, status, errorMessag
  * @param {object} logger - logger instance
  * @returns {Promise<boolean>} true nếu acquire được, false nếu đã có worker khác xử lý
  */
-async function tryAcquireCommand(redis, commandId, logger) {
+async function tryAcquireCommand(redis, commandId, config, logger) {
     try {
-        const lockKey = `command_lock:${commandId}`;
-        
-        // Sử dụng SET NX để tạo lock nguyên tử trong 10 giây (tránh bị kẹt mãi mãi nếu crash)
-        const result = await redis.set(lockKey, 'sending', 'EX', 10, 'NX');
+        const processingKey = `command_processing:${commandId}`;
+        const doneKey = `command_done:${commandId}`;
+        const result = await redis.eval(
+            `if redis.call('exists', KEYS[1]) == 1 then return 2 end
+             if redis.call('set', KEYS[2], '1', 'EX', ARGV[1], 'NX') then return 1 end
+             return 0`,
+            2,
+            doneKey,
+            processingKey,
+            config.COMMAND_PROCESSING_TTL_SECONDS
+        );
 
-        if (result !== 'OK') {
-            logger.info({ command_id: commandId }, 'Command already acquired by another worker');
-            return false;
-        }
-
-        return true;
+        if (Number(result) === 2) return 'done';
+        if (Number(result) === 1) return 'acquired';
+        logger.info({ command_id: commandId }, 'Command is already being processed by another worker');
+        return 'busy';
     } catch (err) {
         logger.error({ err, command_id: commandId }, 'Failed to acquire command lock via Redis');
         throw err;
@@ -187,11 +204,18 @@ async function processCommand(rawMessage, clients, config, logger, retryCount = 
     const { command_id, action, device_id } = command;
 
     // Bước 1.5: Idempotency atomic - chỉ worker nào acquire được lock mới xử lý
-    const acquired = await tryAcquireCommand(clients.redis, command_id, logger);
+    const acquireState = await tryAcquireCommand(clients.redis, command_id, config, logger);
 
-    if (!acquired) {
+    if (acquireState === 'done') {
+        logger.info({ command_id }, 'Duplicate command skipped because it was already published');
         return command_id;
     }
+    if (acquireState === 'busy') {
+        throw new Error(`Command ${command_id} is already being processed`);
+    }
+
+    const processingKey = `command_processing:${command_id}`;
+    const doneKey = `command_done:${command_id}`;
 
     // Gửi sự kiện 'sending' về stream cập nhật
     try {
@@ -200,27 +224,38 @@ async function processCommand(rawMessage, clients, config, logger, retryCount = 
         logger.warn({ err, command_id }, 'Failed to update sending status, continuing execution');
     }
 
+    // Bước 2: Publish xuống MQTT. A publish failure is retryable, so return
+    // the command to pending and release only the processing lease.
     try {
-        // Bước 2: Publish xuống MQTT
         await publishCommandToDevice(clients.mqttClient, command, config, logger);
-
-        // Bước 3: Update status = sent
-        await updateCommandStatus(clients.redis, config, command_id, 'sent', null, logger, retryCount);
-
-        try { recordCommandSuccess(); } catch (mErr) {}
-        logger.info({ command_id, device_id, action }, 'Command processed successfully');
-        return command_id;
     } catch (err) {
         try { recordCommandFailure(); } catch (mErr) {}
-        // Nếu lỗi, update status = failed
         try {
-            await updateCommandStatus(clients.redis, config, command_id, 'failed', err.message, logger, retryCount);
+            await updateCommandStatus(clients.redis, config, command_id, 'pending', err.message, logger, retryCount);
         } catch (updateErr) {
-            logger.error({ updateErr }, 'Failed to update error status');
+            logger.error({ updateErr }, 'Failed to return command status to pending');
         }
-
+        await clients.redis.del(processingKey).catch(() => {});
         throw err;
     }
+
+    // Persist the idempotency marker before acknowledging the stream. A later
+    // status-sync failure must not republish the physical device command.
+    await clients.redis
+        .multi()
+        .set(doneKey, '1', 'EX', config.COMMAND_IDEMPOTENCY_TTL_SECONDS)
+        .del(processingKey)
+        .exec();
+
+    try {
+        await updateCommandStatus(clients.redis, config, command_id, 'sent', null, logger, retryCount);
+    } catch (err) {
+        logger.error({ err, command_id }, 'Command was published but sent status could not be synchronized');
+    }
+
+    try { recordCommandSuccess(); } catch (mErr) {}
+    logger.info({ command_id, device_id, action }, 'Command processed successfully');
+    return command_id;
 }
 
 module.exports = {

@@ -5,6 +5,7 @@ import '../../../core/core.dart';
 import '../../../core/widgets/widgets.dart';
 import '../providers/devices_provider.dart';
 import '../widgets/capabilities/capability_registry.dart';
+import '../../../domain/models/device_model.dart';
 
 class DeviceDetailScreen extends ConsumerWidget {
   const DeviceDetailScreen({
@@ -68,9 +69,37 @@ class DeviceDetailScreen extends ConsumerWidget {
             ),
             title: Text(device.name),
             actions: [
-              IconButton(
-                icon: const Icon(Icons.settings_outlined),
-                onPressed: () {},
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert),
+                onSelected: (value) {
+                  if (value == 'rename') {
+                    _showRenameDialog(context, ref, device);
+                  } else if (value == 'delete') {
+                    _showDeleteDialog(context, ref, device);
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'rename',
+                    child: Row(
+                      children: [
+                        Icon(Icons.edit, size: 20),
+                        SizedBox(width: 8),
+                        Text('Đổi tên thiết bị'),
+                      ],
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'delete',
+                    child: Row(
+                      children: [
+                        Icon(Icons.delete, size: 20, color: context.colorScheme.error),
+                        const SizedBox(width: 8),
+                        Text('Xóa thiết bị', style: TextStyle(color: context.colorScheme.error)),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -118,6 +147,85 @@ class DeviceDetailScreen extends ConsumerWidget {
           ),
         );
       },
+    );
+  }
+
+  void _showRenameDialog(BuildContext context, WidgetRef ref, DeviceModel device) {
+    final controller = TextEditingController(text: device.name);
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Đổi tên thiết bị'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            hintText: 'Nhập tên mới',
+          ),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Hủy'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final newName = controller.text.trim();
+              if (newName.isNotEmpty && newName != device.name) {
+                Navigator.pop(context);
+                try {
+                  await ref.read(devicesProvider.notifier).renameDevice(device.mac, newName);
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Lỗi: $e')),
+                    );
+                  }
+                }
+              }
+            },
+            child: const Text('Lưu'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDeleteDialog(BuildContext context, WidgetRef ref, DeviceModel device) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Xóa thiết bị'),
+        content: Text('Bạn có chắc chắn muốn xóa "${device.name}"? Hành động này không thể hoàn tác.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Hủy'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: context.colorScheme.error),
+            onPressed: () async {
+              Navigator.pop(context);
+              try {
+                await ref.read(devicesProvider.notifier).unpairDevice(device.mac);
+                if (context.mounted) {
+                  context.pop(); // Go back to dashboard
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Đã xóa thiết bị')),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Lỗi: $e')),
+                  );
+                }
+              }
+            },
+            child: const Text('Xóa'),
+          ),
+        ],
+      ),
     );
   }
 }

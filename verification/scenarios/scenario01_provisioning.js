@@ -115,6 +115,7 @@ async function run() {
       conclusion
     });
     console.log(`[SCENARIO 01] Finished in ${executionTime} ms. Status: ${status}\n`);
+    if (status !== 'PASS') process.exitCode = 1;
   }
 }
 

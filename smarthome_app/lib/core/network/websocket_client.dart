@@ -16,21 +16,22 @@ enum ConnectionStatus {
 class WebSocketClient {
   final String url;
   final IAuthRepository authRepository;
-  
+
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _subscription;
-  
+
   // Exponential Backoff parameters
   int _reconnectAttempts = 0;
   final int _maxReconnectDelay = 30000; // 30 seconds
   Timer? _reconnectTimer;
-  
+  bool _shouldReconnect = false;
+
   // Ping/Pong parameters
   Timer? _pingTimer;
   Timer? _pongTimeoutTimer;
   final Duration _pingInterval = const Duration(seconds: 20);
   final Duration _pongTimeout = const Duration(seconds: 10);
-  
+
   // Status Stream
   final _statusController = StreamController<ConnectionStatus>.broadcast();
   Stream<ConnectionStatus> get statusStream => _statusController.stream;
@@ -39,7 +40,7 @@ class WebSocketClient {
   // Messages Stream
   final _messageController = StreamController<String>.broadcast();
   Stream<String> get messageStream => _messageController.stream;
-  
+
   // Pending Commands
   final List<String> _pendingQueue = [];
 
@@ -57,26 +58,28 @@ class WebSocketClient {
   }
 
   Future<void> connect() async {
-    if (_currentStatus == ConnectionStatus.connected || 
+    _shouldReconnect = true;
+    if (_currentStatus == ConnectionStatus.connected ||
         _currentStatus == ConnectionStatus.connecting ||
         _currentStatus == ConnectionStatus.authenticating) {
       return;
     }
-    
-    _updateStatus(_reconnectAttempts == 0 ? ConnectionStatus.connecting : ConnectionStatus.reconnecting);
-    
+
+    _updateStatus(_reconnectAttempts == 0
+        ? ConnectionStatus.connecting
+        : ConnectionStatus.reconnecting);
+
     try {
       _channel = WebSocketChannel.connect(Uri.parse(url));
-      
+
       _subscription = _channel!.stream.listen(
         _onMessage,
         onError: _onError,
         onDone: _onDone,
       );
-      
+
       // Send Auth immediately
       await _authenticate();
-      
     } catch (e) {
       _onError(e);
     }
@@ -105,7 +108,7 @@ class WebSocketClient {
       try {
         final decoded = jsonDecode(data);
         final event = decoded['event'];
-        
+
         if (event == 'pong') {
           _handlePong();
           return;
@@ -114,7 +117,7 @@ class WebSocketClient {
           // forward to parser anyway if needed
         }
       } catch (_) {}
-      
+
       _messageController.add(data);
     }
   }
@@ -136,7 +139,7 @@ class WebSocketClient {
       _sendPing();
     });
   }
-  
+
   void _stopHeartbeat() {
     _pingTimer?.cancel();
     _pongTimeoutTimer?.cancel();
@@ -144,10 +147,10 @@ class WebSocketClient {
 
   void _sendPing() {
     if (_currentStatus != ConnectionStatus.connected) return;
-    
+
     final pingMessage = jsonEncode({'event': 'ping'});
     _channel?.sink.add(pingMessage);
-    
+
     _pongTimeoutTimer?.cancel();
     _pongTimeoutTimer = Timer(_pongTimeout, () {
       debugPrint('❌ Ping timeout. Reconnecting...');
@@ -185,15 +188,17 @@ class WebSocketClient {
   }
 
   void _reconnect() {
+    if (!_shouldReconnect) return;
     _stopHeartbeat();
     _subscription?.cancel();
     _channel?.sink.close();
-    
+
     _updateStatus(ConnectionStatus.disconnected);
 
-    final delay = (1000 * (1 << _reconnectAttempts)).clamp(1000, _maxReconnectDelay);
+    final exponent = _reconnectAttempts > 5 ? 5 : _reconnectAttempts;
+    final delay = (1000 * (1 << exponent)).clamp(1000, _maxReconnectDelay);
     _reconnectAttempts++;
-    
+
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(Duration(milliseconds: delay), () {
       connect();
@@ -201,11 +206,18 @@ class WebSocketClient {
   }
 
   void disconnect() {
+    _shouldReconnect = false;
     _reconnectTimer?.cancel();
     _stopHeartbeat();
     _subscription?.cancel();
     _channel?.sink.close();
     _updateStatus(ConnectionStatus.disconnected);
     _reconnectAttempts = 0;
+  }
+
+  Future<void> dispose() async {
+    disconnect();
+    await _statusController.close();
+    await _messageController.close();
   }
 }

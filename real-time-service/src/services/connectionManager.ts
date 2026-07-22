@@ -6,14 +6,19 @@ import { safeSend } from '../utils/safeSend.js';
 // Map structure: owner_id -> Set of active WebSocket connections
 const activeConnections = new Map<string, Set<WebSocket>>();
 
-export function addConnection(ownerId: string, socket: WebSocket): void {
+export function addConnection(ownerId: string, socket: WebSocket): boolean {
     let sockets = activeConnections.get(ownerId);
     if (!sockets) {
         sockets = new Set<WebSocket>();
         activeConnections.set(ownerId, sockets);
     }
+    if (sockets.size >= env.WS_MAX_CONNECTIONS_PER_USER) {
+        console.warn(`Connection limit reached for user: ${ownerId}`);
+        return false;
+    }
     sockets.add(socket);
     console.log(`🔌 Registered socket for user: ${ownerId}. Total sockets: ${sockets.size}`);
+    return true;
 }
 
 export function removeConnection(ownerId: string, socket: WebSocket): void {

@@ -7,6 +7,7 @@ import '../../../core/widgets/widgets.dart';
 import '../providers/devices_provider.dart';
 import '../providers/realtime_provider.dart';
 import '../../../core/network/websocket_client.dart';
+import 'qr_scanner_screen.dart';
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
@@ -227,6 +228,19 @@ class DashboardScreen extends ConsumerWidget {
             child: SizedBox(height: 100),
           ),
         ],
+      ),
+      floatingActionButton: Padding(
+        padding: const EdgeInsets.only(bottom: 80.0), // Tránh đè lên Bottom Nav
+        child: FloatingActionButton(
+          onPressed: () {
+            // Đẩy sang màn hình quét QR
+            Navigator.of(context, rootNavigator: true).push(
+              MaterialPageRoute<void>(builder: (context) => const QRScannerScreen()),
+            );
+          },
+          backgroundColor: context.colorScheme.primary,
+          child: Icon(LucideIcons.plus, color: context.colorScheme.onPrimary),
+        ),
       ),
     );
   }

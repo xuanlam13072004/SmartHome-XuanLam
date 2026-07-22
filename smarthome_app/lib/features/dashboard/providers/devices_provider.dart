@@ -12,8 +12,7 @@ part 'devices_provider.g.dart';
 @Riverpod(keepAlive: true)
 IDeviceRepository deviceRepository(Ref ref) {
   final remoteDataSource = ref.watch(deviceRemoteDataSourceProvider);
-  final wsClient = ref.watch(webSocketClientProvider);
-  final repo = ApiDeviceRepository(remoteDataSource, wsClient);
+  final repo = ApiDeviceRepository(remoteDataSource);
   ref.onDispose(() => repo.dispose());
   return repo;
 }
@@ -93,7 +92,8 @@ class Devices extends _$Devices {
     state = AsyncData(newState);
   }
 
-  Future<void> updateCapability(String mac, String capabilityId, String instance, String action, dynamic value) async {
+  Future<void> updateCapability(String mac, String capabilityId,
+      String instance, String action, dynamic value) async {
     final previousState = state;
 
     // Optimistic Update: Update UI immediately
@@ -128,5 +128,26 @@ class Devices extends _$Devices {
         state = previousState;
       }
     }
+  }
+
+  Future<void> claimDevice(String mac, String secretKey, {String? name}) async {
+    final repo = ref.read(deviceRepositoryProvider);
+    await repo.claimDevice(mac, secretKey, name: name);
+    // Refresh danh sách sau khi claim thành công
+    ref.invalidateSelf();
+  }
+
+  Future<void> renameDevice(String mac, String name) async {
+    final repo = ref.read(deviceRepositoryProvider);
+    await repo.updateDeviceName(mac, name);
+    // Optimistic Update hoặc Invalidate
+    ref.invalidateSelf();
+  }
+
+  Future<void> unpairDevice(String mac) async {
+    final repo = ref.read(deviceRepositoryProvider);
+    await repo.unpairDevice(mac);
+    // Xóa khỏi danh sách hiện tại hoặc Invalidate
+    ref.invalidateSelf();
   }
 }

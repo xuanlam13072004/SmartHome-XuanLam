@@ -1,0 +1,313 @@
+{
+	"info": {
+		"name": "SmartHome API - Full",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "System",
+			"item": [
+				{
+					"name": "Global Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/health",
+							"host": [ "{{base_url}}" ],
+							"path": [ "health" ]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Auth",
+			"item": [
+				{
+					"name": "Auth Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/auth/health",
+							"host": [ "{{base_url}}" ],
+							"path": [ "auth", "health" ]
+						}
+					}
+				},
+				{
+					"name": "Register",
+					"request": {
+						"method": "POST",
+						"header": [ { "key": "Content-Type", "value": "application/json" } ],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"admin@smarthome.com\",\n  \"username\": \"admin\",\n  \"password\": \"password123\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/auth/register",
+							"host": [ "{{base_url}}" ],
+							"path": [ "auth", "register" ]
+						}
+					}
+				},
+				{
+					"name": "Login (Auto Set Token)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var jsonData = pm.response.json();",
+									"if(jsonData.access_token) {",
+									"    pm.collectionVariables.set(\"access_token\", jsonData.access_token);",
+									"    pm.collectionVariables.set(\"refresh_token\", jsonData.refresh_token);",
+									"    pm.collectionVariables.set(\"session_id\", jsonData.session_id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [ { "key": "Content-Type", "value": "application/json" } ],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"admin@smarthome.com\",\n  \"password\": \"password123\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/auth/login",
+							"host": [ "{{base_url}}" ],
+							"path": [ "auth", "login" ]
+						}
+					}
+				},
+				{
+					"name": "Refresh Token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var jsonData = pm.response.json();",
+									"if(jsonData.access_token) {",
+									"    pm.collectionVariables.set(\"access_token\", jsonData.access_token);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [ { "key": "Content-Type", "value": "application/json" } ],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"refreshToken\": \"{{refresh_token}}\",\n  \"sessionId\": \"{{session_id}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/auth/refresh",
+							"host": [ "{{base_url}}" ],
+							"path": [ "auth", "refresh" ]
+						}
+					}
+				},
+				{
+					"name": "Logout",
+					"request": {
+						"method": "POST",
+						"header": [ { "key": "Content-Type", "value": "application/json" } ],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"refreshToken\": \"{{refresh_token}}\",\n  \"sessionId\": \"{{session_id}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/auth/logout",
+							"host": [ "{{base_url}}" ],
+							"path": [ "auth", "logout" ]
+						}
+					}
+				},
+				{
+					"name": "Get Profile (Me)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/auth/me",
+							"host": [ "{{base_url}}" ],
+							"path": [ "auth", "me" ]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Products",
+			"item": [
+				{
+					"name": "Get Products Catalog",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/products",
+							"host": [ "{{base_url}}" ],
+							"path": [ "products" ]
+						}
+					}
+				},
+				{
+					"name": "Get Product By ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/products/:id",
+							"host": [ "{{base_url}}" ],
+							"path": [ "products", ":id" ],
+							"variable": [
+								{ "key": "id", "value": "smart_switch_1" }
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Devices",
+			"item": [
+				{
+					"name": "List My Devices",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/devices",
+							"host": [ "{{base_url}}" ],
+							"path": [ "devices" ]
+						}
+					}
+				},
+				{
+					"name": "Claim New Device",
+					"request": {
+						"method": "POST",
+						"header": [ { "key": "Content-Type", "value": "application/json" } ],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"mac\": \"AABBCCDDEEFF\",\n  \"productId\": \"smart_switch_1\",\n  \"name\": \"Đèn phòng khách\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/devices/claim",
+							"host": [ "{{base_url}}" ],
+							"path": [ "devices", "claim" ]
+						}
+					}
+				},
+				{
+					"name": "Update Device Name",
+					"request": {
+						"method": "PATCH",
+						"header": [ { "key": "Content-Type", "value": "application/json" } ],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Đèn ngủ\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/devices/:mac",
+							"host": [ "{{base_url}}" ],
+							"path": [ "devices", ":mac" ],
+							"variable": [
+								{ "key": "mac", "value": "AABBCCDDEEFF" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Unpair/Delete Device",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/devices/:mac",
+							"host": [ "{{base_url}}" ],
+							"path": [ "devices", ":mac" ],
+							"variable": [
+								{ "key": "mac", "value": "AABBCCDDEEFF" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Device State",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/devices/:mac/state",
+							"host": [ "{{base_url}}" ],
+							"path": [ "devices", ":mac", "state" ],
+							"variable": [
+								{ "key": "mac", "value": "AABBCCDDEEFF" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Send Command",
+					"request": {
+						"method": "POST",
+						"header": [ { "key": "Content-Type", "value": "application/json" } ],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"action\": \"turn_on\",\n  \"instance\": \"power\",\n  \"payload\": true\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/devices/:mac/commands",
+							"host": [ "{{base_url}}" ],
+							"path": [ "devices", ":mac", "commands" ],
+							"variable": [
+								{ "key": "mac", "value": "AABBCCDDEEFF" }
+							]
+						}
+					}
+				}
+			]
+		}
+	],
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{access_token}}",
+				"type": "string"
+			}
+		]
+	},
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:3000",
+			"type": "string"
+		},
+		{
+			"key": "access_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "refresh_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "session_id",
+			"value": "",
+			"type": "string"
+		}
+	]
+}

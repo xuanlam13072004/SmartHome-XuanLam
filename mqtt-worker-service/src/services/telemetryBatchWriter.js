@@ -56,7 +56,7 @@ class TelemetryBatchWriter {
      * @param {object} doc - Document telemetry log chuẩn
      */
     add(doc) {
-        if (this.isGracefulShutdown) return;
+        if (this.isGracefulShutdown) return false;
 
         const totalLength = this.queue.length + this.getRetryQueueCount();
 
@@ -68,7 +68,7 @@ class TelemetryBatchWriter {
                 { mac: doc.metadata?.device_id, queue_size: totalLength },
                 'TelemetryBatchWriter: Hard limit exceeded! Dropping telemetry log to prevent OOM.'
             );
-            return;
+            return false;
         }
 
         this.queue.push(doc);
@@ -84,6 +84,22 @@ class TelemetryBatchWriter {
         } else {
             this.scheduleFlush();
         }
+        return true;
+    }
+
+    getRetryableDocs(err, docs) {
+        const writeConcernErrors = err?.writeConcernErrors || err?.result?.writeConcernErrors;
+        if (Array.isArray(writeConcernErrors) && writeConcernErrors.length > 0) return docs;
+        const writeErrors = Array.isArray(err?.writeErrors) ? err.writeErrors : null;
+        if (!writeErrors) return docs;
+
+        const retryableIndexes = new Set();
+        for (const writeError of writeErrors) {
+            const code = writeError.code ?? writeError.err?.code;
+            const index = writeError.index ?? writeError.err?.index;
+            if (code !== 11000 && Number.isInteger(index)) retryableIndexes.add(index);
+        }
+        return docs.filter((_, index) => retryableIndexes.has(index));
     }
 
     /**
@@ -165,6 +181,14 @@ class TelemetryBatchWriter {
                     this.retryQueue = this.retryQueue.filter(item => item !== retryItem);
                     this.logger.debug({ docs_count: retryItem.docs.length }, 'TelemetryBatchWriter: Retry batch write success');
                 } catch (err) {
+                    const retryableDocs = this.getRetryableDocs(err, retryItem.docs);
+                    this.stats.write_success += retryItem.docs.length - retryableDocs.length;
+                    if (retryableDocs.length === 0) {
+                        this.retryQueue = this.retryQueue.filter(item => item !== retryItem);
+                        this.logger.debug({ docs_count: retryItem.docs.length }, 'TelemetryBatchWriter: Retry contained only already-persisted duplicates');
+                        continue;
+                    }
+                    retryItem.docs = retryableDocs;
                     this.stats.retry_count++;
                     try {
                         recordTelemetryRetry();
@@ -205,18 +229,22 @@ class TelemetryBatchWriter {
                     'TelemetryBatchWriter: Telemetry batch inserted successfully'
                 );
             } catch (err) {
-                this.stats.write_failure += batchToInsert.length;
+                const retryableDocs = this.getRetryableDocs(err, batchToInsert);
+                this.stats.write_success += batchToInsert.length - retryableDocs.length;
+                this.stats.write_failure += retryableDocs.length;
                 try {
                     recordTelemetryRetry();
                 } catch (mErr) {}
-                this.logger.error({ err, batch_size: batchToInsert.length }, 'TelemetryBatchWriter: Failed to insert telemetry batch, queueing for retry');
+                this.logger.error({ err, batch_size: batchToInsert.length, retryable: retryableDocs.length }, 'TelemetryBatchWriter: Failed to insert part of telemetry batch');
                 
-                // Ghi nhận vào retry queue với exponential backoff lần đầu tiên (2s)
-                this.retryQueue.push({
-                    docs: batchToInsert,
-                    attempts: 1,
-                    nextRetryAt: Date.now() + 2000
-                });
+                if (retryableDocs.length > 0) {
+                    // Retry only documents that did not persist. Duplicate-key rows are already durable.
+                    this.retryQueue.push({
+                        docs: retryableDocs,
+                        attempts: 1,
+                        nextRetryAt: Date.now() + 2000
+                    });
+                }
             }
         }
 

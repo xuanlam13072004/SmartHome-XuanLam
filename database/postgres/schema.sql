@@ -76,6 +76,18 @@ CREATE TABLE public.device_commands (
 
 ALTER TABLE public.device_commands OWNER TO postgres;
 
+CREATE TABLE public.command_outbox (
+    command_id uuid NOT NULL,
+    payload jsonb NOT NULL,
+    published_at timestamp with time zone,
+    attempts integer DEFAULT 0 NOT NULL,
+    last_error text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+ALTER TABLE public.command_outbox OWNER TO postgres;
+
 --
 -- Name: device_metadata; Type: TABLE; Schema: public; Owner: postgres
 --
@@ -86,7 +98,7 @@ CREATE TABLE public.device_metadata (
     mac character varying(17) NOT NULL,
     name text NOT NULL,
     product_id text NOT NULL,
-    gateway_id uuid,
+    gateway_id text,
     is_active boolean DEFAULT true,
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
@@ -141,6 +153,9 @@ ALTER TABLE ONLY public.accounts
 
 ALTER TABLE ONLY public.device_commands
     ADD CONSTRAINT device_commands_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.command_outbox
+    ADD CONSTRAINT command_outbox_pkey PRIMARY KEY (command_id);
 
 
 --
@@ -242,6 +257,8 @@ CREATE INDEX idx_device_commands_pending ON public.device_commands USING btree (
 
 CREATE INDEX idx_device_commands_timeline ON public.device_commands USING btree (owner_id, mac, created_at DESC);
 
+CREATE INDEX idx_command_outbox_pending ON public.command_outbox USING btree (created_at) WHERE (published_at IS NULL);
+
 
 --
 -- Name: idx_device_mac; Type: INDEX; Schema: public; Owner: postgres
@@ -292,6 +309,9 @@ CREATE TRIGGER trg_device_metadata_updated_at BEFORE UPDATE ON public.device_met
 ALTER TABLE ONLY public.device_commands
     ADD CONSTRAINT device_commands_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES public.accounts(id) ON DELETE CASCADE;
 
+ALTER TABLE ONLY public.command_outbox
+    ADD CONSTRAINT command_outbox_command_id_fkey FOREIGN KEY (command_id) REFERENCES public.device_commands(id) ON DELETE CASCADE;
+
 
 --
 -- Name: device_metadata device_metadata_owner_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
@@ -320,4 +340,3 @@ ALTER TABLE ONLY public.user_sessions
 --
 -- PostgreSQL database dump complete
 --
-

@@ -1,12 +1,14 @@
 import '../../../core/storage/token_storage.dart';
 import '../../../data/datasources/remote/auth_remote_data_source.dart';
+import '../../../core/network/token_refresh_mutex.dart';
 
 abstract class IAuthRepository {
   Future<void> login(String email, String password);
-  Future<void> register(String username, String email, String password, String fullName);
+  Future<void> register(
+      String username, String email, String password, String fullName);
   Future<void> logout();
   Future<String?> getToken();
-  
+
   /// Attempts to get a valid access token, refreshing if needed.
   /// Returns null if refresh also fails (user must re-login).
   Future<String?> getValidToken();
@@ -28,7 +30,7 @@ class ApiAuthRepository implements IAuthRepository {
     final refreshToken = response['refresh_token'] as String?;
     final sessionId = response['session_id'] as String?;
     final user = response['user'] as Map<String, dynamic>?;
-    
+
     if (accessToken != null && refreshToken != null && sessionId != null) {
       await tokenStorage.saveTokens(
         accessToken: accessToken,
@@ -55,7 +57,8 @@ class ApiAuthRepository implements IAuthRepository {
   }
 
   @override
-  Future<void> register(String username, String email, String password, String fullName) async {
+  Future<void> register(
+      String username, String email, String password, String fullName) async {
     await remoteDataSource.register(username, email, password, fullName);
   }
 
@@ -98,23 +101,31 @@ class ApiAuthRepository implements IAuthRepository {
 
     if (refreshToken == null || sessionId == null) return null;
 
-    try {
-      final response = await remoteDataSource.refresh(sessionId, refreshToken);
-      final newAccessToken = response['access_token'] as String?;
-      final newRefreshToken = response['refresh_token'] as String?;
-      final newSessionId = response['session_id'] as String?;
+    final success = await TokenRefreshMutex.run(() async {
+      try {
+        final response =
+            await remoteDataSource.refresh(sessionId, refreshToken);
+        final newAccessToken = response['access_token'] as String?;
+        final newRefreshToken = response['refresh_token'] as String?;
+        final newSessionId = response['session_id'] as String?;
 
-      if (newAccessToken != null && newRefreshToken != null && newSessionId != null) {
-        await tokenStorage.saveTokens(
-          accessToken: newAccessToken,
-          refreshToken: newRefreshToken,
-          sessionId: newSessionId,
-        );
-        return newAccessToken;
+        if (newAccessToken != null &&
+            newRefreshToken != null &&
+            newSessionId != null) {
+          await tokenStorage.saveTokens(
+            accessToken: newAccessToken,
+            refreshToken: newRefreshToken,
+            sessionId: newSessionId,
+          );
+          return true;
+        }
+      } catch (_) {
+        await tokenStorage.clearTokens();
       }
-    } catch (_) {}
+      return false;
+    });
 
-    return null;
+    return success ? tokenStorage.getAccessToken() : null;
   }
 
   /// Simple JWT expiry check — decode base64 payload without verification.
@@ -126,8 +137,12 @@ class ApiAuthRepository implements IAuthRepository {
       // Add padding if needed
       String payload = parts[1];
       switch (payload.length % 4) {
-        case 2: payload += '=='; break;
-        case 3: payload += '='; break;
+        case 2:
+          payload += '==';
+          break;
+        case 3:
+          payload += '=';
+          break;
       }
 
       final decoded = String.fromCharCodes(

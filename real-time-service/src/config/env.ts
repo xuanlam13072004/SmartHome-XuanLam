@@ -16,6 +16,19 @@ const envSchema = z.object({
     MONGO_DEVICES_COLLECTION: z.string().default('devices'),
 
     REDIS_URL: z.string().url(),
+    WS_MAX_PAYLOAD_BYTES: z.coerce.number().int().positive().default(65536),
+    WS_MAX_CONNECTIONS_PER_USER: z.coerce.number().int().positive().default(5),
+    WS_ALLOWED_ORIGINS: z.string().default('').transform(value =>
+        value.split(',').map(origin => origin.trim()).filter(Boolean)
+    ),
+}).superRefine((value, context) => {
+    if (value.NODE_ENV === 'production' && value.WS_ALLOWED_ORIGINS.length === 0) {
+        context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['WS_ALLOWED_ORIGINS'],
+            message: 'WS_ALLOWED_ORIGINS must be configured in production',
+        });
+    }
 });
 
 const parseResult = envSchema.safeParse(process.env);

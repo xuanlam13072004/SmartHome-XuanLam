@@ -60,6 +60,8 @@ const envSchema = z.object({
     COMMAND_TIMEOUT_SECONDS: z.coerce.number().positive().default(15),
     COMMAND_RETRY_LIMIT: z.coerce.number().nonnegative().default(2),
     COMMAND_MAX_RETRY: z.coerce.number().nonnegative().default(5),
+    COMMAND_PROCESSING_TTL_SECONDS: z.coerce.number().int().positive().default(120),
+    COMMAND_IDEMPOTENCY_TTL_SECONDS: z.coerce.number().int().positive().default(86400),
     HEARTBEAT_INTERVAL_SECONDS: z.coerce.number().positive().default(30),
     HEALTHCHECK_INTERVAL_MS: z.coerce.number().positive().default(10000),
 });

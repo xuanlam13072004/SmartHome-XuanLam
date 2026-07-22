@@ -57,6 +57,14 @@ async function main() {
         console.log('- Creating compound index on { "metadata.device_id": 1, timestamp: -1 }...');
         await telemetry.createIndex({ "metadata.device_id": 1, timestamp: -1 });
 
+        // Makes unordered batch retries idempotent. The partial filter keeps
+        // existing legacy rows (without event_id) valid during rollout.
+        console.log('- Creating unique partial index on { event_id: 1 }...');
+        await telemetry.createIndex(
+            { event_id: 1 },
+            { unique: true, partialFilterExpression: { event_id: { $type: 'string' } } }
+        );
+
         // TTL Index: Automatically expire telemetry logs after 30 days to control storage costs
         const expireAfterSeconds = 30 * 24 * 60 * 60; // 30 days
         console.log(`- Creating TTL index on { timestamp: 1 } with expireAfterSeconds = ${expireAfterSeconds}...`);

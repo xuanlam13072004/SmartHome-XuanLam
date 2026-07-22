@@ -115,22 +115,56 @@ function getTelemetryDedupeId(telemetry) {
     return `hash:${payloadHash}`;
 }
 
-async function shouldProcessTelemetry(redis, telemetry, config, logger) {
+async function reserveTelemetry(redis, telemetry, config, logger) {
     const dedupeId = getTelemetryDedupeId(telemetry);
     const dedupeKey = `${config.REDIS_DEDUPE_PREFIX}${telemetry.device_id}:${dedupeId}`;
+    const token = crypto.randomUUID();
+    const ttl = Math.max(config.TELEMETRY_DEDUPE_TTL_SECONDS, 30);
 
     try {
-        const result = await redis.set(dedupeKey, '1', 'EX', config.TELEMETRY_DEDUPE_TTL_SECONDS, 'NX');
+        const result = await redis.set(dedupeKey, token, 'EX', ttl, 'NX');
 
         if (result !== 'OK') {
             logger.debug({ device_id: telemetry.device_id, dedupe_id: dedupeId }, 'Duplicate telemetry dropped');
-            return false;
+            return null;
         }
-        return true;
+        return { key: dedupeKey, token, dedupeId };
     } catch (err) {
         logger.error({ err, device_id: telemetry.device_id }, 'Telemetry dedupe failed, allowing processing');
-        return true;
+        return { key: null, token: null, dedupeId };
     }
+}
+
+async function completeTelemetryReservation(redis, reservation, config) {
+    if (!reservation?.key) return;
+    await redis.set(
+        reservation.key,
+        'done',
+        'EX',
+        config.TELEMETRY_DEDUPE_TTL_SECONDS,
+        'XX'
+    );
+}
+
+async function releaseTelemetryReservation(redis, reservation, logger) {
+    if (!reservation?.key) return;
+    try {
+        await redis.eval(
+            `if redis.call('get', KEYS[1]) == ARGV[1] then
+                return redis.call('del', KEYS[1])
+             end
+             return 0`,
+            1,
+            reservation.key,
+            reservation.token
+        );
+    } catch (err) {
+        logger.error({ err, dedupe_key: reservation.key }, 'Failed to release telemetry reservation');
+    }
+}
+
+async function shouldProcessTelemetry(redis, telemetry, config, logger) {
+    return Boolean(await reserveTelemetry(redis, telemetry, config, logger));
 }
 
 /**
@@ -170,8 +204,8 @@ async function resolveDeviceContext(clients, deviceId, config, logger) {
                 firmwareVersion: doc.firmware_version || null
             };
 
-            if (context.ownerId) await clients.redis.set(ownerCacheKey, context.ownerId);
-            if (context.productId) await clients.redis.set(productCacheKey, context.productId);
+            if (context.ownerId) await clients.redis.set(ownerCacheKey, context.ownerId, 'EX', config.REDIS_CACHE_TTL_SECONDS);
+            if (context.productId) await clients.redis.set(productCacheKey, context.productId, 'EX', config.REDIS_CACHE_TTL_SECONDS);
 
             l1ContextCache.set(deviceId, { context, expiresAt: Date.now() + L1_TTL_MS });
             return context;
@@ -204,9 +238,11 @@ async function processTelemetry(rawMessage, clients, config, logger) {
     const deviceId = telemetry.device_id;
 
     // 2. Deduplicate
-    const allowProcess = await shouldProcessTelemetry(clients.redis, telemetry, config, logger);
+    const reservation = await reserveTelemetry(clients.redis, telemetry, config, logger);
 
-    if (!allowProcess) return null;
+    if (!reservation) return null;
+
+    try {
 
     // 3. Sequence Gap Detection (survives restart using Redis key last_seq:{device})
     if (telemetry.seq !== undefined) {
@@ -236,6 +272,7 @@ async function processTelemetry(rawMessage, clients, config, logger) {
     const context = await resolveDeviceContext(clients, deviceId, config, logger);
     if (!context.ownerId || !context.productId) {
         logger.warn({ device_id: deviceId }, 'TelemetryProcessor: Owner or Product not resolved, skipping telemetry');
+        await releaseTelemetryReservation(clients.redis, reservation, logger);
         return null;
     }
 
@@ -243,6 +280,7 @@ async function processTelemetry(rawMessage, clients, config, logger) {
     const product = clients.catalogCache.getProduct(context.productId);
     if (!product) {
         logger.warn({ device_id: deviceId, product_id: context.productId }, 'TelemetryProcessor: Product metadata missing, skipping');
+        await releaseTelemetryReservation(clients.redis, reservation, logger);
         return null;
     }
 
@@ -259,9 +297,9 @@ async function processTelemetry(rawMessage, clients, config, logger) {
         logger.warn({ device_id: deviceId, count: warnings.length, warnings }, 'TelemetryProcessor: Sanitizer warnings reported');
     }
 
-    try {
-        // 6. Ghi lô (Batch Writers)
+    // 6. Ghi lô (Batch Writers)
         const telemetryDoc = {
+            event_id: `${deviceId}:${reservation.dedupeId}`,
             metadata: { device_id: deviceId, owner_id: context.ownerId },
             timestamp: telemetry.timestamp ? new Date(telemetry.timestamp) : new Date(),
             trace_id: telemetry.trace_id || null,
@@ -270,7 +308,10 @@ async function processTelemetry(rawMessage, clients, config, logger) {
         };
 
         if (clients.telemetryWriter) {
-            clients.telemetryWriter.add(telemetryDoc);
+            const accepted = clients.telemetryWriter.add(telemetryDoc);
+            if (accepted === false) {
+                throw new Error('Telemetry writer rejected the message because its queue is full');
+            }
         }
 
         if (clients.shadowWriter) {
@@ -298,6 +339,8 @@ async function processTelemetry(rawMessage, clients, config, logger) {
         // 8. Presence Record activity
         await recordActivity(clients, deviceId, context.ownerId, 'telemetry', config, logger);
 
+        await completeTelemetryReservation(clients.redis, reservation, config);
+
         // Đo latency xử lý
         const durationSec = Number(process.hrtime.bigint() - startTime) / 1e9;
         observeLatency(durationSec);
@@ -309,6 +352,7 @@ async function processTelemetry(rawMessage, clients, config, logger) {
 
         return deviceId;
     } catch (err) {
+        await releaseTelemetryReservation(clients.redis, reservation, logger);
         logger.error({ err, device_id: deviceId }, 'Failed to process telemetry message');
         throw err;
     }

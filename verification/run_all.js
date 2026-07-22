@@ -1,6 +1,13 @@
 const path = require('path');
 const fs = require('fs');
 
+function percentile(values, percentileValue) {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.min(sorted.length - 1, Math.ceil((percentileValue / 100) * sorted.length) - 1);
+  return sorted[Math.max(0, index)];
+}
+
 async function runAll() {
   console.log('==================================================');
   console.log('     SMARTHOME-XUANLAM INTEGRATION TEST RUNNER     ');
@@ -95,10 +102,12 @@ async function runAll() {
   }
 
   const masterReportPath = path.join(reportsDir, 'master_verification_report.md');
+  const durations = results.map((result) => result.duration);
+  const allPassed = passedCount === scenarios.length;
   let masterContent = `# Master Verification Report: SmartHome-XuanLam Runtime Integration Suite
 
 * **Time of Run**: ${new Date().toLocaleString('vi-VN')}
-* **Overall Status**: ${passedCount === scenarios.length ? 'PASS' : 'FAIL'}
+* **Overall Status**: ${allPassed ? 'PASS' : 'FAIL'}
 * **Success Rate**: ${((passedCount / scenarios.length) * 100).toFixed(0)}% (${passedCount}/${scenarios.length} passed)
 
 ## 1. Executive Summary
@@ -110,14 +119,16 @@ This report summarizes the E2E verification of the SmartHome-XuanLam capability 
 |---|---|---|---|---|
 ${results.map((res, i) => `| ${i + 1} | \`${res.name}\` | ${res.desc} | **${res.status}** | ${res.duration} ms |`).join('\n')}
 
-## 3. Latency Metrics Summary (Simulated P50, P95, P99)
-Based on execution timelines, the latency profiles across the suite are estimated as follows:
-- **P50 Latency**: 120 ms
-- **P95 Latency**: 280 ms
-- **P99 Latency**: 450 ms
+## 3. Scenario Duration Summary
+These values are calculated from the measured end-to-end duration of each scenario:
+- **P50 Duration**: ${percentile(durations, 50)} ms
+- **P95 Duration**: ${percentile(durations, 95)} ms
+- **P99 Duration**: ${percentile(durations, 99)} ms
 
 ## 4. Conclusion
-All specified scenarios have been successfully executed. The architecture conforms to the Capability Architecture v1.0 specifications under failure and chaotic conditions.
+${allPassed
+  ? 'All specified scenarios completed successfully.'
+  : `${scenarios.length - passedCount} scenario(s) failed. The architecture must not be considered verified until the failures above are resolved.`}
 `;
 
   fs.writeFileSync(masterReportPath, masterContent, 'utf8');

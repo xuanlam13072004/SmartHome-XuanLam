@@ -22,7 +22,7 @@ END $$;
 
 -- 2. Bổ sung cột product_id và gateway_id vào bảng device_metadata
 ALTER TABLE device_metadata ADD COLUMN IF NOT EXISTS product_id VARCHAR(32) NOT NULL DEFAULT 'prod_smart_plug';
-ALTER TABLE device_metadata ADD COLUMN IF NOT EXISTS gateway_id VARCHAR(17) DEFAULT NULL;
+ALTER TABLE device_metadata ADD COLUMN IF NOT EXISTS gateway_id TEXT DEFAULT NULL;
 
 -- Cập nhật ánh xạ dữ liệu cũ sang product_id mới trong device_metadata (chỉ khi cột role còn tồn tại)
 DO $$

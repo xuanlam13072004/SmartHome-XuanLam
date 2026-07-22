@@ -6,7 +6,7 @@ WORKDIR /app
 COPY real-time-service/package*.json ./real-time-service/
 
 WORKDIR /app/real-time-service
-RUN npm install
+RUN npm ci
 
 WORKDIR /app
 COPY shared ./shared
@@ -22,7 +22,7 @@ WORKDIR /app
 
 COPY real-time-service/package*.json ./real-time-service/
 WORKDIR /app/real-time-service
-RUN npm install --omit=dev
+RUN npm ci --omit=dev
 
 WORKDIR /app
 COPY shared ./shared
@@ -31,4 +31,5 @@ COPY real-time-service/package.json ./real-time-service/package.json
 
 WORKDIR /app/real-time-service
 EXPOSE 3001
+USER node
 CMD ["npm", "run", "start"]

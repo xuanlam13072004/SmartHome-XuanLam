@@ -26,7 +26,7 @@ class DeviceCard extends StatelessWidget {
   final Color? iconColor;
   final Widget? actionWidget;
   final VoidCallback? onTap;
-  
+
   /// Danh sách các capabilities để lấy thông tin sensor hiển thị.
   final List<CapabilityModel> capabilities;
 
@@ -35,24 +35,28 @@ class DeviceCard extends StatelessWidget {
     final isOffline = status == DeviceStatus.offline;
 
     // Lấy thông tin các cảm biến (sensor) để hiển thị lên thẻ
-    final sensorCaps = capabilities.where((c) => c.type == 'sensor').take(2).toList();
-    
+    final sensorCaps =
+        capabilities.where((c) => c.type == 'sensor').take(2).toList();
+
     // Fallback: nếu có brightness/color cũng có thể coi là thông số phụ
-    final rangeCaps = capabilities.where((c) => c.type == 'range').take(1).toList();
+    final rangeCaps =
+        capabilities.where((c) => c.type == 'range').take(1).toList();
 
     String subtitleText = subtitle ?? (isOffline ? 'Offline' : 'Online');
-    
+
     if (subtitle == null && !isOffline) {
       if (sensorCaps.isNotEmpty) {
         subtitleText = sensorCaps.map((c) {
-          final val = c.value is double ? (c.value as double).toStringAsFixed(1) : c.value.toString();
-          final unit = c.properties?['unit'] ?? '';
+          final val = c.value is double
+              ? (c.value as double).toStringAsFixed(1)
+              : c.value.toString();
+          final unit = c.properties['unit'] ?? '';
           return '$val$unit';
         }).join(' • ');
       } else if (rangeCaps.isNotEmpty) {
         final c = rangeCaps.first;
         final val = c.value is double ? (c.value as double).toInt() : c.value;
-        subtitleText = '${c.name}: $val${c.properties?['unit'] ?? '%'}';
+        subtitleText = '${c.name}: $val${c.properties['unit'] ?? '%'}';
       }
     }
 
@@ -80,7 +84,7 @@ class DeviceCard extends StatelessWidget {
                     isActive: status == DeviceStatus.online,
                     activeIconColor: iconColor,
                   ),
-                  if (actionWidget != null) 
+                  if (actionWidget != null)
                     actionWidget!
                   else
                     Padding(
@@ -106,7 +110,9 @@ class DeviceCard extends StatelessWidget {
               Text(
                 subtitleText,
                 style: context.textTheme.labelMedium?.copyWith(
-                  color: isOffline ? const Color(0xFF98A2B3) : context.colorScheme.primary,
+                  color: isOffline
+                      ? const Color(0xFF98A2B3)
+                      : context.colorScheme.primary,
                   fontWeight: FontWeight.w600,
                 ),
                 maxLines: 1,

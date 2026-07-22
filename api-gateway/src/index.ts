@@ -12,6 +12,7 @@ import { env } from './config/env';
 import { buildApp } from './app';
 import { syncOwnershipToRedis } from './modules/device/service';
 import { CommandStatusConsumer } from './workers/commandStatusConsumer';
+import { CommandOutboxDispatcher } from './workers/commandOutboxDispatcher';
 import { CatalogCache } from '../../shared/catalogCache';
 
 const app = buildApp();
@@ -22,11 +23,15 @@ const host = env.HOST;
 const start = async () => {
     try {
         let statusConsumer: CommandStatusConsumer | null = null;
+        let outboxDispatcher: CommandOutboxDispatcher | null = null;
 
         // Đăng ký hook dừng Consumer khi app đóng (phải đăng ký trước khi ready/listen)
         app.addHook('onClose', async () => {
             if (statusConsumer) {
                 await statusConsumer.stop();
+            }
+            if (outboxDispatcher) {
+                await outboxDispatcher.stop();
             }
         });
 
@@ -43,6 +48,11 @@ const start = async () => {
         // Khởi động Command Status Consumer để cập nhật trạng thái lệnh không đồng bộ
         statusConsumer = new CommandStatusConsumer(app.pg, app.redis, app.log, app.mongo.db);
         await statusConsumer.start();
+
+        // Commands are committed to PostgreSQL together with an outbox row, then
+        // delivered to Redis asynchronously so a Redis outage cannot lose them.
+        outboxDispatcher = new CommandOutboxDispatcher(app.pg, app.redis, app.log);
+        outboxDispatcher.start();
 
         // Start listening
         await app.listen({ port, host });

@@ -63,7 +63,8 @@ export async function claimDevice(app: FastifyInstance, input: {
         }
 
         const productId = claimResult.rows[0].product_id;
-        const name = input.name ? input.name.trim() : null;
+        const defaultName = `${product.display_name || 'Device'} ${input.mac.slice(-5)}`;
+        const name = input.name?.trim() || defaultName;
 
         // Ghi metadata quyền sở hữu vào PostgreSQL
         const insertResult = await client.query(
@@ -109,7 +110,7 @@ export async function claimDevice(app: FastifyInstance, input: {
         // Ghi cache quyền sở hữu vào Redis L2
         try {
             const cacheKey = `${CACHE_PREFIXES.OWNER_OF}${input.mac}`;
-            await app.redis.set(cacheKey, ownerId);
+            await app.redis.setex(cacheKey, env.REDIS_CACHE_TTL_SECONDS, ownerId);
         } catch (err) {
             app.log.warn({ err, mac: input.mac }, 'Failed to cache device owner');
         }
@@ -342,14 +343,30 @@ export async function sendDeviceCommand(app: FastifyInstance, input: {
         timestamp: new Date().toISOString(),
     };
 
-    // 5. Ghi nhận lệnh trạng thái pending vào Postgres
-    await app.pg.query(
-        `
-        INSERT INTO device_commands (id, owner_id, mac, command, status, retry_count, event_version, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, 0, 1, NOW(), NOW())
-        `,
-        [commandId, ownerId, input.mac, JSON.stringify(commandPayload), COMMAND_STATUS.PENDING]
-    );
+    // 5. Ghi lệnh và outbox trong cùng transaction. Redis có thể tạm thời lỗi,
+    // nhưng dispatcher sẽ tiếp tục giao lệnh sau khi kết nối phục hồi.
+    const commandClient = await app.pg.connect();
+    try {
+        await commandClient.query('BEGIN');
+        await commandClient.query(
+            `
+            INSERT INTO device_commands (id, owner_id, mac, command, status, retry_count, event_version, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, 0, 1, NOW(), NOW())
+            `,
+            [commandId, ownerId, input.mac, JSON.stringify(commandPayload), COMMAND_STATUS.PENDING]
+        );
+        await commandClient.query(
+            `INSERT INTO command_outbox (command_id, payload)
+             VALUES ($1, $2::jsonb)`,
+            [commandId, JSON.stringify(commandPayload)]
+        );
+        await commandClient.query('COMMIT');
+    } catch (err) {
+        await commandClient.query('ROLLBACK');
+        throw err;
+    } finally {
+        commandClient.release();
+    }
 
     // 6. Ghi nhận lệnh vào MongoDB active_commands phục vụ recovery
     try {
@@ -367,17 +384,6 @@ export async function sendDeviceCommand(app: FastifyInstance, input: {
     } catch (mongoErr) {
         app.log.warn({ mongoErr, commandId }, 'Failed to insert active command into MongoDB');
     }
-
-    // 7. Đẩy lệnh vào Redis Stream
-    const pipeline = app.redis.pipeline();
-    pipeline.set(`command_version:${commandId}`, '1', 'EX', 600);
-    pipeline.xadd(
-        env.REDIS_COMMAND_STREAM,
-        '*',
-        'data',
-        JSON.stringify(commandPayload)
-    );
-    await pipeline.exec();
 
     return {
         command_id: commandId,
@@ -464,17 +470,40 @@ export async function syncOwnershipToRedis(app: FastifyInstance) {
             'SELECT mac, owner_id FROM device_metadata WHERE is_active = true'
         );
 
+        // Remove stale ownership entries first. SCAN avoids blocking Redis like KEYS.
+        let cursor = '0';
+        const staleOwnershipKeys: string[] = [];
+        do {
+            const [nextCursor, keys] = await app.redis.scan(
+                cursor,
+                'MATCH',
+                `${CACHE_PREFIXES.OWNER_OF}*`,
+                'COUNT',
+                200
+            );
+            cursor = nextCursor;
+            staleOwnershipKeys.push(...keys);
+        } while (cursor !== '0');
+
+        for (let index = 0; index < staleOwnershipKeys.length; index += 500) {
+            await app.redis.del(...staleOwnershipKeys.slice(index, index + 500));
+        }
+
         if (result.rows.length === 0) {
-            app.log.info('No active devices found in PostgreSQL to sync.');
+            app.log.info('No active devices found in PostgreSQL to sync. Stale ownership cache was cleared.');
             return;
         }
 
         const pipeline = app.redis.pipeline();
         for (const row of result.rows) {
             const cacheKey = `${CACHE_PREFIXES.OWNER_OF}${row.mac}`;
-            pipeline.set(cacheKey, row.owner_id);
+            pipeline.set(cacheKey, row.owner_id, 'EX', env.REDIS_CACHE_TTL_SECONDS);
         }
-        await pipeline.exec(); // Wait, let's make sure we write pipeline.exec()!
+        const results = await pipeline.exec();
+        const failed = results?.find(([err]) => err);
+        if (failed) {
+            throw failed[0];
+        }
     } catch (err) {
         app.log.error({ err }, 'Failed to synchronize device ownership to Redis on startup');
     }

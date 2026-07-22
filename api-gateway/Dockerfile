@@ -11,7 +11,7 @@ COPY api-gateway/package*.json ./api-gateway/
 
 # Install all dependencies (including devDependencies)
 WORKDIR /app/api-gateway
-RUN npm install
+RUN npm ci
 
 # Copy source code
 WORKDIR /app
@@ -30,7 +30,7 @@ WORKDIR /app
 COPY api-gateway/package*.json ./api-gateway/
 WORKDIR /app/api-gateway
 # Need to rebuild native bindings for argon2
-RUN npm install --omit=dev
+RUN npm ci --omit=dev
 
 # Copy compiled files and shared
 WORKDIR /app
@@ -41,4 +41,5 @@ COPY api-gateway/package.json ./api-gateway/package.json
 
 WORKDIR /app/api-gateway
 EXPOSE 3000
+USER node
 CMD ["npm", "run", "start"]

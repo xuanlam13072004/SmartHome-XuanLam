@@ -43,7 +43,7 @@ export async function registerUser(app: FastifyInstance, input: {
     VALUES ($1, $2, $3, $4, NOW(), NOW())
     RETURNING id, username, email, full_name
     `,
-        [input.username, email, passwordHash, input.full_name || null]
+        [input.username, email, passwordHash, input.full_name?.trim() || input.username]
     );
 
     return result.rows[0];
@@ -112,94 +112,107 @@ export async function refreshSession(app: FastifyInstance, input: {
     session_id: string;
     refresh_token: string;
 }) {
-    const result = await app.pg.query(
-        `
-    SELECT id, owner_id, refresh_token_hash, is_active, expires_at
-    FROM user_sessions
-    WHERE id = $1 AND is_active = true AND expires_at > NOW()
-    `,
-        [input.session_id]
-    );
+    const client = await app.pg.connect();
+    try {
+        await client.query('BEGIN');
+        const result = await client.query(
+            `SELECT id, owner_id, refresh_token_hash, is_active, expires_at
+             FROM user_sessions
+             WHERE id = $1 AND is_active = true AND expires_at > NOW()
+             FOR UPDATE`,
+            [input.session_id]
+        );
 
-    if (result.rows.length === 0) {
-        const err = new Error('Invalid session') as any;
-        err.statusCode = 401;
-        err.code = 'INVALID_SESSION';
+        if (result.rows.length === 0) {
+            const err = new Error('Invalid session') as any;
+            err.statusCode = 401;
+            err.code = 'INVALID_SESSION';
+            throw err;
+        }
+
+        const session = result.rows[0];
+        const valid = await argon2.verify(session.refresh_token_hash, input.refresh_token);
+
+        if (!valid) {
+            const err = new Error('Invalid refresh token') as any;
+            err.statusCode = 401;
+            err.code = 'INVALID_REFRESH_TOKEN';
+            throw err;
+        }
+
+        const userResult = await client.query('SELECT email FROM accounts WHERE id = $1', [session.owner_id]);
+        const email = userResult.rows[0]?.email;
+
+        const accessToken = app.jwt.sign(
+            { userId: session.owner_id, email },
+            { expiresIn: env.JWT_EXPIRES_IN }
+        );
+
+        const newRefreshToken = generateRefreshToken();
+        const newHash = await argon2.hash(newRefreshToken);
+        const newExpiresAt = nowPlusSeconds(env.REFRESH_TOKEN_TTL_SECONDS);
+
+        await client.query(
+            `UPDATE user_sessions
+             SET refresh_token_hash = $1, expires_at = $2, is_active = true
+             WHERE id = $3`,
+            [newHash, newExpiresAt, session.id]
+        );
+        await client.query('COMMIT');
+
+        return {
+            access_token: accessToken,
+            refresh_token: newRefreshToken,
+            session_id: session.id,
+        };
+    } catch (err) {
+        await client.query('ROLLBACK');
         throw err;
+    } finally {
+        client.release();
     }
-
-    const session = result.rows[0];
-    const valid = await argon2.verify(session.refresh_token_hash, input.refresh_token);
-
-    if (!valid) {
-        const err = new Error('Invalid refresh token') as any;
-        err.statusCode = 401;
-        err.code = 'INVALID_REFRESH_TOKEN';
-        throw err;
-    }
-
-    const userResult = await app.pg.query('SELECT email FROM accounts WHERE id = $1', [session.owner_id]);
-    const email = userResult.rows[0]?.email;
-
-    const accessToken = app.jwt.sign(
-        { userId: session.owner_id, email },
-        { expiresIn: env.JWT_EXPIRES_IN }
-    );
-
-    const newRefreshToken = generateRefreshToken();
-    const newHash = await argon2.hash(newRefreshToken);
-    const newExpiresAt = nowPlusSeconds(env.REFRESH_TOKEN_TTL_SECONDS);
-
-    await app.pg.query(
-        `
-    UPDATE user_sessions
-    SET refresh_token_hash = $1, expires_at = $2, is_active = true
-    WHERE id = $3
-    `,
-        [newHash, newExpiresAt, session.id]
-    );
-
-    return {
-        access_token: accessToken,
-        refresh_token: newRefreshToken,
-        session_id: session.id,
-    };
 }
 
 export async function logoutSession(app: FastifyInstance, input: {
     session_id: string;
     refresh_token: string;
 }) {
-    const result = await app.pg.query(
-        `
-    SELECT id, refresh_token_hash
-    FROM user_sessions
-    WHERE id = $1 AND is_active = true
-    `,
-        [input.session_id]
-    );
+    const client = await app.pg.connect();
+    try {
+        await client.query('BEGIN');
+        const result = await client.query(
+            `SELECT id, refresh_token_hash
+             FROM user_sessions
+             WHERE id = $1 AND is_active = true
+             FOR UPDATE`,
+            [input.session_id]
+        );
 
-    if (result.rows.length === 0) {
-        const err = new Error('Invalid session') as any;
-        err.statusCode = 401;
-        err.code = 'INVALID_SESSION';
+        if (result.rows.length === 0) {
+            const err = new Error('Invalid session') as any;
+            err.statusCode = 401;
+            err.code = 'INVALID_SESSION';
+            throw err;
+        }
+
+        const session = result.rows[0];
+        const valid = await argon2.verify(session.refresh_token_hash, input.refresh_token);
+
+        if (!valid) {
+            const err = new Error('Invalid refresh token') as any;
+            err.statusCode = 401;
+            err.code = 'INVALID_REFRESH_TOKEN';
+            throw err;
+        }
+
+        await client.query('UPDATE user_sessions SET is_active = false WHERE id = $1', [session.id]);
+        await client.query('COMMIT');
+
+        return { success: true };
+    } catch (err) {
+        await client.query('ROLLBACK');
         throw err;
+    } finally {
+        client.release();
     }
-
-    const session = result.rows[0];
-    const valid = await argon2.verify(session.refresh_token_hash, input.refresh_token);
-
-    if (!valid) {
-        const err = new Error('Invalid refresh token') as any;
-        err.statusCode = 401;
-        err.code = 'INVALID_REFRESH_TOKEN';
-        throw err;
-    }
-
-    await app.pg.query(
-        'UPDATE user_sessions SET is_active = false WHERE id = $1',
-        [session.id]
-    );
-
-    return { success: true };
 }

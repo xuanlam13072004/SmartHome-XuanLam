@@ -11,6 +11,9 @@ abstract class IDeviceRemoteDataSource {
   Future<List<ProductDto>> getProducts();
   Future<List<DeviceDto>> getDevices();
   Future<void> sendCommand(String mac, String action, String instance, Map<String, dynamic> payload);
+  Future<DeviceDto> claimDevice(String mac, String secretKey, {String? name});
+  Future<DeviceDto> updateDeviceName(String mac, String name);
+  Future<void> unpairDevice(String mac);
 }
 
 @riverpod
@@ -50,5 +53,32 @@ class DeviceRemoteDataSourceImpl implements IDeviceRemoteDataSource {
       'instance': instance,
       'payload': payload,
     });
+  }
+
+  @override
+  Future<DeviceDto> claimDevice(String mac, String secretKey, {String? name}) async {
+    final data = <String, dynamic>{
+      'mac': mac,
+      'secret_key': secretKey,
+    };
+    if (name != null && name.isNotEmpty) {
+      data['name'] = name;
+    }
+    final response = await _dio.post<Map<String, dynamic>>('/devices/claim', data: data);
+    return DeviceDto.fromJson(response.data!['device'] as Map<String, dynamic>);
+  }
+
+  @override
+  Future<DeviceDto> updateDeviceName(String mac, String name) async {
+    final response = await _dio.patch<Map<String, dynamic>>(
+      '/devices/$mac',
+      data: {'name': name},
+    );
+    return DeviceDto.fromJson(response.data!['device'] as Map<String, dynamic>);
+  }
+
+  @override
+  Future<void> unpairDevice(String mac) async {
+    await _dio.delete<dynamic>('/devices/$mac');
   }
 }

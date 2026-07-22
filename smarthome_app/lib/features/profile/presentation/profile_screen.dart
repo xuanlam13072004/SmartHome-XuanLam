@@ -31,6 +31,7 @@ class ProfileScreen extends ConsumerWidget {
     final profileAsync = ref.watch(userProfileProvider);
 
     return PageScaffold(
+      scrollable: false,
       appBar: AppBar(
         title: const Text('Cá nhân'),
         centerTitle: false,

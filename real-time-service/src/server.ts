@@ -23,6 +23,14 @@ export function startServer(): Promise<http.Server> {
         wss = new WebSocketServer({
             server: httpServer,
             path: '/ws',
+            maxPayload: env.WS_MAX_PAYLOAD_BYTES,
+            verifyClient: ({ origin }, done) => {
+                if (origin && env.WS_ALLOWED_ORIGINS.length > 0 && !env.WS_ALLOWED_ORIGINS.includes(origin)) {
+                    done(false, 403, 'Origin not allowed');
+                    return;
+                }
+                done(true);
+            },
         });
 
         wss.on('connection', (socket, req) => {

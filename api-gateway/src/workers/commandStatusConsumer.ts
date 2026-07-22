@@ -14,6 +14,7 @@ import { REDIS_CHANNELS, COMMAND_STATUS } from '../../../shared/constants';
 export class CommandStatusConsumer {
     private pgPool: Pool;
     private redis: Redis;
+    private blockingRedis: Redis;
     private logger: any;
     private mongoDb: Db | null;
     private isRunning: boolean = false;
@@ -23,6 +24,9 @@ export class CommandStatusConsumer {
     constructor(pgPool: Pool, redis: Redis, logger: any, mongoDb?: Db) {
         this.pgPool = pgPool;
         this.redis = redis;
+        // XREADGROUP ... BLOCK needs a dedicated socket. Status updates, timeout
+        // checks and HTTP handlers remain free to use the normal connection.
+        this.blockingRedis = redis.duplicate();
         this.logger = logger;
         this.mongoDb = mongoDb || null;
         this.consumerName = `gateway-sync-worker-${Math.random().toString(36).substring(2, 7)}`;
@@ -31,12 +35,13 @@ export class CommandStatusConsumer {
     async start() {
         this.isRunning = true;
         this.logger.info('Starting CommandStatusConsumer worker...');
+        await this.blockingRedis.ping();
 
         // Step 1: Tạo Consumer Group trên Redis Stream nếu chưa tồn tại
         const streamKey = env.REDIS_COMMAND_STATUS_STREAM;
         const groupName = 'command-sync-group';
         try {
-            await this.redis.call('XGROUP', 'CREATE', streamKey, groupName, '$', 'MKSTREAM');
+            await this.blockingRedis.call('XGROUP', 'CREATE', streamKey, groupName, '$', 'MKSTREAM');
             this.logger.info(`Created consumer group ${groupName} for stream ${streamKey}`);
         } catch (err: any) {
             if (err.message.includes('BUSYGROUP')) {
@@ -76,12 +81,22 @@ export class CommandStatusConsumer {
                 for (const row of findResult.rows) {
                     const commandId = row.id;
                     try {
+                        const lockKey = `command_lock:${commandId}`;
+                        const redisStatus = await this.redis.get(lockKey);
+                        if (redisStatus === COMMAND_STATUS.SENT || redisStatus === COMMAND_STATUS.ACKED || redisStatus === COMMAND_STATUS.FAILED) {
+                            this.logger.debug({ commandId, redisStatus }, 'Skipping timeout because Redis has a newer terminal/sent state');
+                            continue;
+                        }
+
                         const versionKey = `command_version:${commandId}`;
                         const newVersion = await this.redis.incr(versionKey);
 
                         // Ghi nhận khóa timeout vào Redis để chống race condition với ACK trễ
-                        const lockKey = `command_lock:${commandId}`;
-                        await this.redis.set(lockKey, 'timeout', 'EX', 86400); // Khóa trong 24h
+                        await this.redis
+                            .multi()
+                            .set(lockKey, 'timeout', 'EX', 86400)
+                            .set(`command_done:${commandId}`, '1', 'EX', 86400)
+                            .exec();
                         
                         const updateQuery = `
                             UPDATE device_commands
@@ -134,7 +149,7 @@ export class CommandStatusConsumer {
         while (this.isRunning) {
             try {
                 // XREADGROUP GROUP <group> <consumer> BLOCK 5000 COUNT 10 STREAMS <key> >
-                const messages: any = await this.redis.call(
+                const messages: any = await this.blockingRedis.call(
                     'XREADGROUP',
                     'GROUP',
                     groupName,
@@ -161,7 +176,7 @@ export class CommandStatusConsumer {
                 if (err.message && err.message.includes('NOGROUP')) {
                     this.logger.warn('NOGROUP error detected (Redis restart). Re-creating consumer group...');
                     try {
-                        await this.redis.call('XGROUP', 'CREATE', streamKey, groupName, '$', 'MKSTREAM');
+                        await this.blockingRedis.call('XGROUP', 'CREATE', streamKey, groupName, '$', 'MKSTREAM');
                         this.logger.info(`Re-created consumer group ${groupName} for stream ${streamKey}`);
                     } catch (initErr: any) {
                         if (!initErr.message.includes('BUSYGROUP')) {
@@ -276,6 +291,11 @@ export class CommandStatusConsumer {
         if (this.timeoutTimer) {
             clearInterval(this.timeoutTimer);
             this.timeoutTimer = null;
+        }
+        try {
+            await this.blockingRedis.quit();
+        } catch {
+            this.blockingRedis.disconnect();
         }
         this.logger.info('Stopped CommandStatusConsumer.');
     }

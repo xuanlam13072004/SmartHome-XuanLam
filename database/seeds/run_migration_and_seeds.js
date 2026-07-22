@@ -21,36 +21,73 @@ async function runPostgresMigration() {
     await client.connect();
 
     try {
-        console.log('Checking if public.accounts table exists...');
-        const res = await client.query("SELECT to_regclass('public.accounts') as exists");
-        const accountsExists = res.rows[0].exists !== null;
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS public.schema_migrations (
+                version integer PRIMARY KEY,
+                name text NOT NULL,
+                applied_at timestamp with time zone NOT NULL DEFAULT now()
+            )
+        `);
+
+        console.log('Checking database schema state...');
+        const requiredTables = ['accounts', 'device_metadata', 'device_commands', 'factory_devices', 'user_sessions'];
+        const tableResult = await client.query(
+            `SELECT table_name FROM information_schema.tables
+             WHERE table_schema = 'public' AND table_name = ANY($1::text[])`,
+            [requiredTables]
+        );
+        const existingTables = new Set(tableResult.rows.map(row => row.table_name));
+        const accountsExists = existingTables.has('accounts');
 
         if (!accountsExists) {
+            if (existingTables.size > 0) {
+                throw new Error(`Partial database schema detected: ${[...existingTables].join(', ')}`);
+            }
             console.log('Database is empty. Running schema.sql...');
             const schemaPath = path.join(__dirname, '../postgres/schema.sql');
             const schemaSql = fs.readFileSync(schemaPath, 'utf8');
             await client.query(schemaSql);
             console.log('schema.sql applied successfully.');
         } else {
+            const missingTables = requiredTables.filter(table => !existingTables.has(table));
+            if (missingTables.length > 0) {
+                throw new Error(`Partial database schema detected. Missing: ${missingTables.join(', ')}`);
+            }
             console.log('Database already initialized. Running migrations...');
         }
 
-        // Run migration v2
-        const v2Path = path.join(__dirname, '../postgres/migration_v2.sql');
-        if (fs.existsSync(v2Path)) {
-            console.log(`Applying migration v2: ${v2Path}`);
-            const v2Sql = fs.readFileSync(v2Path, 'utf8');
-            await client.query(v2Sql);
-            console.log('migration_v2.sql applied successfully.');
-        }
+        const migrations = [
+            { version: 2, file: 'migration_v2.sql' },
+            { version: 3, file: 'migration_v3.sql' },
+            { version: 4, file: 'migration_v4.sql' },
+        ];
 
-        // Run migration v3
-        const v3Path = path.join(__dirname, '../postgres/migration_v3.sql');
-        if (fs.existsSync(v3Path)) {
-            console.log(`Applying migration v3: ${v3Path}`);
-            const v3Sql = fs.readFileSync(v3Path, 'utf8');
-            await client.query(v3Sql);
-            console.log('migration_v3.sql applied successfully.');
+        for (const migration of migrations) {
+            const applied = await client.query(
+                'SELECT 1 FROM public.schema_migrations WHERE version = $1',
+                [migration.version]
+            );
+            if (applied.rows.length > 0) continue;
+
+            const migrationPath = path.join(__dirname, '../postgres', migration.file);
+            if (!fs.existsSync(migrationPath)) {
+                throw new Error(`Migration file is missing: ${migrationPath}`);
+            }
+
+            console.log(`Applying migration v${migration.version}: ${migrationPath}`);
+            await client.query('BEGIN');
+            try {
+                await client.query(fs.readFileSync(migrationPath, 'utf8'));
+                await client.query(
+                    'INSERT INTO public.schema_migrations (version, name) VALUES ($1, $2)',
+                    [migration.version, migration.file]
+                );
+                await client.query('COMMIT');
+                console.log(`${migration.file} applied successfully.`);
+            } catch (err) {
+                await client.query('ROLLBACK');
+                throw err;
+            }
         }
 
         console.log('PostgreSQL migration completed successfully.');
@@ -84,10 +121,13 @@ async function runMongoSeeding() {
         const capabilitiesData = JSON.parse(fs.readFileSync(capabilitiesPath, 'utf8'));
 
         const capCol = db.collection('capabilities');
-        console.log('Clearing old capabilities...');
-        await capCol.deleteMany({});
-        console.log(`Inserting ${capabilitiesData.length} capabilities...`);
-        await capCol.insertMany(capabilitiesData);
+        console.log(`Upserting ${capabilitiesData.length} capabilities...`);
+        if (capabilitiesData.length > 0) {
+            await capCol.bulkWrite(capabilitiesData.map(item => ({
+                replaceOne: { filter: { _id: item._id }, replacement: item, upsert: true }
+            })), { ordered: false });
+            await capCol.deleteMany({ _id: { $nin: capabilitiesData.map(item => item._id) } });
+        }
         console.log('MongoDB capabilities seeded successfully.');
 
         // 2. Seed Products
@@ -96,11 +136,22 @@ async function runMongoSeeding() {
         const productsData = JSON.parse(fs.readFileSync(productsPath, 'utf8'));
 
         const prodCol = db.collection('products');
-        console.log('Clearing old products...');
-        await prodCol.deleteMany({});
-        console.log(`Inserting ${productsData.length} products...`);
-        await prodCol.insertMany(productsData);
+        console.log(`Upserting ${productsData.length} products...`);
+        if (productsData.length > 0) {
+            await prodCol.bulkWrite(productsData.map(item => ({
+                replaceOne: { filter: { _id: item._id }, replacement: item, upsert: true }
+            })), { ordered: false });
+            await prodCol.deleteMany({ _id: { $nin: productsData.map(item => item._id) } });
+        }
         console.log('MongoDB products seeded successfully.');
+
+        // Telemetry retry idempotency must be present in every deployment, not
+        // only when the standalone index builder is run manually.
+        await db.collection(process.env.MONGO_TELEMETRY_COLLECTION || 'telemetry_logs').createIndex(
+            { event_id: 1 },
+            { unique: true, partialFilterExpression: { event_id: { $type: 'string' } } }
+        );
+        console.log('MongoDB telemetry event_id unique index ensured.');
 
         // 3. Migrate existing MongoDB devices (Clean Break: role -> product_id)
         const devicesCol = db.collection('devices');

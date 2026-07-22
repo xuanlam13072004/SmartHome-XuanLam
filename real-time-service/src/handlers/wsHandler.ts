@@ -48,7 +48,11 @@ export function handleConnection(socket: WebSocket, req: IncomingMessage): void 
             if (decoded && decoded.userId) {
                 isAuthenticated = true;
                 ownerId = decoded.userId;
-                addConnection(ownerId, socket);
+                if (!addConnection(ownerId, socket)) {
+                    isAuthenticated = false;
+                    rejectConnection('Connection limit exceeded', 4008);
+                    return;
+                }
                 console.log(`✅ User ${ownerId} authenticated via Authorization header.`);
                 
                 // Send initial state
@@ -113,7 +117,11 @@ export function handleConnection(socket: WebSocket, req: IncomingMessage): void 
                                 clearTimeout(authTimeout);
                                 authTimeout = null;
                             }
-                            addConnection(ownerId, socket);
+                            if (!addConnection(ownerId, socket)) {
+                                isAuthenticated = false;
+                                rejectConnection('Connection limit exceeded', 4008);
+                                return;
+                            }
                             console.log(`✅ User ${ownerId} authenticated via auth message.`);
                             
                             safeSend(socket, JSON.stringify({ event: 'auth_success', message: 'Authenticated successfully' }));
