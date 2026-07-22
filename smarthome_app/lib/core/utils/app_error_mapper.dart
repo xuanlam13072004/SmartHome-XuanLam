@@ -16,8 +16,17 @@ class AppErrorMapper {
     // Try to extract backend error message
     final data = error.response?.data;
     if (data is Map<String, dynamic>) {
-      final errorCode = data['error'] as String?;
-      final message = data['message'] as String?;
+      final backendError = data['error'];
+      String? errorCode;
+      String? message;
+
+      if (backendError is Map) {
+        errorCode = backendError['code']?.toString();
+        message = backendError['message']?.toString();
+      } else if (backendError is String) {
+        errorCode = backendError;
+      }
+      message ??= data['message']?.toString();
 
       if (errorCode != null) {
         return _mapBackendErrorCode(errorCode);
@@ -69,17 +78,29 @@ class AppErrorMapper {
       'ACCOUNT_EXISTS': 'Tài khoản đã tồn tại',
       'EMAIL_EXISTS': 'Email đã được sử dụng',
       'USERNAME_EXISTS': 'Tên người dùng đã tồn tại',
+      'CONFLICT': 'Dữ liệu đã tồn tại hoặc đang được sử dụng',
+      'VALIDATION_ERROR': 'Dữ liệu không hợp lệ',
+      'FST_ERR_RATE_LIMIT': 'Bạn thao tác quá nhanh. Vui lòng thử lại sau',
       'INVALID_CREDENTIALS': 'Email hoặc mật khẩu không đúng',
       'ACCOUNT_LOCKED': 'Tài khoản đã bị khoá',
       'SESSION_NOT_FOUND': 'Phiên đăng nhập không hợp lệ',
+      'INVALID_SESSION': 'Phiên đăng nhập không hợp lệ',
+      'INVALID_REFRESH_TOKEN': 'Refresh token không hợp lệ',
       'TOKEN_EXPIRED': 'Phiên đăng nhập đã hết hạn',
       'TOKEN_INVALID': 'Token không hợp lệ',
       'DEVICE_NOT_FOUND': 'Không tìm thấy thiết bị',
+      'DEVICE_NOT_AUTHENTIC': 'Thiết bị không được hệ thống xác thực',
+      'INVALID_DEVICE_SECRET': 'Mã xác thực thiết bị không đúng',
+      'DEVICE_ALREADY_CLAIMED': 'Thiết bị đã được liên kết với tài khoản khác',
+      'INVALID_DEVICE_PRODUCT': 'Sản phẩm của thiết bị không được hỗ trợ',
+      'INVALID_DEVICE_NAME': 'Tên thiết bị không hợp lệ',
       'NOT_DEVICE_OWNER': 'Bạn không phải chủ sở hữu thiết bị này',
       'DEVICE_OFFLINE': 'Thiết bị đang ngoại tuyến',
       'UNSUPPORTED_COMMAND_ACTION': 'Lệnh không được hỗ trợ',
       'UNSUPPORTED_INSTANCE': 'Phiên bản capability không hợp lệ',
       'COMMAND_VALIDATION_FAILED': 'Giá trị lệnh không hợp lệ',
+      'COMMAND_ARGUMENT_INVALID': 'Tham số lệnh không hợp lệ',
+      'INSTANCE_REQUIRED': 'Cần chỉ định capability instance',
     };
 
     return errorMessages[errorCode] ?? 'Lỗi: $errorCode';
@@ -89,7 +110,7 @@ class AppErrorMapper {
     // Remove common prefixes
     message = message.replaceFirst(RegExp(r'^Exception:\s*'), '');
     message = message.replaceFirst(RegExp(r'^Error:\s*'), '');
-    
+
     if (message.length > 100) {
       return 'Đã xảy ra lỗi. Vui lòng thử lại';
     }

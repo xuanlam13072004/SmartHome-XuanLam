@@ -25,7 +25,7 @@ class _AddDeviceSheetState extends ConsumerState<AddDeviceSheet> {
   late final TextEditingController _macController;
   late final TextEditingController _secretKeyController;
   final _nameController = TextEditingController();
-  
+
   bool _isLoading = false;
   String? _errorMsg;
 
@@ -45,7 +45,7 @@ class _AddDeviceSheetState extends ConsumerState<AddDeviceSheet> {
   }
 
   Future<void> _submit() async {
-    final mac = _macController.text.trim();
+    final mac = _macController.text.trim().toUpperCase();
     final secret = _secretKeyController.text.trim();
     final name = _nameController.text.trim();
 
@@ -71,16 +71,13 @@ class _AddDeviceSheetState extends ConsumerState<AddDeviceSheet> {
 
     try {
       await ref.read(devicesProvider.notifier).claimDevice(
-        mac,
-        secret,
-        name: name.isNotEmpty ? name : null,
-      );
-      
+            mac,
+            secret,
+            name: name.isNotEmpty ? name : null,
+          );
+
       if (!mounted) return;
-      context.pop();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Đã thêm thiết bị thành công')),
-      );
+      context.pop(true);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -101,7 +98,8 @@ class _AddDeviceSheetState extends ConsumerState<AddDeviceSheet> {
     return Container(
       decoration: BoxDecoration(
         color: context.colorScheme.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
+        borderRadius:
+            const BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
       ),
       padding: EdgeInsets.only(
         left: AppSpacing.lg,
@@ -127,7 +125,8 @@ class _AddDeviceSheetState extends ConsumerState<AddDeviceSheet> {
             ),
             Row(
               children: [
-                Icon(LucideIcons.plugZap, color: context.colorScheme.primary, size: 28),
+                Icon(LucideIcons.plugZap,
+                    color: context.colorScheme.primary, size: 28),
                 const SizedBox(width: AppSpacing.md),
                 Text(
                   'Thêm thiết bị mới',
@@ -225,14 +224,16 @@ class _AddDeviceSheetState extends ConsumerState<AddDeviceSheet> {
             hintText: hintText,
             prefixIcon: Icon(prefixIcon, color: context.colorScheme.primary),
             filled: true,
-            fillColor: context.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+            fillColor: context.colorScheme.surfaceContainerHighest
+                .withValues(alpha: 0.3),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(AppRadius.md),
               borderSide: BorderSide.none,
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(AppRadius.md),
-              borderSide: BorderSide(color: context.colorScheme.primary, width: 2),
+              borderSide:
+                  BorderSide(color: context.colorScheme.primary, width: 2),
             ),
           ),
         ),

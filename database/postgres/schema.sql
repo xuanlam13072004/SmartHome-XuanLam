@@ -337,6 +337,22 @@ ALTER TABLE ONLY public.user_sessions
     ADD CONSTRAINT user_sessions_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES public.accounts(id) ON DELETE CASCADE;
 
 
+CREATE TABLE public.device_shadow_outbox (
+    id bigserial PRIMARY KEY,
+    mac character varying(17) NOT NULL,
+    operation text NOT NULL CHECK (operation IN ('upsert', 'unpair', 'rename')),
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    processed_at timestamp with time zone,
+    attempts integer DEFAULT 0 NOT NULL,
+    last_error text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE INDEX idx_device_shadow_outbox_pending ON public.device_shadow_outbox (id) WHERE processed_at IS NULL;
+CREATE INDEX idx_device_shadow_outbox_mac_pending ON public.device_shadow_outbox (mac, id) WHERE processed_at IS NULL;
+
+
 --
 -- PostgreSQL database dump complete
 --

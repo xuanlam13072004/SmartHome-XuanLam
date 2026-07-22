@@ -5,11 +5,12 @@ import '../../../data/models/dto/device_dto.dart';
 import '../../../domain/mappers/capability_assembler.dart';
 import '../../../domain/mappers/product_mapper.dart';
 import '../../../core/widgets/indicators/status_badge.dart' show DeviceStatus;
+import '../models/capability_model.dart';
 
 abstract class IDeviceRepository {
   Future<List<DeviceModel>> getDevices();
-  Future<void> updateCapability(String mac, String capabilityId,
-      String instance, String action, dynamic value);
+  Future<void> updateCapability(
+      String mac, CapabilityModel capability, dynamic value);
   Future<DeviceModel> claimDevice(String mac, String secretKey, {String? name});
   Future<DeviceModel> updateDeviceName(String mac, String name);
   Future<void> unpairDevice(String mac);
@@ -110,18 +111,71 @@ class ApiDeviceRepository implements IDeviceRepository {
   }
 
   @override
-  Future<void> updateCapability(String mac, String capabilityId,
-      String instance, String action, dynamic value) async {
-    // Use the actual action and instance from the capability model
-    final payload = {'value': value};
+  Future<void> updateCapability(
+      String mac, CapabilityModel capability, dynamic value) async {
+    final command = _resolveCommand(capability, value);
+    final payload = command.argumentNames.isEmpty
+        ? <String, dynamic>{}
+        : <String, dynamic>{command.argumentNames.single: value};
 
-    // Command delivery is HTTP-based; WebSocket is only the realtime response path.
-    // Let failures propagate so the provider can roll back its optimistic state.
-    await remoteDataSource.sendCommand(mac, action, instance, payload);
+    await remoteDataSource.sendCommand(
+      mac,
+      command.action,
+      capability.instance,
+      payload,
+    );
+  }
+
+  CapabilityCommandDescriptor _resolveCommand(
+      CapabilityModel capability, dynamic value) {
+    final withArgument = capability.commands
+        .where((command) => command.argumentNames.length == 1)
+        .toList();
+    if (withArgument.length == 1) return withArgument.single;
+
+    final zeroArgument = capability.commands
+        .where((command) => command.argumentNames.isEmpty)
+        .toList();
+    if (zeroArgument.isNotEmpty) {
+      final desiredTokens = _desiredActionTokens(value);
+      for (final command in zeroArgument) {
+        final action = command.action.toLowerCase();
+        if (desiredTokens.any((token) => action.contains(token))) {
+          return command;
+        }
+      }
+      if (zeroArgument.length == 1) return zeroArgument.single;
+    }
+
+    throw StateError(
+      'No unambiguous command mapping for capability ${capability.id}',
+    );
+  }
+
+  List<String> _desiredActionTokens(dynamic value) {
+    if (value is bool) {
+      return value
+          ? ['on', 'enable', 'start', 'open', 'lock']
+          : ['off', 'disable', 'stop', 'close', 'unlock'];
+    }
+
+    final normalized = value.toString().toLowerCase();
+    const aliases = {
+      'locked': ['lock'],
+      'unlocked': ['unlock'],
+      'open': ['open'],
+      'opened': ['open'],
+      'closed': ['close'],
+      'opening': ['open'],
+      'closing': ['close'],
+      'stopped': ['stop'],
+    };
+    return aliases[normalized] ?? [normalized];
   }
 
   @override
-  Future<DeviceModel> claimDevice(String mac, String secretKey, {String? name}) async {
+  Future<DeviceModel> claimDevice(String mac, String secretKey,
+      {String? name}) async {
     final dto = await remoteDataSource.claimDevice(mac, secretKey, name: name);
     final product = await getProduct(dto.productId);
     return CapabilityAssembler.assemble(dto, product);

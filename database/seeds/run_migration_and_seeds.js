@@ -60,6 +60,7 @@ async function runPostgresMigration() {
             { version: 2, file: 'migration_v2.sql' },
             { version: 3, file: 'migration_v3.sql' },
             { version: 4, file: 'migration_v4.sql' },
+            { version: 5, file: 'migration_v5.sql' },
         ];
 
         for (const migration of migrations) {

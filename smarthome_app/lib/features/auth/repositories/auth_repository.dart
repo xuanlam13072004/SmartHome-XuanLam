@@ -151,7 +151,7 @@ class ApiAuthRepository implements IAuthRepository {
 
       // Simple regex to find exp claim
       final expMatch = RegExp(r'"exp"\s*:\s*(\d+)').firstMatch(decoded);
-      if (expMatch == null) return false;
+      if (expMatch == null) return true;
 
       final exp = int.parse(expMatch.group(1)!);
       final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
@@ -159,7 +159,7 @@ class ApiAuthRepository implements IAuthRepository {
       // Consider expired 30 seconds before actual expiry
       return now >= (exp - 30);
     } catch (_) {
-      return false; // If we can't parse, assume not expired
+      return true; // Malformed tokens must never be treated as authenticated.
     }
   }
 }

@@ -92,8 +92,8 @@ class Devices extends _$Devices {
     state = AsyncData(newState);
   }
 
-  Future<void> updateCapability(String mac, String capabilityId,
-      String instance, String action, dynamic value) async {
+  Future<void> updateCapability(
+      String mac, String capabilityId, dynamic value) async {
     final previousState = state;
 
     // Optimistic Update: Update UI immediately
@@ -122,7 +122,21 @@ class Devices extends _$Devices {
 
       try {
         final repo = ref.read(deviceRepositoryProvider);
-        await repo.updateCapability(mac, capabilityId, instance, action, value);
+        final devices = state.value;
+        final deviceIndex =
+            devices?.indexWhere((item) => item.mac == mac) ?? -1;
+        if (deviceIndex < 0) {
+          throw StateError('Device $mac not found');
+        }
+
+        final device = devices![deviceIndex];
+        final capabilityIndex =
+            device.capabilities.indexWhere((item) => item.id == capabilityId);
+        if (capabilityIndex < 0) {
+          throw StateError('Capability $capabilityId not found');
+        }
+        final capability = device.capabilities[capabilityIndex];
+        await repo.updateCapability(mac, capability, value);
       } catch (e) {
         // Revert to previous state on error
         state = previousState;

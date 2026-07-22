@@ -6,6 +6,7 @@ import { env } from '../../config/env';
 import { validateValueAgainstSchema } from '../../../../shared/validation';
 // @ts-ignore
 import { REDIS_CHANNELS, COMMAND_STATUS, CACHE_PREFIXES } from '../../../../shared/constants';
+import { dispatchDeviceShadowOutboxEvent } from '../../workers/deviceShadowOutboxDispatcher';
 
 function buildError(message: string, statusCode: number, code: string) {
     const err = new Error(message) as any;
@@ -14,11 +15,16 @@ function buildError(message: string, statusCode: number, code: string) {
     return err;
 }
 
+function normalizeMac(mac: string) {
+    return mac.trim().toUpperCase();
+}
+
 export async function claimDevice(app: FastifyInstance, input: {
     mac: string;
     secret_key: string;
     name?: string;
 }, ownerId: string) {
+    const mac = normalizeMac(input.mac);
     const client = await app.pg.connect();
 
     try {
@@ -27,7 +33,7 @@ export async function claimDevice(app: FastifyInstance, input: {
         // Đọc thông tin thiết bị xuất xưởng
         const factoryResult = await client.query(
             'SELECT mac, secret_key, product_id, is_claimed FROM factory_devices WHERE mac = $1',
-            [input.mac]
+            [mac]
         );
 
         if (factoryResult.rows.length === 0) {
@@ -55,7 +61,7 @@ export async function claimDevice(app: FastifyInstance, input: {
         // Cập nhật trạng thái claimed
         const claimResult = await client.query(
             'UPDATE factory_devices SET is_claimed = true WHERE mac = $1 AND is_claimed = false RETURNING mac, product_id',
-            [input.mac]
+            [mac]
         );
 
         if (claimResult.rows.length === 0) {
@@ -63,7 +69,7 @@ export async function claimDevice(app: FastifyInstance, input: {
         }
 
         const productId = claimResult.rows[0].product_id;
-        const defaultName = `${product.display_name || 'Device'} ${input.mac.slice(-5)}`;
+        const defaultName = `${product.display_name || 'Device'} ${mac.slice(-5)}`;
         const name = input.name?.trim() || defaultName;
 
         // Ghi metadata quyền sở hữu vào PostgreSQL
@@ -73,46 +79,46 @@ export async function claimDevice(app: FastifyInstance, input: {
             VALUES ($1, $2, $3, $4, NULL, true, NOW(), NOW())
             RETURNING id, owner_id, mac, name, product_id, gateway_id, is_active, created_at, updated_at
             `,
-            [ownerId, input.mac, name, productId]
+            [ownerId, mac, name, productId]
         );
 
-        // Khởi tạo Shadow State trong MongoDB với default_state của Product và diagnostics rỗng
-        const collection = app.mongo.db.collection<any>(env.MONGO_DEVICES_COLLECTION);
-        await collection.updateOne(
-            { _id: input.mac },
-            {
-                $set: {
-                    owner_id: ownerId,
-                    product_id: productId,
-                    name,
-                    state: product.default_state || {},
-                    diagnostics: {},
-                    is_online: false,
-                    last_updated: new Date(),
-                },
-            },
-            { upsert: true }
+        const shadowOutboxResult = await client.query(
+            `INSERT INTO device_shadow_outbox (mac, operation, payload)
+             VALUES ($1, 'upsert', $2::jsonb)
+             RETURNING id`,
+            [mac, JSON.stringify({
+                owner_id: ownerId,
+                product_id: productId,
+                name,
+                default_state: product.default_state || {},
+            })]
         );
 
         await client.query('COMMIT');
 
         const device = insertResult.rows[0];
+        await dispatchDeviceShadowOutboxEvent(
+            app.pg,
+            app.mongo.db,
+            app.log,
+            Number(shadowOutboxResult.rows[0].id)
+        ).catch(err => app.log.warn({ err, mac }, 'Shadow initialization queued for retry'));
 
         // Xóa cache sở hữu cũ, cache product cũ và phát sự kiện xóa cache L1/L2
         try {
-            await app.redis.del(`${CACHE_PREFIXES.OWNER_OF}${input.mac}`);
-            await app.redis.del(`${CACHE_PREFIXES.PRODUCT_OF}${input.mac}`);
-            await app.redis.publish(REDIS_CHANNELS.DEVICE_CONTEXT_INVALIDATED, input.mac);
+            await app.redis.del(`${CACHE_PREFIXES.OWNER_OF}${mac}`);
+            await app.redis.del(`${CACHE_PREFIXES.PRODUCT_OF}${mac}`);
+            await app.redis.publish(REDIS_CHANNELS.DEVICE_CONTEXT_INVALIDATED, mac);
         } catch (err) {
-            app.log.warn({ err, mac: input.mac }, 'Failed to invalidate cache on claim');
+            app.log.warn({ err, mac }, 'Failed to invalidate cache on claim');
         }
 
         // Ghi cache quyền sở hữu vào Redis L2
         try {
-            const cacheKey = `${CACHE_PREFIXES.OWNER_OF}${input.mac}`;
+            const cacheKey = `${CACHE_PREFIXES.OWNER_OF}${mac}`;
             await app.redis.setex(cacheKey, env.REDIS_CACHE_TTL_SECONDS, ownerId);
         } catch (err) {
-            app.log.warn({ err, mac: input.mac }, 'Failed to cache device owner');
+            app.log.warn({ err, mac }, 'Failed to cache device owner');
         }
 
         // Xóa danh sách thiết bị cũ trong cache của User
@@ -133,6 +139,7 @@ export async function claimDevice(app: FastifyInstance, input: {
 }
 
 export async function unpairDevice(app: FastifyInstance, mac: string, ownerId: string) {
+    mac = normalizeMac(mac);
     const client = await app.pg.connect();
 
     try {
@@ -152,20 +159,20 @@ export async function unpairDevice(app: FastifyInstance, mac: string, ownerId: s
             [mac]
         );
 
-        // Xóa thông tin sở hữu trong MongoDB Shadow
-        const collection = app.mongo.db.collection<any>(env.MONGO_DEVICES_COLLECTION);
-        await collection.updateOne(
-            { _id: mac },
-            {
-                $set: {
-                    owner_id: null,
-                    name: null,
-                    last_updated: new Date(),
-                },
-            }
+        const shadowOutboxResult = await client.query(
+            `INSERT INTO device_shadow_outbox (mac, operation, payload)
+             VALUES ($1, 'unpair', '{}'::jsonb)
+             RETURNING id`,
+            [mac]
         );
 
         await client.query('COMMIT');
+        await dispatchDeviceShadowOutboxEvent(
+            app.pg,
+            app.mongo.db,
+            app.log,
+            Number(shadowOutboxResult.rows[0].id)
+        ).catch(err => app.log.warn({ err, mac }, 'Shadow unpair queued for retry'));
 
         // Xóa cache sở hữu, cache product và phát sự kiện xóa cache L1/L2
         try {
@@ -278,10 +285,11 @@ export async function sendDeviceCommand(app: FastifyInstance, input: {
     instance?: string;
     payload?: Record<string, unknown>;
 }, ownerId: string) {
+    const mac = normalizeMac(input.mac);
     // 1. Kiểm tra quyền sở hữu và lấy product_id của thiết bị
     const deviceResult = await app.pg.query(
         'SELECT product_id FROM device_metadata WHERE owner_id = $1 AND mac = $2 AND is_active = true',
-        [ownerId, input.mac]
+        [ownerId, mac]
     );
 
     if (deviceResult.rows.length === 0) {
@@ -335,7 +343,7 @@ export async function sendDeviceCommand(app: FastifyInstance, input: {
     const commandPayload = {
         command_id: commandId,
         owner_id: ownerId,
-        device_id: input.mac,
+        device_id: mac,
         capability_id: compiledCommand.capability_id,
         action: input.action,
         instance: compiledCommand.instance,
@@ -353,7 +361,7 @@ export async function sendDeviceCommand(app: FastifyInstance, input: {
             INSERT INTO device_commands (id, owner_id, mac, command, status, retry_count, event_version, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, 0, 1, NOW(), NOW())
             `,
-            [commandId, ownerId, input.mac, JSON.stringify(commandPayload), COMMAND_STATUS.PENDING]
+            [commandId, ownerId, mac, JSON.stringify(commandPayload), COMMAND_STATUS.PENDING]
         );
         await commandClient.query(
             `INSERT INTO command_outbox (command_id, payload)
@@ -374,7 +382,7 @@ export async function sendDeviceCommand(app: FastifyInstance, input: {
         await activeCommandsCol.insertOne({
             _id: commandId,
             owner_id: ownerId,
-            mac: input.mac,
+            mac,
             command: JSON.stringify(commandPayload),
             status: COMMAND_STATUS.PENDING,
             event_version: 1,
@@ -392,6 +400,7 @@ export async function sendDeviceCommand(app: FastifyInstance, input: {
 }
 
 export async function getDeviceState(app: FastifyInstance, mac: string, ownerId: string) {
+    mac = normalizeMac(mac);
     const ownership = await app.pg.query(
         'SELECT 1 FROM device_metadata WHERE owner_id = $1 AND mac = $2 AND is_active = true',
         [ownerId, mac]
@@ -422,36 +431,49 @@ export async function getDeviceState(app: FastifyInstance, mac: string, ownerId:
 }
 
 export async function updateDeviceName(app: FastifyInstance, mac: string, name: string, ownerId: string) {
+    mac = normalizeMac(mac);
     const trimmedName = name.trim();
-
-    const result = await app.pg.query(
-        `
-        UPDATE device_metadata
-        SET name = $1, updated_at = NOW()
-        WHERE owner_id = $2 AND mac = $3
-        RETURNING id, owner_id, mac, name, product_id, gateway_id, is_active, created_at, updated_at
-        `,
-        [trimmedName, ownerId, mac]
-    );
-
-    if (result.rows.length === 0) {
-        throw buildError('Device not found', 404, 'DEVICE_NOT_FOUND');
+    if (!trimmedName) {
+        throw buildError('Device name cannot be empty', 400, 'INVALID_DEVICE_NAME');
     }
 
+    const client = await app.pg.connect();
+    let device: any;
+    let outboxId: number;
     try {
-        const collection = app.mongo.db.collection<any>(env.MONGO_DEVICES_COLLECTION);
-        await collection.updateOne(
-            { _id: mac },
-            {
-                $set: {
-                    name: trimmedName,
-                    last_updated: new Date(),
-                },
-            }
+        await client.query('BEGIN');
+        const result = await client.query(
+            `UPDATE device_metadata
+             SET name = $1, updated_at = NOW()
+             WHERE owner_id = $2 AND mac = $3
+             RETURNING id, owner_id, mac, name, product_id, gateway_id, is_active, created_at, updated_at`,
+            [trimmedName, ownerId, mac]
         );
+        if (result.rows.length === 0) {
+            throw buildError('Device not found', 404, 'DEVICE_NOT_FOUND');
+        }
+        const outboxResult = await client.query(
+            `INSERT INTO device_shadow_outbox (mac, operation, payload)
+             VALUES ($1, 'rename', $2::jsonb)
+             RETURNING id`,
+            [mac, JSON.stringify({ name: trimmedName })]
+        );
+        device = result.rows[0];
+        outboxId = Number(outboxResult.rows[0].id);
+        await client.query('COMMIT');
     } catch (err) {
-        app.log.warn({ err, mac }, 'Failed to update device shadow name');
+        await client.query('ROLLBACK');
+        throw err;
+    } finally {
+        client.release();
     }
+
+    await dispatchDeviceShadowOutboxEvent(
+        app.pg,
+        app.mongo.db,
+        app.log,
+        outboxId!
+    ).catch(err => app.log.warn({ err, mac }, 'Shadow rename queued for retry'));
 
     try {
         const userDevicesKey = `user_devices:${ownerId}`;
@@ -460,7 +482,7 @@ export async function updateDeviceName(app: FastifyInstance, mac: string, name: 
         app.log.warn({ err, ownerId }, 'Failed to invalidate user devices cache');
     }
 
-    return result.rows[0];
+    return device;
 }
 
 export async function syncOwnershipToRedis(app: FastifyInstance) {

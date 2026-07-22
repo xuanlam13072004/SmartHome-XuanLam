@@ -306,6 +306,9 @@ class CatalogCache {
                 icon: prod.icon || 'device',
                 description: prod.description || '',
                 default_state: prod.default_state || {},
+                // Plain JSON contract consumed by Flutter. Maps/Sets below are
+                // internal registries and do not serialize over HTTP.
+                capabilityInstances: capInstances,
                 allowedStateKeys,
                 allowedDiagnosticKeys,
                 allowedCommandActions,

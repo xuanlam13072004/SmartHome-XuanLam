@@ -30,7 +30,7 @@ class DeviceDetailScreen extends ConsumerWidget {
       ),
       data: (devices) {
         final deviceIndex = devices.indexWhere((d) => d.mac == deviceMac);
-        
+
         // Safe fallback: show error instead of crashing or wrong device
         if (deviceIndex == -1) {
           return PageScaffold(
@@ -45,7 +45,8 @@ class DeviceDetailScreen extends ConsumerWidget {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.device_unknown, size: 64, color: context.colorScheme.onSurfaceVariant),
+                  Icon(Icons.device_unknown,
+                      size: 64, color: context.colorScheme.onSurfaceVariant),
                   const SizedBox(height: AppSpacing.md),
                   Text(
                     'Không tìm thấy thiết bị',
@@ -93,9 +94,11 @@ class DeviceDetailScreen extends ConsumerWidget {
                     value: 'delete',
                     child: Row(
                       children: [
-                        Icon(Icons.delete, size: 20, color: context.colorScheme.error),
+                        Icon(Icons.delete,
+                            size: 20, color: context.colorScheme.error),
                         const SizedBox(width: 8),
-                        Text('Xóa thiết bị', style: TextStyle(color: context.colorScheme.error)),
+                        Text('Xóa thiết bị',
+                            style: TextStyle(color: context.colorScheme.error)),
                       ],
                     ),
                   ),
@@ -114,7 +117,8 @@ class DeviceDetailScreen extends ConsumerWidget {
                   size: 100,
                   iconSize: 48,
                   isActive: device.isPrimaryOn,
-                  iconColor: device.isPrimaryOn ? context.colorScheme.primary : null,
+                  iconColor:
+                      device.isPrimaryOn ? context.colorScheme.primary : null,
                   shape: BoxShape.circle,
                 ),
               ),
@@ -129,18 +133,11 @@ class DeviceDetailScreen extends ConsumerWidget {
                 context,
                 device.capabilities,
                 (capId, value) {
-                  // Find the capability to get its real action and instance
-                  final cap = device.capabilities.firstWhere(
-                    (c) => c.id == capId,
-                    orElse: () => device.capabilities.first,
-                  );
                   ref.read(devicesProvider.notifier).updateCapability(
-                    deviceMac,
-                    capId,
-                    cap.instance,
-                    cap.action ?? capId,
-                    value,
-                  );
+                        deviceMac,
+                        capId,
+                        value,
+                      );
                 },
               ),
             ],
@@ -150,11 +147,12 @@ class DeviceDetailScreen extends ConsumerWidget {
     );
   }
 
-  void _showRenameDialog(BuildContext context, WidgetRef ref, DeviceModel device) {
+  void _showRenameDialog(
+      BuildContext pageContext, WidgetRef ref, DeviceModel device) {
     final controller = TextEditingController(text: device.name);
     showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
+      context: pageContext,
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Đổi tên thiết bị'),
         content: TextField(
           controller: controller,
@@ -165,19 +163,21 @@ class DeviceDetailScreen extends ConsumerWidget {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Hủy'),
           ),
           FilledButton(
             onPressed: () async {
               final newName = controller.text.trim();
               if (newName.isNotEmpty && newName != device.name) {
-                Navigator.pop(context);
+                Navigator.pop(dialogContext);
                 try {
-                  await ref.read(devicesProvider.notifier).renameDevice(device.mac, newName);
+                  await ref
+                      .read(devicesProvider.notifier)
+                      .renameDevice(device.mac, newName);
                 } catch (e) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
+                  if (pageContext.mounted) {
+                    ScaffoldMessenger.of(pageContext).showSnackBar(
                       SnackBar(content: Text('Lỗi: $e')),
                     );
                   }
@@ -188,35 +188,41 @@ class DeviceDetailScreen extends ConsumerWidget {
           ),
         ],
       ),
-    );
+    ).whenComplete(controller.dispose);
   }
 
-  void _showDeleteDialog(BuildContext context, WidgetRef ref, DeviceModel device) {
+  void _showDeleteDialog(
+      BuildContext pageContext, WidgetRef ref, DeviceModel device) {
+    final messenger = ScaffoldMessenger.of(pageContext);
     showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
+      context: pageContext,
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Xóa thiết bị'),
-        content: Text('Bạn có chắc chắn muốn xóa "${device.name}"? Hành động này không thể hoàn tác.'),
+        content: Text(
+            'Bạn có chắc chắn muốn xóa "${device.name}"? Hành động này không thể hoàn tác.'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Hủy'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: context.colorScheme.error),
+            style: FilledButton.styleFrom(
+                backgroundColor: pageContext.colorScheme.error),
             onPressed: () async {
-              Navigator.pop(context);
+              Navigator.pop(dialogContext);
               try {
-                await ref.read(devicesProvider.notifier).unpairDevice(device.mac);
-                if (context.mounted) {
-                  context.pop(); // Go back to dashboard
-                  ScaffoldMessenger.of(context).showSnackBar(
+                await ref
+                    .read(devicesProvider.notifier)
+                    .unpairDevice(device.mac);
+                if (pageContext.mounted) {
+                  pageContext.pop(); // Go back to dashboard
+                  messenger.showSnackBar(
                     const SnackBar(content: Text('Đã xóa thiết bị')),
                   );
                 }
               } catch (e) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
+                if (pageContext.mounted) {
+                  messenger.showSnackBar(
                     SnackBar(content: Text('Lỗi: $e')),
                   );
                 }

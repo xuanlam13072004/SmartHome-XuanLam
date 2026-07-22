@@ -29,29 +29,45 @@ class CapabilityAssembler {
               ? entry.value as Map<String, dynamic>
               : <String, dynamic>{};
 
-          final valueType = propMeta['value_type'] as String? ?? capInstance.valueType;
+          final valueType =
+              propMeta['value_type'] as String? ?? capInstance.valueType;
           final validation = propMeta['validation'] as Map<String, dynamic>? ??
               capInstance.validation;
 
           // Determine the UI widget type from the backend value_type
-          final widgetType = _resolveWidgetType(valueType, stateKey, validation);
+          final widgetType =
+              _resolveWidgetType(valueType, stateKey, validation);
 
           // Get the current value from device state
           final currentValue = deviceDto.state[stateKey];
 
-          // Find the primary command action for this capability instance
-          String? action;
-          if (capInstance.commands.isNotEmpty) {
-            action = capInstance.commands.first.action;
-          }
+          final commandDescriptors = _commandsForState(
+            capInstance,
+            stateKey,
+            valueType,
+            validation,
+          );
 
           // Build properties map for the widget
           final properties = <String, dynamic>{};
-          if (validation.containsKey('min')) properties['min'] = validation['min'];
-          if (validation.containsKey('max')) properties['max'] = validation['max'];
-          if (validation.containsKey('step')) properties['step'] = validation['step'];
-          if (validation.containsKey('options')) properties['options'] = validation['options'];
-          if (validation.containsKey('unit')) properties['unit'] = validation['unit'];
+          if (validation.containsKey('min')) {
+            properties['min'] = validation['min'];
+          }
+          if (validation.containsKey('max')) {
+            properties['max'] = validation['max'];
+          }
+          if (validation.containsKey('step')) {
+            properties['step'] = validation['step'];
+          }
+          if (validation.containsKey('options')) {
+            properties['options'] = validation['options'];
+          }
+          if (validation.containsKey('enum')) {
+            properties['options'] = validation['enum'];
+          }
+          if (validation.containsKey('unit')) {
+            properties['unit'] = validation['unit'];
+          }
 
           capabilities.add(CapabilityModel(
             id: stateKey,
@@ -59,9 +75,12 @@ class CapabilityAssembler {
             name: _humaniseName(stateKey),
             value: currentValue,
             properties: properties,
-            isReadOnly: false,
+            isReadOnly: commandDescriptors.isEmpty,
             instance: capInstance.instance,
-            action: action,
+            action: commandDescriptors.isNotEmpty
+                ? commandDescriptors.first.action
+                : null,
+            commands: commandDescriptors,
           ));
         }
 
@@ -72,11 +91,15 @@ class CapabilityAssembler {
               ? entry.value as Map<String, dynamic>
               : <String, dynamic>{};
 
-          final currentValue = deviceDto.diagnostics[diagKey] ?? deviceDto.state[diagKey];
+          final currentValue =
+              deviceDto.diagnostics[diagKey] ?? deviceDto.state[diagKey];
 
           final properties = <String, dynamic>{};
-          final validation = propMeta['validation'] as Map<String, dynamic>? ?? {};
-          if (validation.containsKey('unit')) properties['unit'] = validation['unit'];
+          final validation =
+              propMeta['validation'] as Map<String, dynamic>? ?? {};
+          if (validation.containsKey('unit')) {
+            properties['unit'] = validation['unit'];
+          }
 
           capabilities.add(CapabilityModel(
             id: diagKey,
@@ -105,7 +128,9 @@ class CapabilityAssembler {
     return DeviceModel(
       mac: deviceDto.mac,
       ownerId: deviceDto.ownerId,
-      name: deviceDto.name.isNotEmpty ? deviceDto.name : 'Thiết bị ${deviceDto.mac}',
+      name: deviceDto.name.isNotEmpty
+          ? deviceDto.name
+          : 'Thiết bị ${deviceDto.mac}',
       productId: deviceDto.productId,
       icon: icon,
       status: deviceDto.isOnline ? DeviceStatus.online : DeviceStatus.offline,
@@ -119,7 +144,8 @@ class CapabilityAssembler {
   }
 
   /// Resolve widget type from backend value_type.
-  static String _resolveWidgetType(String valueType, String stateKey, Map<String, dynamic> validation) {
+  static String _resolveWidgetType(
+      String valueType, String stateKey, Map<String, dynamic> validation) {
     // Special case: known boolean state keys
     if (stateKey == 'on_off' || stateKey == 'power' || stateKey == 'is_on') {
       return 'on_off';
@@ -130,6 +156,7 @@ class CapabilityAssembler {
         return 'on_off';
       case 'integer':
       case 'float':
+      case 'number':
         // If it has min/max range, render as slider
         if (validation.containsKey('min') && validation.containsKey('max')) {
           return 'range';
@@ -138,13 +165,146 @@ class CapabilityAssembler {
       case 'enum':
         return 'enum';
       case 'string':
-        if (validation.containsKey('options')) {
+        if (validation.containsKey('options') ||
+            validation.containsKey('enum')) {
           return 'enum';
         }
         return 'unknown';
       default:
         return 'unknown';
     }
+  }
+
+  static List<CapabilityCommandDescriptor> _commandsForState(
+    CapabilityInstance instance,
+    String stateKey,
+    String valueType,
+    Map<String, dynamic> validation,
+  ) {
+    if (_isClearlyReportedState(stateKey)) {
+      return const [];
+    }
+
+    final descriptors = <CapabilityCommandDescriptor>[];
+    final normalizedState = _normalizeToken(stateKey);
+    final stateCount = instance.stateProperties.length;
+
+    for (final command in instance.commands) {
+      final argumentNames = command.arguments
+          .map((argument) => argument['name']?.toString() ?? '')
+          .where((name) => name.isNotEmpty)
+          .toList();
+
+      // Generic controls can safely supply only zero or one argument. Commands
+      // with multiple arguments require a purpose-built form.
+      if (argumentNames.length > 1) continue;
+
+      if (argumentNames.isEmpty) {
+        if (_zeroArgumentCommandMatchesState(
+          command.action,
+          stateKey,
+          valueType,
+          validation,
+        )) {
+          descriptors.add(CapabilityCommandDescriptor(
+            action: command.action,
+          ));
+        }
+        continue;
+      }
+
+      final argumentName = argumentNames.single;
+      final normalizedArgument = _normalizeToken(argumentName);
+      final normalizedAction = _normalizeToken(command.action);
+      final exactMatch = normalizedArgument == normalizedState;
+      final suffixMatch = normalizedState.endsWith(normalizedArgument) ||
+          normalizedArgument.endsWith(normalizedState);
+      final genericValueMatch = normalizedArgument == 'value' &&
+          (stateCount == 1 ||
+              normalizedAction.contains(normalizedState) ||
+              (normalizedState == 'onoff' &&
+                  (normalizedAction.contains('power') ||
+                      normalizedAction.contains('switch'))) ||
+              (normalizedState == 'power' &&
+                  normalizedAction.contains('power')));
+
+      if (exactMatch || suffixMatch || genericValueMatch) {
+        descriptors.add(CapabilityCommandDescriptor(
+          action: command.action,
+          argumentNames: [argumentName],
+        ));
+      }
+    }
+
+    return descriptors;
+  }
+
+  static String _normalizeToken(String value) {
+    return value.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+  }
+
+  static bool _isClearlyReportedState(String stateKey) {
+    final normalized = stateKey.toLowerCase();
+    return normalized.startsWith('current_') ||
+        normalized.startsWith('actual_') ||
+        normalized.startsWith('reported_') ||
+        normalized.startsWith('measured_') ||
+        normalized.startsWith('last_') ||
+        normalized.endsWith('_url') ||
+        normalized.endsWith('_timestamp') ||
+        normalized.endsWith('_at');
+  }
+
+  static bool _zeroArgumentCommandMatchesState(
+    String action,
+    String stateKey,
+    String valueType,
+    Map<String, dynamic> validation,
+  ) {
+    // Generic controls can express a zero-argument command only when the
+    // property itself represents a finite desired state (boolean/enum).
+    final options = validation['enum'] ?? validation['options'];
+    if (valueType != 'boolean' && options is! List) {
+      return false;
+    }
+
+    final normalizedAction = _normalizeToken(action);
+    final stateTokens = stateKey
+        .toLowerCase()
+        .split('_')
+        .where((token) =>
+            token.isNotEmpty &&
+            !const {'is', 'has', 'state', 'status', 'active', 'enabled'}
+                .contains(token))
+        .map((token) => token.endsWith('ing')
+            ? token.substring(0, token.length - 3)
+            : token);
+
+    if (stateTokens.any((token) =>
+        token.length >= 4 &&
+        (normalizedAction.contains(token) ||
+            token.startsWith(normalizedAction)))) {
+      return true;
+    }
+
+    if (options is List) {
+      for (final option in options) {
+        final normalizedOption = option.toString().toLowerCase();
+        final aliases = switch (normalizedOption) {
+          'locked' => const ['lock'],
+          'unlocked' => const ['unlock'],
+          'opening' => const ['open'],
+          'closing' => const ['close'],
+          'stopped' => const ['stop'],
+          _ => [normalizedOption],
+        };
+        if (aliases.any((alias) => normalizedAction.contains(alias))) {
+          return true;
+        }
+      }
+    }
+
+    return false;
   }
 
   /// Build generic capabilities from raw state when no product catalog is available.
@@ -187,10 +347,11 @@ class CapabilityAssembler {
       'uptime': 'Thời gian hoạt động',
     };
 
-    return nameMap[key] ?? key.replaceAll('_', ' ').replaceFirstMapped(
-      RegExp(r'^.'),
-      (m) => m.group(0)!.toUpperCase(),
-    );
+    return nameMap[key] ??
+        key.replaceAll('_', ' ').replaceFirstMapped(
+              RegExp(r'^.'),
+              (m) => m.group(0)!.toUpperCase(),
+            );
   }
 
   /// Resolve device icon from product category.

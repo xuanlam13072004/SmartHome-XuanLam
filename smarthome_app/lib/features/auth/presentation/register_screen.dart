@@ -19,12 +19,24 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _fullNameController = TextEditingController();
   bool _isLoading = false;
 
+  @override
+  void dispose() {
+    _usernameController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    _fullNameController.dispose();
+    super.dispose();
+  }
+
   Future<void> _register() async {
     final username = _usernameController.text.trim();
     final email = _emailController.text.trim();
     final password = _passwordController.text;
     final fullName = _fullNameController.text.trim();
-    if (username.isEmpty || email.isEmpty || password.isEmpty || fullName.isEmpty) {
+    if (username.isEmpty ||
+        email.isEmpty ||
+        password.isEmpty ||
+        fullName.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Vui lòng nhập đầy đủ thông tin')),
       );
@@ -33,7 +45,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
     setState(() => _isLoading = true);
     try {
-      await ref.read(authControllerProvider.notifier).register(username, email, password, fullName);
+      await ref
+          .read(authControllerProvider.notifier)
+          .register(username, email, password, fullName);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Đăng ký thành công! Vui lòng đăng nhập')),
@@ -59,7 +73,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         elevation: 0,
       ),
       body: SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(AppSpacing.lg),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -77,7 +91,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 ),
               ),
               const SizedBox(height: AppSpacing.md),
-              
               TextField(
                 controller: _usernameController,
                 decoration: InputDecoration(
@@ -90,7 +103,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 ),
               ),
               const SizedBox(height: AppSpacing.md),
-              
               TextField(
                 controller: _emailController,
                 decoration: InputDecoration(
@@ -104,7 +116,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 keyboardType: TextInputType.emailAddress,
               ),
               const SizedBox(height: AppSpacing.md),
-              
               TextField(
                 controller: _passwordController,
                 decoration: InputDecoration(
@@ -118,13 +129,13 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 obscureText: true,
               ),
               const SizedBox(height: AppSpacing.xl),
-              
               if (_isLoading)
                 const Center(child: CircularProgressIndicator())
               else
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+                    padding:
+                        const EdgeInsets.symmetric(vertical: AppSpacing.md),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),

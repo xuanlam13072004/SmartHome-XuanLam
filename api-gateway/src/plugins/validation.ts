@@ -36,7 +36,12 @@ const validationPlugin: FastifyPluginAsync = async (app: FastifyInstance) => {
         const { body, query, params } = request;
         const payload = { body, query, params };
 
-        await (app as any).validate(schema, payload);
+        const parsed = await (app as any).validate(schema, payload) as any;
+        // Zod transforms/defaults are part of the request contract. Keep the
+        // normalized values instead of validating a copy and discarding it.
+        if (parsed.body !== undefined) request.body = parsed.body;
+        if (parsed.query !== undefined) request.query = parsed.query;
+        if (parsed.params !== undefined) request.params = parsed.params;
     });
 };
 

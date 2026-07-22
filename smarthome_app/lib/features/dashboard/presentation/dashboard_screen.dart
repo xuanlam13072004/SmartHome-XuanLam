@@ -66,13 +66,16 @@ class DashboardScreen extends ConsumerWidget {
                 loading: () => const SizedBox.shrink(),
                 error: (_, __) => const SizedBox.shrink(),
                 data: (devices) {
-                  final onlineCount = devices.where((d) => d.status == DeviceStatus.online).length;
+                  final onlineCount = devices
+                      .where((d) => d.status == DeviceStatus.online)
+                      .length;
                   final totalCount = devices.length;
                   return NeuCard(
                     padding: const EdgeInsets.all(AppSpacing.md),
                     child: Row(
                       children: [
-                        Icon(LucideIcons.cpu, size: 28, color: context.colorScheme.primary),
+                        Icon(LucideIcons.cpu,
+                            size: 28, color: context.colorScheme.primary),
                         const SizedBox(width: AppSpacing.sm),
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -114,7 +117,8 @@ class DashboardScreen extends ConsumerWidget {
                   padding: const EdgeInsets.all(AppSpacing.xl),
                   child: Column(
                     children: [
-                      Icon(LucideIcons.alertTriangle, size: 48, color: context.colorScheme.error),
+                      Icon(LucideIcons.alertTriangle,
+                          size: 48, color: context.colorScheme.error),
                       const SizedBox(height: AppSpacing.md),
                       Text(
                         'Không thể tải danh sách thiết bị',
@@ -147,7 +151,8 @@ class DashboardScreen extends ConsumerWidget {
                           Icon(
                             LucideIcons.plus,
                             size: 64,
-                            color: context.colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
+                            color: context.colorScheme.onSurfaceVariant
+                                .withValues(alpha: 0.4),
                           ),
                           const SizedBox(height: AppSpacing.md),
                           Text(
@@ -160,7 +165,8 @@ class DashboardScreen extends ConsumerWidget {
                           Text(
                             'Kết nối thiết bị đầu tiên của bạn',
                             style: context.textTheme.bodySmall?.copyWith(
-                              color: context.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                              color: context.colorScheme.onSurfaceVariant
+                                  .withValues(alpha: 0.7),
                             ),
                           ),
                         ],
@@ -182,22 +188,23 @@ class DashboardScreen extends ConsumerWidget {
                   delegate: SliverChildBuilderDelegate(
                     (context, index) {
                       final device = devices[index];
-                      
+
                       // Lấy primary capability (on_off) nếu có
                       Widget? actionWidget;
-                      final onOffCap = device.capabilities.where((c) => c.type == 'on_off').firstOrNull;
-                      
-                      if (onOffCap != null && device.status == DeviceStatus.online) {
+                      final onOffCap = device.capabilities
+                          .where((c) => c.type == 'on_off')
+                          .firstOrNull;
+
+                      if (onOffCap != null &&
+                          device.status == DeviceStatus.online) {
                         actionWidget = NeuToggle(
                           value: onOffCap.value as bool? ?? false,
                           onChanged: (val) {
                             ref.read(devicesProvider.notifier).updateCapability(
-                              device.mac,
-                              onOffCap.id,
-                              onOffCap.instance,
-                              onOffCap.action ?? onOffCap.id,
-                              val,
-                            );
+                                  device.mac,
+                                  onOffCap.id,
+                                  val,
+                                );
                           },
                           width: 44,
                           height: 24,
@@ -206,10 +213,14 @@ class DashboardScreen extends ConsumerWidget {
 
                       return DeviceCard(
                         title: device.name,
-                        subtitle: device.status == DeviceStatus.online ? 'Online' : 'Offline',
+                        subtitle: device.status == DeviceStatus.online
+                            ? 'Online'
+                            : 'Offline',
                         icon: device.icon,
                         status: device.status,
-                        iconColor: device.isPrimaryOn ? context.colorScheme.primary : null,
+                        iconColor: device.isPrimaryOn
+                            ? context.colorScheme.primary
+                            : null,
                         actionWidget: actionWidget,
                         onTap: () {
                           context.push('/device/${device.mac}');
@@ -232,11 +243,18 @@ class DashboardScreen extends ConsumerWidget {
       floatingActionButton: Padding(
         padding: const EdgeInsets.only(bottom: 80.0), // Tránh đè lên Bottom Nav
         child: FloatingActionButton(
-          onPressed: () {
+          onPressed: () async {
             // Đẩy sang màn hình quét QR
-            Navigator.of(context, rootNavigator: true).push(
-              MaterialPageRoute<void>(builder: (context) => const QRScannerScreen()),
+            final claimed =
+                await Navigator.of(context, rootNavigator: true).push<bool>(
+              MaterialPageRoute<bool>(
+                  builder: (context) => const QRScannerScreen()),
             );
+            if (claimed == true && context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Đã thêm thiết bị thành công')),
+              );
+            }
           },
           backgroundColor: context.colorScheme.primary,
           child: Icon(LucideIcons.plus, color: context.colorScheme.onPrimary),
@@ -252,7 +270,7 @@ class _ConnectionStatusIndicator extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final statusAsync = ref.watch(connectionStatusProvider);
-    
+
     return statusAsync.when(
       data: (status) {
         Color color;
@@ -274,7 +292,7 @@ class _ConnectionStatusIndicator extends ConsumerWidget {
             icon = LucideIcons.wifiOff;
             break;
         }
-        
+
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
@@ -288,7 +306,8 @@ class _ConnectionStatusIndicator extends ConsumerWidget {
               const SizedBox(width: 4),
               Text(
                 status.name,
-                style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                    color: color, fontSize: 10, fontWeight: FontWeight.bold),
               ),
             ],
           ),

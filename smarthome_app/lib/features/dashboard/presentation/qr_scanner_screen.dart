@@ -1,9 +1,9 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../../core/core.dart';
+import '../models/device_qr_payload.dart';
 import 'add_device_sheet.dart';
 
 class QRScannerScreen extends StatefulWidget {
@@ -39,17 +39,11 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
     setState(() => _isProcessing = true);
 
     try {
-      final data = jsonDecode(rawData) as Map<String, dynamic>;
-      
-      final mac = data['mac'] as String?;
-      final secret = data['secret'] as String?; // Hoặc secret_key tùy lúc tạo mã
-
-      if (mac != null && secret != null) {
-        _scannerController.stop();
-        // Mở Form xác nhận
-        _openConfirmationSheet(mac, secret);
-        return;
-      }
+      final payload = DeviceQrPayload.parse(rawData);
+      _scannerController.stop();
+      // Mở Form xác nhận
+      _openConfirmationSheet(payload.mac, payload.secretKey);
+      return;
     } catch (e) {
       // Ignored: JSON parse error
     }
@@ -62,7 +56,7 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
         duration: const Duration(seconds: 2),
       ),
     );
-    
+
     // Đợi 2s rồi cho quét tiếp
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) setState(() => _isProcessing = false);
@@ -70,7 +64,7 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
   }
 
   void _openConfirmationSheet(String mac, String secret) {
-    showModalBottomSheet<void>(
+    showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -78,26 +72,31 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
         initialMac: mac,
         initialSecret: secret,
       ),
-    ).then((_) {
-      // Khi đóng bottom sheet (bấm ngoài hoặc Hủy), nếu vẫn ở màn hình này thì resume camera
-      if (mounted) {
-        _scannerController.start();
-        setState(() => _isProcessing = false);
+    ).then((claimed) {
+      if (!mounted) return;
+      if (claimed == true) {
+        Navigator.of(context).pop(true);
+        return;
       }
+      _scannerController.start();
+      setState(() => _isProcessing = false);
     });
   }
 
   void _openManualEntry() {
     _scannerController.stop();
-    showModalBottomSheet<void>(
+    showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) => const AddDeviceSheet(),
-    ).then((_) {
-      if (mounted) {
-        _scannerController.start();
+    ).then((claimed) {
+      if (!mounted) return;
+      if (claimed == true) {
+        Navigator.of(context).pop(true);
+        return;
       }
+      _scannerController.start();
     });
   }
 
@@ -135,7 +134,8 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   IconButton(
-                    icon: const Icon(Icons.arrow_back, color: Colors.white, size: 28),
+                    icon: const Icon(Icons.arrow_back,
+                        color: Colors.white, size: 28),
                     onPressed: () => context.pop(),
                   ),
                   IconButton(
@@ -144,11 +144,13 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
                       builder: (context, state, child) {
                         switch (state.torchState) {
                           case TorchState.on:
-                            return const Icon(LucideIcons.flashlight, color: Colors.yellow, size: 28);
+                            return const Icon(LucideIcons.flashlight,
+                                color: Colors.yellow, size: 28);
                           case TorchState.off:
                           case TorchState.auto:
                           case TorchState.unavailable:
-                            return const Icon(LucideIcons.flashlightOff, color: Colors.white, size: 28);
+                            return const Icon(LucideIcons.flashlightOff,
+                                color: Colors.white, size: 28);
                         }
                       },
                     ),
@@ -169,15 +171,14 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
                 'Hướng camera vào mã QR\ntrên thiết bị để kết nối',
                 textAlign: TextAlign.center,
                 style: context.textTheme.titleMedium?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w500,
-                  shadows: [
-                    const Shadow(
-                      color: Colors.black87,
-                      blurRadius: 4,
-                    )
-                  ]
-                ),
+                    color: Colors.white,
+                    fontWeight: FontWeight.w500,
+                    shadows: [
+                      const Shadow(
+                        color: Colors.black87,
+                        blurRadius: 4,
+                      )
+                    ]),
               ),
             ),
           ),
@@ -254,7 +255,9 @@ class QROverlayShape extends ShapeBorder {
   void paint(Canvas canvas, Rect rect, {TextDirection? textDirection}) {
     final width = rect.width;
     final borderWidthSize = width / 2;
-    final borderLengthSize = borderLength > cutOutSize / 2 + borderWidthSize ? borderWidthSize / 2 : borderLength;
+    final borderLengthSize = borderLength > cutOutSize / 2 + borderWidthSize
+        ? borderWidthSize / 2
+        : borderLength;
 
     double cutoutX = (rect.width - cutOutSize) / 2;
     double cutoutY = (rect.height - cutOutSize) / 2;
@@ -262,7 +265,7 @@ class QROverlayShape extends ShapeBorder {
     final paint = Paint()
       ..color = overlayColor
       ..style = PaintingStyle.fill;
-    
+
     // Draw background
     canvas.drawPath(getOuterPath(rect), paint);
 
@@ -278,23 +281,26 @@ class QROverlayShape extends ShapeBorder {
     path.lineTo(cutoutX, cutoutY + borderRadius);
     path.quadraticBezierTo(cutoutX, cutoutY, cutoutX + borderRadius, cutoutY);
     path.lineTo(cutoutX + borderLengthSize, cutoutY);
-    
+
     // Góc trên phải
     path.moveTo(cutoutX + cutOutSize - borderLengthSize, cutoutY);
     path.lineTo(cutoutX + cutOutSize - borderRadius, cutoutY);
-    path.quadraticBezierTo(cutoutX + cutOutSize, cutoutY, cutoutX + cutOutSize, cutoutY + borderRadius);
+    path.quadraticBezierTo(cutoutX + cutOutSize, cutoutY, cutoutX + cutOutSize,
+        cutoutY + borderRadius);
     path.lineTo(cutoutX + cutOutSize, cutoutY + borderLengthSize);
 
     // Góc dưới trái
     path.moveTo(cutoutX, cutoutY + cutOutSize - borderLengthSize);
     path.lineTo(cutoutX, cutoutY + cutOutSize - borderRadius);
-    path.quadraticBezierTo(cutoutX, cutoutY + cutOutSize, cutoutX + borderRadius, cutoutY + cutOutSize);
+    path.quadraticBezierTo(cutoutX, cutoutY + cutOutSize,
+        cutoutX + borderRadius, cutoutY + cutOutSize);
     path.lineTo(cutoutX + borderLengthSize, cutoutY + cutOutSize);
 
     // Góc dưới phải
     path.moveTo(cutoutX + cutOutSize - borderLengthSize, cutoutY + cutOutSize);
     path.lineTo(cutoutX + cutOutSize - borderRadius, cutoutY + cutOutSize);
-    path.quadraticBezierTo(cutoutX + cutOutSize, cutoutY + cutOutSize, cutoutX + cutOutSize, cutoutY + cutOutSize - borderRadius);
+    path.quadraticBezierTo(cutoutX + cutOutSize, cutoutY + cutOutSize,
+        cutoutX + cutOutSize, cutoutY + cutOutSize - borderRadius);
     path.lineTo(cutoutX + cutOutSize, cutoutY + cutOutSize - borderLengthSize);
 
     canvas.drawPath(path, borderPaint);

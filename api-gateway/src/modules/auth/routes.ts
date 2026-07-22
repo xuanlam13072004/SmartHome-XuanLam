@@ -44,6 +44,10 @@ const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
     app.post('/auth/refresh', {
         config: typedRouteConfig({
             zodSchema: refreshSchema,
+            rateLimit: {
+                max: 5,
+                timeWindow: '1 minute',
+            },
         }),
     }, async (request) => {
         const body = request.body as any;
@@ -54,6 +58,10 @@ const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
     app.post('/auth/logout', {
         config: typedRouteConfig({
             zodSchema: logoutSchema,
+            rateLimit: {
+                max: 10,
+                timeWindow: '1 minute',
+            },
         }),
     }, async (request) => {
         const body = request.body as any;

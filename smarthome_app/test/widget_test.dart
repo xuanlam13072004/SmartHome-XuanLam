@@ -30,6 +30,23 @@ class _AuthenticatedAuthRepository implements IAuthRepository {
 }
 
 class _EmptyDeviceRemoteDataSource implements IDeviceRemoteDataSource {
+  DeviceDto _device(String mac, {String name = 'Test Device'}) => DeviceDto(
+        mac: mac,
+        ownerId: 'test-owner',
+        name: name,
+        productId: 'test-product',
+        isActive: true,
+        isOnline: false,
+        state: const {},
+        diagnostics: const {},
+      );
+
+  @override
+  Future<DeviceDto> claimDevice(String mac, String secretKey,
+      {String? name}) async {
+    return _device(mac, name: name ?? 'Test Device');
+  }
+
   @override
   Future<List<DeviceDto>> getDevices() async => [];
 
@@ -43,6 +60,14 @@ class _EmptyDeviceRemoteDataSource implements IDeviceRemoteDataSource {
     String instance,
     Map<String, dynamic> payload,
   ) async {}
+
+  @override
+  Future<void> unpairDevice(String mac) async {}
+
+  @override
+  Future<DeviceDto> updateDeviceName(String mac, String name) async {
+    return _device(mac, name: name);
+  }
 }
 
 void main() {

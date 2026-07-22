@@ -22,15 +22,17 @@ Dio dio(Ref ref) {
     dio.interceptors.add(
       LogInterceptor(
         request: true,
-        requestHeader: true,
-        requestBody: true,
-        responseHeader: true,
-        responseBody: true,
+        // Headers and bodies contain JWTs, passwords, refresh tokens and
+        // device secrets. Never print them, even in debug builds.
+        requestHeader: false,
+        requestBody: false,
+        responseHeader: false,
+        responseBody: false,
         error: true,
       ),
     );
   }
-  
+
   dio.interceptors.add(
     AuthInterceptor(
       tokenStorage: ref.watch(tokenStorageProvider),
