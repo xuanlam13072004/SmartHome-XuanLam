@@ -34,6 +34,22 @@ services:
       timeout: 5s
       retries: 5
 
+  mongodb:
+    image: mongo:7
+    container_name: mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - smarthome_net
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+
   mosquitto:
     image: eclipse-mosquitto:2
     container_name: mosquitto
@@ -116,3 +132,4 @@ services:
 
 volumes:
   postgres_data:
+  mongodb_data:

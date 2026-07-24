@@ -13,6 +13,7 @@ class ScenesScreen extends ConsumerWidget {
     final scenesAsync = ref.watch(scenesProvider);
 
     return PageScaffold(
+      scrollable: false,
       appBar: AppBar(
         title: const Text('Kịch bản'),
         centerTitle: false,

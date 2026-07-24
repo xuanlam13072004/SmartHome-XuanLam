@@ -13,6 +13,7 @@ class RoomsScreen extends ConsumerWidget {
     final roomsAsync = ref.watch(roomsProvider);
 
     return PageScaffold(
+      scrollable: false,
       appBar: AppBar(
         title: const Text('Phòng'),
         centerTitle: false,
