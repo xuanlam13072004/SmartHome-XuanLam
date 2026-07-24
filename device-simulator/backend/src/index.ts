@@ -26,6 +26,8 @@ app.get('/api/preflight', async (request, reply) => {
     };
 });
 
+import runsRoutes from './api/routes/runs';
+
 const start = async () => {
     try {
         if (!env.SIMULATOR_ENABLED) {
@@ -36,6 +38,19 @@ const start = async () => {
         logger.info('Initializing databases...');
         await initPostgres(logger);
         await initMongo(logger);
+
+        // Security Hook
+        app.addHook('onRequest', async (request, reply) => {
+            if (request.url.startsWith('/api/preflight') || request.url.startsWith('/api/health')) {
+                return;
+            }
+            const token = request.headers.authorization?.replace('Bearer ', '');
+            if (token !== env.ADMIN_TOKEN) {
+                reply.status(401).send({ error: 'Unauthorized. Invalid admin token.' });
+            }
+        });
+
+        app.register(runsRoutes);
 
         const port = env.PORT;
         const host = env.HOST;
