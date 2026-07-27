@@ -1,65 +1,188 @@
-import fastify from 'fastify';
+import crypto from 'node:crypto';
+import cors from '@fastify/cors';
+import fastify, { type FastifyInstance } from 'fastify';
 import { env } from './config/env';
-import pino from 'pino';
-import { initPostgres } from './infrastructure/postgres/client';
-import { initMongo } from './infrastructure/mongodb/client';
+import {
+    closePostgres,
+    getPgPool,
+    initPostgres,
+} from './infrastructure/postgres/client';
+import {
+    closeMongo,
+    initMongo,
+    pingMongo,
+} from './infrastructure/mongodb/client';
+import { probeMqtt } from './infrastructure/mqtt/client';
+import { apiGateway } from './infrastructure/api-gateway/client';
+import { loadCatalog, getCachedCatalog } from './catalog/loader';
+import { createRunsRoutes } from './api/routes/runs';
+import usersRoutes from './api/routes/users';
+import devicesRoutes from './api/routes/devices';
+import eventsRoutes from './api/routes/events';
+import streamRoutes from './api/routes/stream';
+import catalogRoutes from './api/routes/catalog';
+import { CleanupCronjob } from './cleanup/cronjob';
+import { RecoveryService } from './recovery/service';
+import { getRuntimeManager } from './runtime/manager';
 
-const logger = pino({
-    level: env.NODE_ENV === 'development' ? 'debug' : 'info',
-    transport: env.NODE_ENV === 'development' ? {
-        target: 'pino-pretty',
-        options: { colorize: true }
-    } : undefined
-});
+interface PreflightCheck {
+    status: 'ok' | 'error';
+    latency_ms: number;
+    message?: string;
+}
 
-const app = fastify({ logger });
+const safeTokenEquals = (received: string | undefined, expected: string): boolean => {
+    if (!received) return false;
+    const receivedBuffer = Buffer.from(received);
+    const expectedBuffer = Buffer.from(expected);
+    return receivedBuffer.length === expectedBuffer.length
+        && crypto.timingSafeEqual(receivedBuffer, expectedBuffer);
+};
 
-app.get('/api/health', async (request, reply) => {
-    return { status: 'ok', service: 'device-simulator' };
-});
-
-app.get('/api/preflight', async (request, reply) => {
-    return { 
-        success: true, 
-        enabled: env.SIMULATOR_ENABLED,
-        environment: env.NODE_ENV
-    };
-});
-
-import runsRoutes from './api/routes/runs';
-
-const start = async () => {
+const runCheck = async (operation: () => Promise<unknown>): Promise<PreflightCheck> => {
+    const startedAt = performance.now();
     try {
-        if (!env.SIMULATOR_ENABLED) {
-            logger.warn('Simulator is disabled via SIMULATOR_ENABLED env variable. Exiting...');
-            process.exit(0);
-        }
-
-        logger.info('Initializing databases...');
-        await initPostgres(logger);
-        await initMongo(logger);
-
-        // Security Hook
-        app.addHook('onRequest', async (request, reply) => {
-            if (request.url.startsWith('/api/preflight') || request.url.startsWith('/api/health')) {
-                return;
-            }
-            const token = request.headers.authorization?.replace('Bearer ', '');
-            if (token !== env.ADMIN_TOKEN) {
-                reply.status(401).send({ error: 'Unauthorized. Invalid admin token.' });
-            }
-        });
-
-        app.register(runsRoutes);
-
-        const port = env.PORT;
-        const host = env.HOST;
-        await app.listen({ port, host });
-        logger.info(`✅ Simulator backend listening on http://${host}:${port}`);
-    } catch (err) {
-        app.log.error(err);
-        process.exit(1);
+        await operation();
+        return {
+            status: 'ok',
+            latency_ms: Math.round(performance.now() - startedAt),
+        };
+    } catch (error) {
+        return {
+            status: 'error',
+            latency_ms: Math.round(performance.now() - startedAt),
+            message: error instanceof Error ? error.message : String(error),
+        };
     }
 };
 
-start();
+export const buildApp = async (): Promise<{
+    app: FastifyInstance;
+    cleanupJob: CleanupCronjob;
+}> => {
+    if (!env.SIMULATOR_ENABLED) {
+        throw new Error('Device Simulator is disabled. Set SIMULATOR_ENABLED=true to start it.');
+    }
+
+    const app = fastify({
+        logger: {
+            level: env.NODE_ENV === 'development' ? 'debug' : 'info',
+            redact: {
+                paths: [
+                    'req.headers.authorization',
+                    'authorization',
+                    '*.password',
+                    '*.secret',
+                    '*.secret_key',
+                    '*.credential',
+                    '*.access_token',
+                    '*.refresh_token',
+                ],
+                censor: '[REDACTED]',
+            },
+            transport: env.NODE_ENV === 'development'
+                ? { target: 'pino-pretty', options: { colorize: true } }
+                : undefined,
+        },
+    });
+
+    const allowedOrigins = new Set(
+        env.ADMIN_CORS_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean),
+    );
+    await app.register(cors, {
+        origin: (origin, callback) => {
+            if (!origin || allowedOrigins.has(origin)) callback(null, true);
+            else callback(new Error('Origin is not allowed by simulator CORS policy'), false);
+        },
+        methods: ['GET', 'POST', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'Authorization'],
+    });
+
+    app.addHook('onRequest', async (request, reply) => {
+        if (request.method === 'OPTIONS' || request.url.startsWith('/api/health')) return;
+        const header = request.headers.authorization;
+        const token = header?.startsWith('Bearer ') ? header.slice(7) : undefined;
+        if (!safeTokenEquals(token, env.ADMIN_TOKEN)) {
+            return reply.status(401).send({
+                success: false,
+                error: { code: 'UNAUTHORIZED', message: 'Invalid simulator admin token' },
+            });
+        }
+    });
+
+    app.setErrorHandler((error, _request, reply) => {
+        const typedError = error as Error & { statusCode?: number };
+        const statusCode = Number(typedError.statusCode) || 500;
+        if (statusCode >= 500) app.log.error({ err: error }, 'Unhandled simulator request error');
+        else app.log.warn({ err: error }, 'Simulator request rejected');
+        return reply.status(statusCode).send({
+            success: false,
+            error: {
+                code: statusCode >= 500 ? 'INTERNAL_ERROR' : 'REQUEST_ERROR',
+                message: statusCode >= 500 ? 'Internal simulator error' : typedError.message,
+            },
+        });
+    });
+
+    app.get('/api/health', async () => ({
+        status: 'ok',
+        service: 'device-simulator',
+        enabled: env.SIMULATOR_ENABLED,
+        timestamp: new Date().toISOString(),
+    }));
+
+    app.get('/api/preflight', async (_request, reply) => {
+        const checks = {
+            api_gateway: await runCheck(() => apiGateway.health()),
+            postgres: await runCheck(() => getPgPool().query('SELECT 1')),
+            mongodb: await runCheck(() => pingMongo()),
+            mqtt: await runCheck(() => probeMqtt()),
+            catalog: await runCheck(async () => {
+                if (getCachedCatalog().length === 0) throw new Error('Product catalog is empty');
+            }),
+        };
+        const ready = Object.values(checks).every((check) => check.status === 'ok');
+        return reply.status(ready ? 200 : 503).send({
+            success: ready,
+            enabled: env.SIMULATOR_ENABLED,
+            environment: env.NODE_ENV,
+            checks,
+        });
+    });
+
+    await initPostgres(app.log);
+    await initMongo(app.log);
+    await loadCatalog();
+    app.log.info({ productCount: getCachedCatalog().length }, 'Product catalog loaded');
+
+    const cleanupJob = new CleanupCronjob(app.log);
+    await app.register(createRunsRoutes(cleanupJob));
+    await app.register(usersRoutes);
+    await app.register(devicesRoutes);
+    await app.register(eventsRoutes);
+    await app.register(streamRoutes);
+    await app.register(catalogRoutes);
+
+    app.addHook('onClose', async () => {
+        cleanupJob.stop();
+        await getRuntimeManager(app.log).disconnectAll();
+        await Promise.all([closeMongo(), closePostgres()]);
+    });
+
+    return { app, cleanupJob };
+};
+
+export const start = async (): Promise<void> => {
+    const { app, cleanupJob } = await buildApp();
+    await app.listen({ port: env.PORT, host: env.HOST });
+    app.log.info({ host: env.HOST, port: env.PORT }, 'Device Simulator backend listening');
+    cleanupJob.start();
+    await new RecoveryService(app.log).recover();
+};
+
+if (require.main === module) {
+    start().catch((error) => {
+        console.error('Device Simulator failed to start:', error);
+        process.exitCode = 1;
+    });
+}

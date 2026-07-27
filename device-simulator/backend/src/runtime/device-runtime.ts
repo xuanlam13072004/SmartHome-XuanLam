@@ -1,180 +1,292 @@
-import { MqttClient } from 'mqtt';
-import { createDeviceMqttClient } from '../infrastructure/mqtt/client';
-import { DeviceState, generateInitialState, evolveState } from '../generation/telemetry-generator';
+import crypto from 'node:crypto';
+import type { MqttClient } from 'mqtt';
+import type { FastifyBaseLogger } from 'fastify';
+import { env } from '../config/env';
+import {
+    createDeviceMqttClient,
+    resolveMqttTopic,
+} from '../infrastructure/mqtt/client';
+import {
+    applyCommandToState,
+    type DeviceState,
+    evolveState,
+    generateInitialState,
+} from '../generation/telemetry-generator';
 import { getMongoDb } from '../infrastructure/mongodb/client';
-import { getCachedCatalog } from '../catalog/loader';
-import crypto from 'crypto';
-import pino from 'pino';
+import { getProduct } from '../catalog/loader';
+import type { SimulatedDeviceRecord } from '../domain/registry';
+import { recordSimulatorEvent } from '../events/service';
+
+interface DeviceCommand {
+    command_id: string;
+    capability_id?: string;
+    action: string;
+    instance?: string;
+    payload?: Record<string, unknown>;
+}
 
 export class DeviceRuntime {
-    private mac: string;
-    private productId: string;
     private mqttClient: MqttClient | null = null;
     private state: DeviceState;
-    private seq: number = 0;
-    private intervalMs: number;
-    private timer: NodeJS.Timeout | null = null;
-    private isPaused: boolean = false;
-    private logger: pino.Logger;
+    private seq: number;
+    private intervalTimer: NodeJS.Timeout | null = null;
+    private jitterTimer: NodeJS.Timeout | null = null;
+    private isPaused = false;
+    private isPublishing = false;
+    private connectPromise: Promise<void> | null = null;
+    private readonly logger: FastifyBaseLogger;
 
-    constructor(mac: string, productId: string, intervalMs: number, initialSeq: number, logger: pino.Logger) {
-        this.mac = mac;
-        this.productId = productId;
-        this.intervalMs = intervalMs;
+    constructor(
+        private readonly mac: string,
+        private readonly productId: string,
+        private readonly intervalMs: number,
+        initialSeq: number,
+        logger: FastifyBaseLogger,
+        initialState?: DeviceState,
+    ) {
         this.seq = initialSeq;
-        this.logger = logger.child({ mac });
-        
-        // Find product to generate correct initial state
-        const catalog = getCachedCatalog();
-        const product = catalog.find(p => p.id === productId) || { id: productId, display_name: 'Unknown', category: 'unknown', capabilities: [] };
-        
-        this.state = generateInitialState(product);
+        this.logger = logger.child({ mac, productId });
+        this.state = initialState || generateInitialState(getProduct(productId));
     }
 
-    async connect() {
-        if (this.mqttClient) return;
-
-        this.mqttClient = createDeviceMqttClient(this.mac);
-
-        this.mqttClient.on('connect', () => {
-            this.logger.info('MQTT Connected');
-            this.updateRuntimeState('online');
-            
-            // Subscribe to control topics
-            this.mqttClient?.subscribe(`smarthome/${this.mac}/control`, { qos: 1 });
-            
-            this.startTelemetry();
-        });
-
-        this.mqttClient.on('message', (topic, payload) => {
-            if (topic === `smarthome/${this.mac}/control`) {
-                this.handleCommand(payload);
-            }
-        });
-
-        this.mqttClient.on('error', (err) => {
-            this.logger.error({ err }, 'MQTT Error');
-            this.updateRuntimeState('mqtt_error');
-        });
-        
-        this.mqttClient.on('offline', () => {
-            this.logger.warn('MQTT Offline');
-            this.updateRuntimeState('offline');
-            this.stopTelemetry();
-        });
+    get connected(): boolean {
+        return Boolean(this.mqttClient?.connected);
     }
 
-    disconnect() {
+    async connect(): Promise<void> {
+        if (this.mqttClient?.connected) return;
+        if (this.connectPromise) return this.connectPromise;
+
+        this.connectPromise = new Promise<void>((resolve, reject) => {
+            const client = createDeviceMqttClient(this.mac);
+            this.mqttClient = client;
+            void this.updateRuntimeState('connecting');
+
+            const onInitialError = (error: Error) => {
+                client.off('connect', onInitialConnect);
+                client.end(true);
+                if (this.mqttClient === client) this.mqttClient = null;
+                this.connectPromise = null;
+                reject(error);
+            };
+            const onInitialConnect = () => {
+                client.off('error', onInitialError);
+                this.connectPromise = null;
+                resolve();
+            };
+            client.once('error', onInitialError);
+            client.once('connect', onInitialConnect);
+
+            client.on('connect', () => {
+                this.logger.info('Virtual device connected to MQTT');
+                void this.updateRuntimeState('online');
+                client.subscribe(this.controlTopic(), { qos: 1 }, (error) => {
+                    if (error) {
+                        this.logger.error({ err: error }, 'Failed to subscribe to device control topic');
+                        return;
+                    }
+                    this.startTelemetry();
+                });
+            });
+
+            client.on('message', (topic, payload) => {
+                if (topic === this.controlTopic()) {
+                    void this.handleCommand(payload);
+                }
+            });
+
+            client.on('error', (error) => {
+                this.logger.error({ err: error }, 'Virtual device MQTT error');
+                void this.updateRuntimeState('mqtt_error');
+            });
+
+            client.on('offline', () => {
+                this.logger.warn('Virtual device MQTT connection is offline');
+                void this.updateRuntimeState('offline');
+                this.stopTelemetry();
+            });
+
+            client.on('close', () => {
+                this.stopTelemetry();
+            });
+        });
+
+        return this.connectPromise;
+    }
+
+    async disconnect(): Promise<void> {
         this.stopTelemetry();
-        if (this.mqttClient) {
-            this.mqttClient.end();
-            this.mqttClient = null;
+        const client = this.mqttClient;
+        this.mqttClient = null;
+        this.connectPromise = null;
+        if (client) {
+            await new Promise<void>((resolve, reject) => {
+                client.end(false, {}, (error) => error ? reject(error) : resolve());
+            });
         }
-        this.updateRuntimeState('offline');
+        await this.updateRuntimeState('offline');
     }
 
-    pause() {
+    pause(): void {
         this.isPaused = true;
     }
 
-    resume() {
+    resume(): void {
         this.isPaused = false;
     }
 
-    private startTelemetry() {
-        if (this.timer) clearInterval(this.timer);
-        
-        // Add jitter: randomize the start of the interval by up to intervalMs
-        const jitter = Math.random() * this.intervalMs;
-        
-        setTimeout(() => {
-            // First immediate publish
-            this.publishTelemetry();
-            
-            // Then loop
-            this.timer = setInterval(() => {
-                if (!this.isPaused) {
-                    this.publishTelemetry();
-                }
+    async publishNow(): Promise<void> {
+        await this.publishTelemetry(false);
+    }
+
+    private controlTopic(): string {
+        return resolveMqttTopic(env.MQTT_CONTROL_TOPIC, this.mac);
+    }
+
+    private startTelemetry(): void {
+        this.stopTelemetry();
+        const jitter = Math.floor(Math.random() * this.intervalMs);
+        this.jitterTimer = setTimeout(() => {
+            this.jitterTimer = null;
+            void this.publishTelemetry(true);
+            this.intervalTimer = setInterval(() => {
+                if (!this.isPaused) void this.publishTelemetry(true);
             }, this.intervalMs);
         }, jitter);
     }
 
-    private stopTelemetry() {
-        if (this.timer) {
-            clearInterval(this.timer);
-            this.timer = null;
+    private stopTelemetry(): void {
+        if (this.jitterTimer) {
+            clearTimeout(this.jitterTimer);
+            this.jitterTimer = null;
+        }
+        if (this.intervalTimer) {
+            clearInterval(this.intervalTimer);
+            this.intervalTimer = null;
         }
     }
 
-    private async publishTelemetry() {
-        if (!this.mqttClient || !this.mqttClient.connected) return;
-
-        this.seq++;
-        
-        const catalog = getCachedCatalog();
-        const product = catalog.find(p => p.id === this.productId) || { id: this.productId, display_name: 'Unknown', category: 'unknown', capabilities: [] };
-        
-        this.state = evolveState(this.state, product);
-
-        const payload = {
-            device_id: this.mac,
-            timestamp: new Date().toISOString(),
-            seq: this.seq,
-            metrics: this.state.metrics,
-            ...this.state.diagnostics,
-            trace_id: crypto.randomUUID()
-        };
-
-        const topic = `smarthome/${this.mac}/telemetry`;
-        this.mqttClient.publish(topic, JSON.stringify(payload), { qos: 1 }, (err) => {
-            if (err) {
-                this.logger.error({ err }, 'Failed to publish telemetry');
-            }
-        });
-
-        // Save seq to Registry
-        const db = getMongoDb();
-        await db.collection('simulated_devices').updateOne(
-            { mac: this.mac },
-            { $set: { seq: this.seq, last_telemetry: new Date() } }
-        );
-    }
-
-    private async handleCommand(rawPayload: Buffer) {
+    private async publishTelemetry(evolve: boolean): Promise<void> {
+        if (!this.mqttClient?.connected || this.isPublishing) return;
+        this.isPublishing = true;
         try {
-            const command = JSON.parse(rawPayload.toString());
-            this.logger.info({ action: command.action }, 'Received command');
-
-            // Naive state mutation
-            if (command.action === 'SET_BRIGHTNESS' && typeof command.payload?.brightness === 'number') {
-                this.state.metrics['brightness'] = command.payload.brightness;
-            } else if (command.action === 'SET_SWITCH' && typeof command.payload?.power === 'boolean') {
-                this.state.metrics['power'] = command.payload.power;
-            }
-
-            // Send ACK
-            const ackTopic = `smarthome/${this.mac}/ack`;
-            const ackPayload = {
-                command_id: command.command_id,
+            const product = getProduct(this.productId);
+            if (evolve) this.state = evolveState(this.state, product);
+            const nextSeq = this.seq + 1;
+            const timestamp = new Date();
+            const payload = {
                 device_id: this.mac,
-                status: 'success'
+                timestamp: timestamp.toISOString(),
+                seq: nextSeq,
+                metrics: {
+                    ...this.state.metrics,
+                    ...this.state.diagnostics,
+                },
+                trace_id: crypto.randomUUID(),
             };
-            this.mqttClient?.publish(ackTopic, JSON.stringify(ackPayload), { qos: 1 });
 
-            // Force immediate telemetry to reflect new state
-            this.publishTelemetry();
-            
-        } catch (err) {
-            this.logger.error({ err }, 'Error processing command');
+            await new Promise<void>((resolve, reject) => {
+                this.mqttClient?.publish(
+                    resolveMqttTopic(env.MQTT_TELEMETRY_TOPIC, this.mac),
+                    JSON.stringify(payload),
+                    { qos: 1 },
+                    (error) => error ? reject(error) : resolve(),
+                );
+            });
+
+            this.seq = nextSeq;
+            await getMongoDb().collection<SimulatedDeviceRecord>('simulated_devices').updateOne(
+                { mac: this.mac },
+                {
+                    $set: {
+                        seq: this.seq,
+                        state_snapshot: this.state,
+                        last_telemetry: timestamp,
+                        runtime_state: 'online',
+                        updated_at: timestamp,
+                    },
+                },
+            );
+        } catch (error) {
+            this.logger.error({ err: error }, 'Failed to publish virtual device telemetry');
+        } finally {
+            this.isPublishing = false;
         }
     }
 
-    private async updateRuntimeState(state: string) {
-        const db = getMongoDb();
-        await db.collection('simulated_devices').updateOne(
+    private async handleCommand(rawPayload: Buffer): Promise<void> {
+        let command: DeviceCommand | null = null;
+        try {
+            command = JSON.parse(rawPayload.toString()) as DeviceCommand;
+            if (!command.command_id || !command.action) {
+                throw new Error('Command is missing command_id or action');
+            }
+
+            this.state = applyCommandToState(this.state, getProduct(this.productId), command);
+            await this.publishAck(command.command_id, 'success');
+            await recordSimulatorEvent({
+                type: 'device.command',
+                severity: 'info',
+                mac: this.mac,
+                message: `Applied command ${command.action}`,
+                data: {
+                    command_id: command.command_id,
+                    capability_id: command.capability_id,
+                    instance: command.instance,
+                    action: command.action,
+                },
+            });
+            await this.publishTelemetry(false);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.logger.warn({ err: error }, 'Rejected virtual device command');
+            if (command?.command_id) {
+                await this.publishAck(command.command_id, 'error', message);
+            }
+            await recordSimulatorEvent({
+                type: 'device.command_failed',
+                severity: 'warning',
+                mac: this.mac,
+                message: 'Virtual device rejected a command',
+                data: {
+                    command_id: command?.command_id,
+                    action: command?.action,
+                    error: message,
+                },
+            }).catch(() => undefined);
+        }
+    }
+
+    private async publishAck(
+        commandId: string,
+        status: 'success' | 'error',
+        errorMessage?: string,
+    ): Promise<void> {
+        if (!this.mqttClient?.connected) {
+            throw new Error('MQTT client disconnected before ACK');
+        }
+        const payload = {
+            command_id: commandId,
+            device_id: this.mac,
+            status,
+            ...(errorMessage ? { error_msg: errorMessage.slice(0, 500) } : {}),
+        };
+        await new Promise<void>((resolve, reject) => {
+            this.mqttClient?.publish(
+                resolveMqttTopic(env.MQTT_ACK_TOPIC, this.mac),
+                JSON.stringify(payload),
+                { qos: 1 },
+                (error) => error ? reject(error) : resolve(),
+            );
+        });
+    }
+
+    private async updateRuntimeState(
+        state: SimulatedDeviceRecord['runtime_state'],
+    ): Promise<void> {
+        await getMongoDb().collection<SimulatedDeviceRecord>('simulated_devices').updateOne(
             { mac: this.mac },
-            { $set: { runtime_state: state, updated_at: new Date() } }
+            { $set: { runtime_state: state, updated_at: new Date() } },
         );
     }
 }

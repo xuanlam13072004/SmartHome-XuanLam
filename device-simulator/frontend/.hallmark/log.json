@@ -1,0 +1,29 @@
+[
+  {
+    "date": "2026-07-27",
+    "macrostructure": "Index-First",
+    "theme": "Coral",
+    "enrichment": "none",
+    "nav": "N13 Inline command palette",
+    "footer": "Ft1 Mast-headed",
+    "brief": "SmartHome virtual-user and MQTT-device simulator control plane",
+    "pre_emit": "P5 H5 E5 S5 R5 V5",
+    "slop_test": "pass 58/58",
+    "responsive_viewports": [320, 375, 414, 768, 1280],
+    "contrast": "pass WCAG 2.1; lowest audited semantic text pair 4.72:1",
+    "diversification": "Workbench/Cobalt/N3/Ft2 -> Index-First/Coral/N13/Ft1"
+  },
+  {
+    "date": "2026-07-24",
+    "macrostructure": "Workbench",
+    "theme": "Cobalt",
+    "enrichment": "none",
+    "nav": "N3 Side-rail",
+    "footer": "Ft2 Inline single line",
+    "brief": "SmartHome device simulator operations dashboard",
+    "pre_emit": "P5 H4 E4 S5 R5 V4",
+    "slop_test": "pass 58/58",
+    "responsive_viewports": [320, 375, 414, 768, 1280],
+    "contrast": "pass WCAG 2.1 for semantic token pairs"
+  }
+]

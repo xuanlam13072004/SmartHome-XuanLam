@@ -146,13 +146,30 @@ async function runMongoSeeding() {
         }
         console.log('MongoDB products seeded successfully.');
 
-        // Telemetry retry idempotency must be present in every deployment, not
-        // only when the standalone index builder is run manually.
-        await db.collection(process.env.MONGO_TELEMETRY_COLLECTION || 'telemetry_logs').createIndex(
-            { event_id: 1 },
-            { unique: true, partialFilterExpression: { event_id: { $type: 'string' } } }
-        );
-        console.log('MongoDB telemetry event_id unique index ensured.');
+        // A time-series collection cannot have a unique index. Do not create
+        // the telemetry collection implicitly here either, because doing so
+        // would prevent the worker from provisioning it as time-series later.
+        const telemetryCollectionName = process.env.MONGO_TELEMETRY_COLLECTION || 'telemetry_logs';
+        const telemetryCollectionInfo = await db
+            .listCollections({ name: telemetryCollectionName }, { nameOnly: false })
+            .next();
+        if (!telemetryCollectionInfo) {
+            console.log(
+                `MongoDB telemetry collection "${telemetryCollectionName}" does not exist; `
+                + 'leaving its creation to mqtt-worker-service.'
+            );
+        } else if (telemetryCollectionInfo.options?.timeseries) {
+            console.log(
+                `MongoDB telemetry collection "${telemetryCollectionName}" is time-series; `
+                + 'skipping unsupported event_id unique index.'
+            );
+        } else {
+            await db.collection(telemetryCollectionName).createIndex(
+                { event_id: 1 },
+                { unique: true, partialFilterExpression: { event_id: { $type: 'string' } } }
+            );
+            console.log('MongoDB telemetry event_id unique index ensured.');
+        }
 
         // 3. Migrate existing MongoDB devices (Clean Break: role -> product_id)
         const devicesCol = db.collection('devices');

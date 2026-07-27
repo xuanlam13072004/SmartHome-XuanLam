@@ -1,0 +1,33 @@
+name: smarthome-device-simulator
+
+services:
+  simulator-backend:
+    build:
+      context: ./backend
+    container_name: simulator-backend
+    env_file:
+      - path: .env.docker
+        required: false
+    ports:
+      - "4001:4001"
+    networks:
+      - smarthome_net
+    restart: unless-stopped
+
+  simulator-dashboard:
+    build:
+      context: ./frontend
+    container_name: simulator-dashboard
+    ports:
+      - "4000:80"
+    networks:
+      - smarthome_net
+    depends_on:
+      simulator-backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+networks:
+  smarthome_net:
+    external: true
+    name: ${SMARTHOME_DOCKER_NETWORK:-smarthome-xuanlam_smarthome_net}

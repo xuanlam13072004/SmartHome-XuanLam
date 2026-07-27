@@ -1,21 +1,43 @@
 import { z } from 'zod';
 
-export const createRunSchema = z.object({
-    body: z.object({
-        user_count: z.number().min(1).max(10000),
-        username_prefix: z.string().min(1).default('sim'),
-        email_domain: z.string().min(3).default('simulator.local'),
-        devices_min: z.number().min(0).default(1),
-        devices_max: z.number().min(0).default(5),
-        products: z.array(z.object({
-            product_id: z.string(),
-            weight: z.number().min(1).max(100)
-        })).min(1),
-        telemetry_interval: z.number().min(5).default(15),
-        random_seed: z.string().optional(),
-        concurrency: z.number().min(1).max(50).default(5),
-        initial_offline_rate: z.number().min(0).max(100).default(0),
-        cleanup_policy: z.enum(['manual', 'auto_24h']).default('auto_24h'),
-        auto_start: z.boolean().default(true)
-    })
+export const createRunBodySchema = z.object({
+    user_count: z.number().int().min(1).max(10000),
+    username_prefix: z.string().trim().min(1).max(24).regex(/^[a-zA-Z0-9_-]+$/).default('sim'),
+    email_domain: z.string().trim().min(3).max(120).regex(/^[a-zA-Z0-9.-]+$/).default('simulator.local'),
+    devices_min: z.number().int().min(0).max(100).default(1),
+    devices_max: z.number().int().min(0).max(100).default(5),
+    products: z.array(z.object({
+        product_id: z.string().trim().min(1).max(64),
+        weight: z.number().positive().max(10000),
+    })).min(1).max(100),
+    telemetry_interval: z.number().int().min(5).max(86400).default(15),
+    random_seed: z.string().trim().min(1).max(128).optional(),
+    initial_offline_rate: z.number().min(0).max(100).default(0),
+    cleanup_policy: z.enum(['manual', 'auto_24h']).default('auto_24h'),
+    auto_start: z.boolean().default(true),
+}).superRefine((value, context) => {
+    if (value.devices_min > value.devices_max) {
+        context.addIssue({
+            code: 'custom',
+            path: ['devices_max'],
+            message: 'devices_max must be greater than or equal to devices_min',
+        });
+    }
+
+    const productIds = value.products.map((product) => product.product_id);
+    if (new Set(productIds).size !== productIds.length) {
+        context.addIssue({
+            code: 'custom',
+            path: ['products'],
+            message: 'product_id values must be unique',
+        });
+    }
+});
+
+export const extendRunBodySchema = z.object({
+    hours: z.number().int().min(1).max(24 * 30),
+});
+
+export const retentionBodySchema = z.object({
+    policy: z.enum(['auto_24h', 'permanent']),
 });

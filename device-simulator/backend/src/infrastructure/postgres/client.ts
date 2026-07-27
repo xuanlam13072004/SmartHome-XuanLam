@@ -1,10 +1,10 @@
 import { Pool } from 'pg';
 import { env } from '../../config/env';
-import pino from 'pino';
+import type { FastifyBaseLogger } from 'fastify';
 
 let pool: Pool | null = null;
 
-export const initPostgres = async (logger: pino.Logger) => {
+export const initPostgres = async (logger: FastifyBaseLogger): Promise<void> => {
     pool = new Pool({
         user: env.POSTGRES_USER,
         password: env.POSTGRES_PASSWORD,
@@ -15,11 +15,18 @@ export const initPostgres = async (logger: pino.Logger) => {
 
     try {
         const client = await pool.connect();
-        logger.info('✅ Connected to PostgreSQL database');
+        logger.info('Connected to PostgreSQL database');
         client.release();
     } catch (err) {
-        logger.error({ err }, '❌ Failed to connect to PostgreSQL database');
+        logger.error({ err }, 'Failed to connect to PostgreSQL database');
         throw err;
+    }
+};
+
+export const closePostgres = async (): Promise<void> => {
+    if (pool) {
+        await pool.end();
+        pool = null;
     }
 };
 

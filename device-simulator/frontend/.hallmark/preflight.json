@@ -1,0 +1,10 @@
+{
+  "date": "2026-07-27",
+  "mode": "full-rebuild-authorized-by-user",
+  "framework": "React 19 + Vite 8",
+  "styling": "Plain CSS with semantic tokens; unused Tailwind/PostCSS stack removed",
+  "font_stack": "Geist + Geist Mono",
+  "palette": "Coral warm-light semantic OKLCH tokens",
+  "motion": "motion-cut; no motion library",
+  "spacing": "Named 4px-derived scale in tokens.css"
+}

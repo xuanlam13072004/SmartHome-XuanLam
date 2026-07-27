@@ -1,4 +1,5 @@
-import crypto from 'crypto';
+import crypto from 'node:crypto';
+import { deterministicHex } from './deterministic';
 
 export interface GeneratedUser {
     username: string;
@@ -18,15 +19,16 @@ export const generateUser = (
     index: number, 
     runId: string, 
     emailDomain: string = 'simulator.local', 
-    usernamePrefix: string = 'sim'
+    usernamePrefix: string = 'sim',
+    randomSeed?: string,
 ): GeneratedUser => {
-    // We use a portion of the runId to make usernames somewhat unique across runs
-    const shortRunId = runId.substring(0, 5);
-    const suffix = crypto.randomBytes(2).toString('hex'); // 4 chars random
+    const shortRunId = runId.replace(/^run-/, '').substring(0, 6);
+    const seed = randomSeed || runId;
+    const suffix = deterministicHex(seed, `user:${runId}:${index}`, 2);
     
     const username = `${usernamePrefix}_${shortRunId}_${index}_${suffix}`;
     const email = `${username}@${emailDomain}`;
-    const password = crypto.randomBytes(8).toString('hex') + 'A1!'; // Ensure complexity
+    const password = `${crypto.randomBytes(12).toString('base64url')}A1!`;
     const full_name = `Simulated User ${shortRunId}-${index}`;
 
     return {

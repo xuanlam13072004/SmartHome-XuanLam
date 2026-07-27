@@ -14,7 +14,39 @@ export const createDeviceMqttClient = (clientId: string, cleanSession: boolean =
         username: env.MQTT_USERNAME || undefined,
         password: env.MQTT_PASSWORD || undefined,
         clean: cleanSession,
-        reconnectPeriod: 5000, // exponential backoff might be needed later
-        connectTimeout: 10 * 1000,
+        reconnectPeriod: 5000,
+        connectTimeout: env.MQTT_CONNECT_TIMEOUT_MS,
+    });
+};
+
+export const resolveMqttTopic = (template: string, deviceId: string): string =>
+    template.replaceAll('{device_id}', deviceId);
+
+export const probeMqtt = async (): Promise<void> => {
+    const brokerUrl = `mqtt://${env.MQTT_HOST}:${env.MQTT_PORT}`;
+    const probeClient = mqtt.connect(brokerUrl, {
+        clientId: `device-simulator-preflight-${process.pid}-${Date.now()}`,
+        username: env.MQTT_USERNAME || undefined,
+        password: env.MQTT_PASSWORD || undefined,
+        clean: true,
+        reconnectPeriod: 0,
+        connectTimeout: env.MQTT_CONNECT_TIMEOUT_MS,
+    });
+
+    await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+            probeClient.end(true);
+            reject(new Error('MQTT preflight timed out'));
+        }, env.MQTT_CONNECT_TIMEOUT_MS + 250);
+
+        probeClient.once('connect', () => {
+            clearTimeout(timer);
+            probeClient.end(true, {}, (error) => error ? reject(error) : resolve());
+        });
+        probeClient.once('error', (error) => {
+            clearTimeout(timer);
+            probeClient.end(true);
+            reject(error);
+        });
     });
 };

@@ -51,30 +51,44 @@ async function main() {
 
         // 2. Indexes for Telemetry Logs Collection
         console.log(`\nBuilding indexes for collection "${telemetryCollectionName}" (Historical Telemetry)...`);
-        const telemetry = db.collection(telemetryCollectionName);
+        const telemetryCollectionInfo = await db
+            .listCollections({ name: telemetryCollectionName }, { nameOnly: false })
+            .next();
 
-        // Compound index for time-series charts query (e.g. fetch last 24h temp for device X)
-        console.log('- Creating compound index on { "metadata.device_id": 1, timestamp: -1 }...');
-        await telemetry.createIndex({ "metadata.device_id": 1, timestamp: -1 });
+        if (!telemetryCollectionInfo) {
+            console.log(
+                `- Collection "${telemetryCollectionName}" does not exist; `
+                + 'leaving its time-series creation to mqtt-worker-service.'
+            );
+        } else {
+            const telemetry = db.collection(telemetryCollectionName);
 
-        // Makes unordered batch retries idempotent. The partial filter keeps
-        // existing legacy rows (without event_id) valid during rollout.
-        console.log('- Creating unique partial index on { event_id: 1 }...');
-        await telemetry.createIndex(
-            { event_id: 1 },
-            { unique: true, partialFilterExpression: { event_id: { $type: 'string' } } }
-        );
+            // Compound index for time-series charts query (e.g. fetch last 24h temp for device X)
+            console.log('- Creating compound index on { "metadata.device_id": 1, timestamp: -1 }...');
+            await telemetry.createIndex({ "metadata.device_id": 1, timestamp: -1 });
 
-        // TTL Index: Automatically expire telemetry logs after 30 days to control storage costs
-        const expireAfterSeconds = 30 * 24 * 60 * 60; // 30 days
-        console.log(`- Creating TTL index on { timestamp: 1 } with expireAfterSeconds = ${expireAfterSeconds}...`);
-        await telemetry.createIndex(
-            { timestamp: 1 },
-            { 
-                expireAfterSeconds,
-                partialFilterExpression: { "metadata.device_id": { $exists: true } }
+            if (telemetryCollectionInfo.options?.timeseries) {
+                console.log('- Skipping unsupported unique event_id index on time-series collection.');
+            } else {
+                // Makes unordered batch retries idempotent for regular collections.
+                console.log('- Creating unique partial index on { event_id: 1 }...');
+                await telemetry.createIndex(
+                    { event_id: 1 },
+                    { unique: true, partialFilterExpression: { event_id: { $type: 'string' } } }
+                );
             }
-        );
+
+            // TTL Index: Automatically expire telemetry logs after 30 days to control storage costs
+            const expireAfterSeconds = 30 * 24 * 60 * 60; // 30 days
+            console.log(`- Creating TTL index on { timestamp: 1 } with expireAfterSeconds = ${expireAfterSeconds}...`);
+            await telemetry.createIndex(
+                { timestamp: 1 },
+                {
+                    expireAfterSeconds,
+                    partialFilterExpression: { "metadata.device_id": { $exists: true } }
+                }
+            );
+        }
 
 
         // 3. Indexes for Active Commands Collection (Command Recovery)
