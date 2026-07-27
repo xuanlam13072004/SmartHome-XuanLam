@@ -12,7 +12,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: smarthome
     volumes:
-      - postgres_data:/var/lib/postgresql
+      - "E:/smarthome_data/postgresql:/var/lib/postgresql"
     ports:
       - "5433:5432"
     networks:
@@ -35,12 +35,13 @@ services:
       retries: 5
 
   mongodb:
-    image: mongo:7
+    image: mongo:8.0
     container_name: mongodb
     ports:
       - "27017:27017"
     volumes:
-      - mongodb_data:/data/db
+      - "E:/smarthome_data/mongodb:/data/db"
+      - "E:/smarthome_data/mongodb-config:/data/configdb"
     networks:
       - smarthome_net
     healthcheck:
@@ -129,7 +130,3 @@ services:
         condition: service_healthy
       mosquitto:
         condition: service_healthy
-
-volumes:
-  postgres_data:
-  mongodb_data:
