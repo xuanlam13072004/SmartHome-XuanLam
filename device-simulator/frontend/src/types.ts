@@ -24,6 +24,8 @@ export interface RunConfig {
   devices_max: number
   products: ProductWeight[]
   telemetry_interval: number
+  telemetry_jitter_percent: number
+  startup_ramp_seconds: number
   random_seed?: string
   initial_offline_rate: number
   cleanup_policy: 'manual' | 'auto_24h'
@@ -50,10 +52,50 @@ export interface SimulationRun {
   cleanup_after?: string
 }
 
+export interface RunMetrics {
+  run_id: string
+  sampled_at: string
+  totals: {
+    telemetry_published: number
+    telemetry_failed: number
+    telemetry_bytes: number
+    commands_received: number
+    commands_applied: number
+    commands_rejected: number
+    acks_published: number
+    acks_failed: number
+    mqtt_connects: number
+    mqtt_disconnects: number
+    mqtt_errors: number
+  }
+  rates: {
+    window_seconds: number
+    telemetry_per_second: number
+    telemetry_failures_per_minute: number
+    bytes_per_second: number
+    commands_per_second: number
+  }
+  runtime: {
+    registered: number
+    connected: number
+    paused: number
+    scheduler_active: number
+    scheduler_due: number
+  }
+  process: {
+    rss_bytes: number
+    heap_used_bytes: number
+    uptime_seconds: number
+  }
+  last_activity_at?: string
+}
+
 export interface SimulatedUser {
   run_id: string
   generation_index: number
   account_id?: string
+  account_created_by_simulator?: boolean
+  account_provenance?: 'registered' | 'recovered_after_register' | 'verified_legacy'
   username: string
   email: string
   full_name: string

@@ -4,6 +4,7 @@ import type {
     ProductCatalog,
     StateProperty,
 } from '../catalog/loader';
+import { validateCommandPayload } from './command-validation';
 
 export interface DeviceState {
     metrics: Record<string, unknown>;
@@ -154,11 +155,7 @@ export const applyCommandToState = (
     const instance = candidates[0];
     const command = instance.commands.find((item) => item.action === input.action) as CapabilityCommand;
     const payload = input.payload || {};
-    for (const argument of command.arguments || []) {
-        if (!(argument.name in payload)) {
-            throw new Error(`Missing command argument ${argument.name}`);
-        }
-    }
+    validateCommandPayload(command, payload);
 
     const next: DeviceState = {
         metrics: { ...state.metrics },

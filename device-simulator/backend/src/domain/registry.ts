@@ -3,7 +3,13 @@ import type { DeviceState } from '../generation/telemetry-generator';
 export type RetentionPolicy = 'ttl' | 'permanent';
 export type UserGenerationState = 'planned' | 'registered' | 'provisioning' | 'ready' | 'failed';
 export type DeviceProvisioningState = 'planned' | 'provisioned' | 'claimed' | 'failed';
-export type DeviceRuntimeState = 'claimed' | 'connecting' | 'online' | 'offline' | 'mqtt_error';
+export type DeviceRuntimeState =
+    | 'claimed'
+    | 'connecting'
+    | 'online'
+    | 'paused'
+    | 'offline'
+    | 'mqtt_error';
 export type DeviceDesiredState = 'online' | 'offline';
 
 export interface EncryptedValue {
@@ -16,6 +22,8 @@ export interface SimulatedUserRecord {
     run_id: string;
     generation_index: number;
     account_id?: string;
+    account_created_by_simulator?: boolean;
+    account_provenance?: 'registered' | 'recovered_after_register' | 'verified_legacy';
     username: string;
     email: string;
     full_name: string;

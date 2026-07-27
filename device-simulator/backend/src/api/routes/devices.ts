@@ -65,9 +65,12 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
             { $set: { desired_state: 'online', updated_at: new Date() } },
         );
         const runtime = runtimeManager.addDevice(
+            context.run.id,
             mac,
             context.device.product_id,
             context.run.config.telemetry_interval * 1000,
+            context.run.config.telemetry_jitter_percent ?? 10,
+            context.run.config.startup_ramp_seconds ?? 30,
             context.device.seq || 0,
             context.device.state_snapshot,
         );

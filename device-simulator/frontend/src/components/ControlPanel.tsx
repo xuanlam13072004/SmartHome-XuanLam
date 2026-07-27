@@ -10,6 +10,8 @@ const defaultConfig: RunConfig = {
   devices_max: 3,
   products: [],
   telemetry_interval: 15,
+  telemetry_jitter_percent: 10,
+  startup_ramp_seconds: 30,
   initial_offline_rate: 5,
   cleanup_policy: 'auto_24h',
   auto_start: true,
@@ -43,6 +45,24 @@ export default function ControlPanel({
     () => new Map(config.products.map((product) => [product.product_id, product.weight])),
     [config.products],
   )
+
+  const workloadEstimate = useMemo(() => {
+    const maximumDevices = config.user_count * config.devices_max
+    const expectedOnlineDevices = config.auto_start
+      ? Math.ceil(maximumDevices * (1 - config.initial_offline_rate / 100))
+      : 0
+    return {
+      maximumDevices,
+      expectedOnlineDevices,
+      telemetryPerSecond: expectedOnlineDevices / Math.max(1, config.telemetry_interval),
+    }
+  }, [
+    config.auto_start,
+    config.devices_max,
+    config.initial_offline_rate,
+    config.telemetry_interval,
+    config.user_count,
+  ])
 
   const updateNumber = (key: keyof RunConfig, value: string) => {
     setConfig((current) => ({ ...current, [key]: Number(value) }))
@@ -139,9 +159,21 @@ export default function ControlPanel({
             <Field label="Telemetry interval" help="Seconds; minimum 5">
               <input min="5" max="86400" onChange={(event) => updateNumber('telemetry_interval', event.target.value)} required type="number" value={config.telemetry_interval} />
             </Field>
+            <Field label="Interval jitter" help="0–50%; spreads recurring telemetry">
+              <input min="0" max="50" onChange={(event) => updateNumber('telemetry_jitter_percent', event.target.value)} required type="number" value={config.telemetry_jitter_percent} />
+            </Field>
+            <Field label="Startup ramp" help="Seconds; spreads the first telemetry burst">
+              <input min="0" max="3600" onChange={(event) => updateNumber('startup_ramp_seconds', event.target.value)} required type="number" value={config.startup_ramp_seconds} />
+            </Field>
             <Field label="Initial offline rate" help="Percent of devices kept offline">
               <input min="0" max="100" onChange={(event) => updateNumber('initial_offline_rate', event.target.value)} required type="number" value={config.initial_offline_rate} />
             </Field>
+          </div>
+
+          <div className="load-preview" aria-label="Projected maximum workload">
+            <div><span>Max devices</span><strong>{formatNumber(workloadEstimate.maximumDevices)}</strong></div>
+            <div><span>Expected online</span><strong>{formatNumber(workloadEstimate.expectedOnlineDevices)}</strong></div>
+            <div><span>Projected telemetry</span><strong>{formatRate(workloadEstimate.telemetryPerSecond)} msg/s</strong></div>
           </div>
 
           <div className="product-selector">
@@ -226,6 +258,11 @@ export default function ControlPanel({
     </section>
   )
 }
+
+const formatNumber = (value: number) => new Intl.NumberFormat().format(value)
+const formatRate = (value: number) => new Intl.NumberFormat(undefined, {
+  maximumFractionDigits: 2,
+}).format(value)
 
 function Field({
   label,

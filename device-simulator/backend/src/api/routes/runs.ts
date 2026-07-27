@@ -12,6 +12,13 @@ import { getCachedCatalog } from '../../catalog/loader';
 import type { CleanupCronjob } from '../../cleanup/cronjob';
 import { env } from '../../config/env';
 import { recordSimulatorEvent } from '../../events/service';
+import {
+    emptyMetricTotals,
+    getRunMetricsService,
+} from '../../metrics/service';
+import { getRuntimeManager } from '../../runtime/manager';
+import { evaluateWorkloadBudget } from '../../workload/budget';
+import { restoreRunDevices } from '../../runtime/restore-run';
 
 const terminalStatuses = new Set([
     'completed',
@@ -55,6 +62,26 @@ export const createRunsRoutes = (cleanupJob: CleanupCronjob): FastifyPluginAsync
                 });
             }
 
+            const workloadBudget = evaluateWorkloadBudget(config, {
+                maxUsersPerRun: env.MAX_USERS_PER_RUN,
+                maxDevicesPerRun: env.MAX_DEVICES_PER_RUN,
+                maxActiveDevices: env.MAX_ACTIVE_DEVICES,
+                maxTelemetryMessagesPerSecond: env.MAX_TELEMETRY_MESSAGES_PER_SECOND,
+            });
+            if (!workloadBudget.accepted) {
+                return reply.status(400).send({
+                    success: false,
+                    error: {
+                        code: 'WORKLOAD_LIMIT_EXCEEDED',
+                        message: 'Simulation workload exceeds configured safety limits',
+                        details: {
+                            estimate: workloadBudget.estimate,
+                            violations: workloadBudget.violations,
+                        },
+                    },
+                });
+            }
+
             const runId = `run-${crypto.randomUUID()}`;
             const now = new Date();
             const newRun: SimulationRun = {
@@ -67,6 +94,9 @@ export const createRunsRoutes = (cleanupJob: CleanupCronjob): FastifyPluginAsync
                     devices_requested: 0,
                     devices_provisioned: 0,
                     devices_claimed: 0,
+                },
+                metrics: {
+                    totals: emptyMetricTotals(),
                 },
                 total_errors: 0,
                 cleanup_retries: 0,
@@ -84,6 +114,7 @@ export const createRunsRoutes = (cleanupJob: CleanupCronjob): FastifyPluginAsync
                     user_count: config.user_count,
                     devices_min: config.devices_min,
                     devices_max: config.devices_max,
+                    workload_estimate: workloadBudget.estimate,
                 },
             });
             void generationQueue.startRun(newRun).catch((error) => {
@@ -117,6 +148,21 @@ export const createRunsRoutes = (cleanupJob: CleanupCronjob): FastifyPluginAsync
             return { success: true, run };
         });
 
+        app.get('/api/simulation-runs/:id/metrics', async (request, reply) => {
+            const { id } = request.params as { id: string };
+            const snapshot = await getRunMetricsService(app.log).snapshot(
+                id,
+                getRuntimeManager(app.log).getStats(id),
+            );
+            if (!snapshot) {
+                return reply.status(404).send({
+                    success: false,
+                    error: { code: 'RUN_NOT_FOUND', message: 'Simulation run not found' },
+                });
+            }
+            return { success: true, metrics: snapshot };
+        });
+
         app.post('/api/simulation-runs/:id/pause', async (request, reply) => {
             const { id } = request.params as { id: string };
             const run = await getMongoDb().collection<SimulationRun>('simulation_runs').findOne({ id });
@@ -125,10 +171,28 @@ export const createRunsRoutes = (cleanupJob: CleanupCronjob): FastifyPluginAsync
                 return reply.status(409).send({ success: false, error: 'Terminal run cannot be paused' });
             }
             generationQueue.stopRun(id);
-            await getMongoDb().collection('simulation_runs').updateOne(
-                { id },
-                { $set: { status: 'paused', updated_at: new Date() } },
-            );
+            await getRuntimeManager(app.log).pauseRun(id);
+            const pausedAt = new Date();
+            await Promise.all([
+                getMongoDb().collection('simulation_runs').updateOne(
+                    { id },
+                    { $set: { status: 'paused', updated_at: pausedAt } },
+                ),
+                getMongoDb().collection('simulated_devices').updateMany(
+                    {
+                        run_id: id,
+                        provisioning_state: 'claimed',
+                        desired_state: 'online',
+                    },
+                    { $set: { runtime_state: 'paused', updated_at: pausedAt } },
+                ),
+            ]);
+            await recordSimulatorEvent({
+                type: 'run.paused',
+                severity: 'info',
+                run_id: id,
+                message: 'Simulation generation and active device runtimes paused',
+            });
             return { success: true, status: 'paused' };
         });
 
@@ -139,12 +203,25 @@ export const createRunsRoutes = (cleanupJob: CleanupCronjob): FastifyPluginAsync
             if (run.status !== 'paused' && run.status !== 'failed') {
                 return reply.status(409).send({ success: false, error: 'Only paused or failed runs can resume' });
             }
+            const resumedRun: SimulationRun = { ...run, status: 'queued' };
             await getMongoDb().collection('simulation_runs').updateOne(
                 { id },
                 { $set: { status: 'queued', updated_at: new Date() } },
             );
-            void generationQueue.startRun({ ...run, status: 'queued' });
-            return reply.status(202).send({ success: true, status: 'queued' });
+            const runtimeRecovery = await restoreRunDevices(resumedRun, app.log);
+            void generationQueue.startRun(resumedRun);
+            await recordSimulatorEvent({
+                type: 'run.resumed',
+                severity: runtimeRecovery.failed > 0 ? 'warning' : 'info',
+                run_id: id,
+                message: 'Simulation generation and device runtimes resumed',
+                data: { runtime_recovery: runtimeRecovery },
+            });
+            return reply.status(202).send({
+                success: true,
+                status: 'queued',
+                runtime_recovery: runtimeRecovery,
+            });
         });
 
         app.post('/api/simulation-runs/:id/cancel', async (request, reply) => {

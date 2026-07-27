@@ -14,6 +14,7 @@ import type {
   SimulationRun,
 } from '../types'
 import { Icon } from './Icon'
+import { RunMetricsPanel } from './RunMetricsPanel'
 
 export default function RunsList({
   enabled,
@@ -227,6 +228,8 @@ export default function RunsList({
                       </>
                     )}
                   </div>
+
+                  <RunMetricsPanel runId={run.id} />
 
                   <dl className="run-spec">
                     <div><dt>Cleanup</dt><dd>{retainedPermanently ? 'Manual' : run.cleanup_after ? formatDate(run.cleanup_after) : 'Starts after completion'}</dd></div>

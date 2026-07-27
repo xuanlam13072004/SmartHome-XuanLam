@@ -1,6 +1,9 @@
 import { DeviceRuntime } from './device-runtime';
 import type { FastifyBaseLogger } from 'fastify';
 import type { DeviceState } from '../generation/telemetry-generator';
+import { env } from '../config/env';
+import type { RuntimeMetricStats } from '../metrics/service';
+import { getTelemetryScheduler } from './telemetry-scheduler';
 
 export class RuntimeManager {
     private devices: Map<string, DeviceRuntime> = new Map();
@@ -11,19 +14,30 @@ export class RuntimeManager {
     }
 
     addDevice(
+        runId: string,
         mac: string,
         productId: string,
         intervalMs: number,
+        telemetryJitterPercent: number,
+        startupRampSeconds: number,
         initialSeq: number,
         initialState?: DeviceState,
     ): DeviceRuntime {
         if (this.devices.has(mac)) {
             return this.devices.get(mac) as DeviceRuntime;
         }
+        if (this.devices.size >= env.MAX_ACTIVE_DEVICES) {
+            throw new Error(
+                `Active virtual device limit reached (${env.MAX_ACTIVE_DEVICES})`,
+            );
+        }
         const device = new DeviceRuntime(
+            runId,
             mac,
             productId,
             intervalMs,
+            telemetryJitterPercent,
+            startupRampSeconds * 1000,
             initialSeq,
             this.logger,
             initialState,
@@ -56,18 +70,40 @@ export class RuntimeManager {
         this.devices.delete(mac);
     }
 
-    pauseDevice(mac: string) {
+    async pauseDevice(mac: string): Promise<void> {
         const device = this.devices.get(mac);
         if (device) {
-            device.pause();
+            await device.pause();
         }
     }
 
-    resumeDevice(mac: string) {
+    async resumeDevice(mac: string): Promise<void> {
         const device = this.devices.get(mac);
         if (device) {
-            device.resume();
+            await device.resume();
         }
+    }
+
+    async pauseRun(runId: string): Promise<void> {
+        await Promise.all(
+            [...this.devices.values()]
+                .filter((device) => device.runId === runId)
+                .map((device) => device.pause()),
+        );
+    }
+
+    getStats(runId: string): RuntimeMetricStats {
+        const devices = [...this.devices.values()].filter(
+            (device) => device.runId === runId,
+        );
+        const scheduler = getTelemetryScheduler().getStats(runId);
+        return {
+            registered: devices.length,
+            connected: devices.filter((device) => device.connected).length,
+            paused: devices.filter((device) => device.paused).length,
+            scheduler_active: scheduler.active,
+            scheduler_due: scheduler.due,
+        };
     }
 
     async disconnectAll(): Promise<void> {

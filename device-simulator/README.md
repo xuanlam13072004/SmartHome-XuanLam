@@ -16,9 +16,22 @@ thị, khôi phục và cleanup an toàn.
   `/devices/claim`.
 - Mỗi thiết bị có MQTT client riêng, state theo catalog, telemetry QoS 1,
   command validation, ACK và telemetry phản hồi.
+- Command được kiểm tra lại tại virtual device trước khi mutate state: cấu trúc
+  JSON, action/instance, argument thiếu hoặc dư, kiểu dữ liệu, min/max, enum và
+  độ dài chuỗi. Payload sai nhận ACK `error` và không làm thay đổi state.
+- Hỗ trợ startup ramp và jitter theo run để tránh burst telemetry đồng loạt.
+- Kiểm tra trước trần user, device, MQTT client và message/giây; workload vượt
+  ngân sách bị từ chối trước khi tạo dữ liệu.
+- Theo dõi realtime telemetry/giây, lỗi/phút, byte đã gửi, command, ACK, số
+  MQTT client online và bộ nhớ backend. Counter được giữ qua restart.
 - Pause, resume, cancel và cleanup run; connect/disconnect thiết bị; gửi
   telemetry tức thì.
 - Khôi phục run dở dang và thiết bị cần online sau khi backend khởi động lại.
+- Pause run dừng cả generation lẫn telemetry runtime. Run paused vẫn giữ paused
+  sau restart và chỉ kết nối lại MQTT khi Resume được gọi.
+- Telemetry `seq` được cấp phát nguyên tử trong Registry trước khi publish; khi
+  process bị dừng đột ngột sequence có thể có khoảng trống nhưng không quay lùi
+  hoặc phát trùng sau Recovery.
 - Xem run, user, device, trạng thái, telemetry gần nhất và audit event.
 - Credential/secret được mã hóa trong registry; thao tác reveal cần admin token
   và được ghi audit.
@@ -68,6 +81,27 @@ docker compose -f device-simulator\docker-compose.yml up -d --build
 
 Mở `http://localhost:4000`, nhập `ADMIN_TOKEN`, chạy Infrastructure Preflight,
 sau đó mới tạo workload.
+
+Ở màn hình Create, phần Projected workload hiển thị tải kỳ vọng. Backend vẫn
+kiểm tra theo trường hợp xấu nhất, không dùng tỷ lệ offline ngẫu nhiên để nới
+trần an toàn. Các giới hạn có thể chủ động chỉnh trong `.env.docker`:
+
+- `MAX_USERS_PER_RUN`
+- `MAX_DEVICES_PER_RUN`
+- `MAX_ACTIVE_DEVICES`
+- `MAX_TELEMETRY_MESSAGES_PER_SECOND`
+- `TELEMETRY_PUBLISH_CONCURRENCY`
+
+Snapshot thiết bị trong Registry mặc định chỉ flush mỗi 5 giây để không nhân đôi
+ghi MongoDB theo từng telemetry. Telemetry nghiệp vụ vẫn được gửi ngay qua MQTT.
+Dashboard đọc metrics rolling qua
+`GET /api/simulation-runs/:id/metrics`.
+
+Mọi telemetry định kỳ được điều phối bởi một scheduler tập trung. Scheduler giữ
+một lịch due-time chung, áp dụng jitter và chỉ chạy tối đa
+`TELEMETRY_PUBLISH_CONCURRENCY` publish đồng thời; công việc vượt giới hạn được
+giữ ở trạng thái due để xử lý khi có slot thay vì tạo một timer riêng cho từng
+thiết bị.
 
 Compose riêng chỉ tạo hai container `simulator-backend` và
 `simulator-dashboard`; nó tham gia external network của SmartHome và không tạo
@@ -124,6 +158,11 @@ Vite phục vụ dashboard tại `http://localhost:5173` và proxy `/api` sang b
 - Timer 24 giờ bắt đầu khi run hoàn thành, không phải khi run bắt đầu.
 - User tạo thủ công ngoài simulator không có registry record và không thuộc
   cleanup tự động.
+- Mỗi account có `account_id` chỉ được cleanup khi Registry đã ghi
+  `account_created_by_simulator=true`. Nếu email trùng account có sẵn, Simulator
+  chỉ phục hồi một lần đăng ký bị gián đoạn sau khi identity, thời điểm tạo,
+  login và `/auth/me` đều khớp; mọi trường hợp còn lại bị chặn thay vì nhận nhầm
+  hoặc xóa nhầm account.
 - Tốc độ đăng ký/claim được giới hạn bằng delay để tôn trọng rate limit của API
   Gateway. Trường `concurrency` không được expose vì pipeline hiện chạy tuần tự
   có chủ đích.

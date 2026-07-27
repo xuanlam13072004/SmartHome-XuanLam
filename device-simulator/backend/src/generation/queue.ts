@@ -19,10 +19,21 @@ import {
     deterministicInteger,
     deterministicUnit,
 } from './deterministic';
+import { verifyRecoverableGeneratedAccount } from './account-ownership';
 import { recordSimulatorEvent } from '../events/service';
 
 const delay = (milliseconds: number) =>
     new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+interface AccountRow {
+    id: string;
+    username: string;
+    email: string;
+    full_name: string | null;
+    created_at: Date;
+}
+
+type LoginSession = Awaited<ReturnType<typeof apiGateway.login>>;
 
 export class GenerationQueue {
     private readonly logger: FastifyBaseLogger;
@@ -221,13 +232,32 @@ export class GenerationQueue {
         );
 
         let accountId = user.account_id;
+        let session: LoginSession | null = null;
+        let accountProvenance: SimulatedUserRecord['account_provenance'];
         if (!accountId) {
-            const existingAccount = await getPgPool().query(
-                'SELECT id FROM accounts WHERE email = $1',
+            const existingAccount = await getPgPool().query<AccountRow>(
+                `SELECT id::text, username, email, full_name, created_at
+                 FROM accounts
+                 WHERE email = $1`,
                 [user.email.toLowerCase()],
             );
             if (existingAccount.rows.length > 0) {
-                accountId = String(existingAccount.rows[0].id);
+                session = await this.loginForOwnershipRecovery(user.email, password);
+                const authenticated = await apiGateway.getCurrentUser(session.accessToken);
+                accountId = verifyRecoverableGeneratedAccount(
+                    {
+                        username: user.username,
+                        email: user.email,
+                        full_name: user.full_name,
+                        registry_created_at: user.created_at,
+                    },
+                    {
+                        ...existingAccount.rows[0],
+                        created_at: new Date(existingAccount.rows[0].created_at),
+                    },
+                    authenticated,
+                );
+                accountProvenance = 'recovered_after_register';
             } else {
                 const registered = await apiGateway.register({
                     username: user.username,
@@ -236,6 +266,7 @@ export class GenerationQueue {
                     full_name: user.full_name,
                 });
                 accountId = registered.id;
+                accountProvenance = 'registered';
             }
 
             await db.collection<SimulatedUserRecord>('simulated_users').updateOne(
@@ -243,21 +274,70 @@ export class GenerationQueue {
                 {
                     $set: {
                         account_id: accountId,
+                        account_created_by_simulator: true,
+                        account_provenance: accountProvenance,
                         generation_state: 'registered',
                         updated_at: new Date(),
                     },
                 },
             );
             await this.safeEvent({
-                type: 'user.registered',
+                type: accountProvenance === 'registered'
+                    ? 'user.registered'
+                    : 'user.registration_recovered',
                 severity: 'info',
                 run_id: run.id,
                 account_id: accountId,
-                message: `Registered simulated user ${user.email}`,
+                message: accountProvenance === 'registered'
+                    ? `Registered simulated user ${user.email}`
+                    : `Recovered previously registered simulated user ${user.email}`,
+            });
+        } else if (user.account_created_by_simulator !== true) {
+            const existingAccount = await getPgPool().query<AccountRow>(
+                `SELECT id::text, username, email, full_name, created_at
+                 FROM accounts
+                 WHERE id = $1`,
+                [accountId],
+            );
+            if (existingAccount.rows.length !== 1) {
+                throw new Error('ACCOUNT_OWNERSHIP_UNVERIFIED: registry account no longer exists');
+            }
+            session = await this.loginForOwnershipRecovery(user.email, password);
+            const authenticated = await apiGateway.getCurrentUser(session.accessToken);
+            accountId = verifyRecoverableGeneratedAccount(
+                {
+                    username: user.username,
+                    email: user.email,
+                    full_name: user.full_name,
+                    registry_created_at: user.created_at,
+                },
+                {
+                    ...existingAccount.rows[0],
+                    created_at: new Date(existingAccount.rows[0].created_at),
+                },
+                authenticated,
+            );
+            accountProvenance = 'verified_legacy';
+            await db.collection<SimulatedUserRecord>('simulated_users').updateOne(
+                { run_id: run.id, generation_index: index },
+                {
+                    $set: {
+                        account_created_by_simulator: true,
+                        account_provenance: accountProvenance,
+                        updated_at: new Date(),
+                    },
+                },
+            );
+            await this.safeEvent({
+                type: 'user.ownership_verified',
+                severity: 'info',
+                run_id: run.id,
+                account_id: accountId,
+                message: `Verified legacy simulator account ownership for ${user.email}`,
             });
         }
 
-        const session = await apiGateway.login({ email: user.email, password });
+        session ||= await apiGateway.login({ email: user.email, password });
         await db.collection<SimulatedUserRecord>('simulated_users').updateOne(
             { run_id: run.id, generation_index: index },
             { $set: { generation_state: 'provisioning', updated_at: new Date() } },
@@ -287,6 +367,19 @@ export class GenerationQueue {
                 },
             },
         );
+    }
+
+    private async loginForOwnershipRecovery(
+        email: string,
+        password: string,
+    ): Promise<LoginSession> {
+        try {
+            return await apiGateway.login({ email, password });
+        } catch {
+            throw new Error(
+                'ACCOUNT_IDENTITY_COLLISION: existing email is not controlled by this simulator identity',
+            );
+        }
     }
 
     private async ensureDevice(
@@ -415,11 +508,14 @@ export class GenerationQueue {
             });
         }
 
-        if (device.desired_state === 'online') {
+        if (device.desired_state === 'online' && this.runningTasks.has(run.id)) {
             const runtime = getRuntimeManager(this.logger).addDevice(
+                run.id,
                 device.mac,
                 device.product_id,
                 run.config.telemetry_interval * 1000,
+                run.config.telemetry_jitter_percent ?? 10,
+                run.config.startup_ramp_seconds ?? 30,
                 device.seq || 0,
                 device.state_snapshot,
             );

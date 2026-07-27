@@ -97,6 +97,21 @@ export class ApiGatewayClient {
         };
     }
 
+    async getCurrentUser(accessToken: string): Promise<{ id: string; email: string }> {
+        const data = await this.request<{
+            success: boolean;
+            user: { id: string; email: string };
+        }>('/auth/me', {
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+            },
+        });
+        if (!data.success || !data.user?.id || !data.user?.email) {
+            throw new Error('API Gateway returned an invalid current-user response');
+        }
+        return data.user;
+    }
+
     async claimDevice(
         accessToken: string,
         claimData: { mac: string; secret_key: string; name?: string },

@@ -24,6 +24,8 @@ import catalogRoutes from './api/routes/catalog';
 import { CleanupCronjob } from './cleanup/cronjob';
 import { RecoveryService } from './recovery/service';
 import { getRuntimeManager } from './runtime/manager';
+import { getRunMetricsService } from './metrics/service';
+import { getTelemetryScheduler } from './runtime/telemetry-scheduler';
 
 interface PreflightCheck {
     status: 'ok' | 'error';
@@ -152,6 +154,8 @@ export const buildApp = async (): Promise<{
 
     await initPostgres(app.log);
     await initMongo(app.log);
+    const metricsService = getRunMetricsService(app.log);
+    metricsService.start();
     await loadCatalog();
     app.log.info({ productCount: getCachedCatalog().length }, 'Product catalog loaded');
 
@@ -166,6 +170,8 @@ export const buildApp = async (): Promise<{
     app.addHook('onClose', async () => {
         cleanupJob.stop();
         await getRuntimeManager(app.log).disconnectAll();
+        getTelemetryScheduler().stop();
+        await metricsService.stop();
         await Promise.all([closeMongo(), closePostgres()]);
     });
 

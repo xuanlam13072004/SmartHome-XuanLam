@@ -15,6 +15,7 @@ import { getRuntimeManager } from '../runtime/manager';
 import { getGenerationQueue } from '../generation/queue';
 import { recordSimulatorEvent } from '../events/service';
 import { decrypt } from '../security/crypto';
+import { classifyAccountCleanupTargets } from './targets';
 
 export class CleanupCronjob {
     private readonly logger: FastifyBaseLogger;
@@ -42,6 +43,7 @@ export class CleanupCronjob {
     async cleanupRun(runId: string): Promise<{
         status: 'cleaned' | 'cleanup_blocked';
         untrackedDevices?: Array<{ owner_id: string; mac: string }>;
+        unverifiedAccounts?: string[];
     }> {
         const registryDb = getMongoDb();
         const run = await registryDb.collection<SimulationRun>('simulation_runs').findOne({ id: runId });
@@ -54,10 +56,37 @@ export class CleanupCronjob {
         const devices = await registryDb.collection<SimulatedDeviceRecord>('simulated_devices')
             .find({ run_id: runId })
             .toArray();
-        const accountIds = users
-            .map((user) => user.account_id)
-            .filter((id): id is string => Boolean(id));
+        const {
+            ownedAccountIds: accountIds,
+            unverifiedAccountIds,
+        } = classifyAccountCleanupTargets(users);
         const macs = devices.map((device) => device.mac);
+
+        if (unverifiedAccountIds.length > 0) {
+            await registryDb.collection<SimulationRun>('simulation_runs').updateOne(
+                { id: runId },
+                {
+                    $set: {
+                        status: 'cleanup_blocked',
+                        last_cleanup_error: 'Registry contains accounts without verified simulator ownership',
+                        updated_at: new Date(),
+                    },
+                    $inc: { cleanup_retries: 1 },
+                },
+            );
+            await recordSimulatorEvent({
+                type: 'cleanup.blocked',
+                severity: 'warning',
+                run_id: runId,
+                message: 'Cleanup blocked because account ownership is not verified',
+                data: { unverified_account_ids: unverifiedAccountIds },
+            }).catch(() => undefined);
+            return {
+                status: 'cleanup_blocked',
+                unverifiedAccounts: unverifiedAccountIds,
+            };
+        }
+
         const ownedFactoryMacs: string[] = [];
         for (const device of devices) {
             if (device.factory_owned) {

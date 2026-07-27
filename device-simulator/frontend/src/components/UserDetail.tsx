@@ -52,6 +52,12 @@ export function UserDetail({
             <Spec label="Email" value={user.email} />
             <Spec label="Username" value={user.username} />
             <Spec label="Generation" value={user.generation_state} />
+            <Spec
+              label="Account ownership"
+              value={user.account_created_by_simulator
+                ? `Verified (${formatProvenance(user.account_provenance)})`
+                : 'Unverified — cleanup blocked'}
+            />
             <Spec label="Retention" value={user.retention_policy === 'ttl' ? `Until ${formatDate(user.expires_at)}` : 'Permanent'} />
             <Spec label="Target devices" value={String(user.target_device_count)} />
           </dl>
@@ -120,3 +126,9 @@ function Spec({ label, value, mono = false }: { label: string; value: string; mo
 const formatDate = (value?: string) => value
   ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
   : 'Run has not completed'
+
+const formatProvenance = (value?: SimulatedUser['account_provenance']) => {
+  if (value === 'recovered_after_register') return 'recovered registration'
+  if (value === 'verified_legacy') return 'verified legacy record'
+  return 'registered by simulator'
+}

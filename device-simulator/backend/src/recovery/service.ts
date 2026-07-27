@@ -5,6 +5,7 @@ import { getMongoDb } from '../infrastructure/mongodb/client';
 import { getGenerationQueue } from '../generation/queue';
 import { getRuntimeManager } from '../runtime/manager';
 import { recordSimulatorEvent } from '../events/service';
+import { shouldRestoreRunRuntime } from '../runtime/recovery-policy';
 
 export class RecoveryService {
     private readonly logger: FastifyBaseLogger;
@@ -26,6 +27,22 @@ export class RecoveryService {
             });
         }
 
+        const pausedRuns = await db.collection<SimulationRun>('simulation_runs')
+            .find({ status: 'paused' })
+            .project<{ id: string }>({ id: 1 })
+            .toArray();
+        const pausedRunIds = pausedRuns.map((run) => run.id);
+        if (pausedRunIds.length > 0) {
+            await db.collection<SimulatedDeviceRecord>('simulated_devices').updateMany(
+                {
+                    run_id: { $in: pausedRunIds },
+                    provisioning_state: 'claimed',
+                    desired_state: 'online',
+                },
+                { $set: { runtime_state: 'paused', updated_at: new Date() } },
+            );
+        }
+
         const onlineDevices = await db.collection<SimulatedDeviceRecord>('simulated_devices')
             .find({
                 provisioning_state: 'claimed',
@@ -42,11 +59,16 @@ export class RecoveryService {
         let recoveredDevices = 0;
         for (const device of onlineDevices) {
             const run = runMap.get(device.run_id);
-            if (!run || ['cleaning', 'cleaned', 'cleanup_blocked'].includes(run.status)) continue;
+            if (!run || !shouldRestoreRunRuntime(run.status)) {
+                continue;
+            }
             const runtime = manager.addDevice(
+                run.id,
                 device.mac,
                 device.product_id,
                 run.config.telemetry_interval * 1000,
+                run.config.telemetry_jitter_percent ?? 10,
+                run.config.startup_ramp_seconds ?? 30,
                 device.seq || 0,
                 device.state_snapshot,
             );
@@ -65,11 +87,13 @@ export class RecoveryService {
             data: {
                 resumed_runs: recoverableRuns.length,
                 recovered_devices: recoveredDevices,
+                paused_runs_preserved: pausedRunIds.length,
             },
         }).catch(() => undefined);
         this.logger.info({
             resumedRuns: recoverableRuns.length,
             recoveredDevices,
+            pausedRunsPreserved: pausedRunIds.length,
         }, 'Simulator restart recovery completed');
     }
 }

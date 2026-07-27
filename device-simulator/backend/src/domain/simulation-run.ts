@@ -24,6 +24,8 @@ export interface SimulationRunConfig {
     devices_max: number;
     products: ProductWeight[];
     telemetry_interval: number;
+    telemetry_jitter_percent: number;
+    startup_ramp_seconds: number;
     random_seed?: string;
     initial_offline_rate: number;
     cleanup_policy: 'manual' | 'auto_24h';
@@ -38,11 +40,31 @@ export interface SimulationRunProgress {
     devices_claimed: number;
 }
 
+export interface SimulationRunMetricTotals {
+    telemetry_published: number;
+    telemetry_failed: number;
+    telemetry_bytes: number;
+    commands_received: number;
+    commands_applied: number;
+    commands_rejected: number;
+    acks_published: number;
+    acks_failed: number;
+    mqtt_connects: number;
+    mqtt_disconnects: number;
+    mqtt_errors: number;
+}
+
+export interface SimulationRunMetrics {
+    totals: SimulationRunMetricTotals;
+    last_activity_at?: Date;
+}
+
 export interface SimulationRun {
     id: string;
     status: RunStatus;
     config: SimulationRunConfig;
     progress: SimulationRunProgress;
+    metrics: SimulationRunMetrics;
     total_errors: number;
     last_error?: string | null;
     started_at?: Date;

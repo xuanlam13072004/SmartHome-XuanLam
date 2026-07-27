@@ -1,6 +1,7 @@
 import type {
   CatalogProduct,
   Preflight,
+  RunMetrics,
   RunConfig,
   SimulatedDevice,
   SimulatedUser,
@@ -37,10 +38,11 @@ export const setAdminToken = (token: string): void => {
 
 const request = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
   const token = getAdminToken()
+  const hasBody = init.body !== undefined && init.body !== null
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: {
-      'Content-Type': 'application/json',
+      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...init.headers,
     },
@@ -65,6 +67,11 @@ export const fetchRuns = async (): Promise<SimulationRun[]> =>
 
 export const fetchRun = async (id: string): Promise<SimulationRun> =>
   (await request<{ run: SimulationRun }>(`/simulation-runs/${encodeURIComponent(id)}`)).run
+
+export const fetchRunMetrics = async (id: string): Promise<RunMetrics> =>
+  (await request<{ metrics: RunMetrics }>(
+    `/simulation-runs/${encodeURIComponent(id)}/metrics`,
+  )).metrics
 
 export const fetchUsers = async (runId?: string): Promise<SimulatedUser[]> => {
   const params = new URLSearchParams()

@@ -11,6 +11,8 @@ export const createRunBodySchema = z.object({
         weight: z.number().positive().max(10000),
     })).min(1).max(100),
     telemetry_interval: z.number().int().min(5).max(86400).default(15),
+    telemetry_jitter_percent: z.number().min(0).max(50).default(10),
+    startup_ramp_seconds: z.number().int().min(0).max(3600).default(30),
     random_seed: z.string().trim().min(1).max(128).optional(),
     initial_offline_rate: z.number().min(0).max(100).default(0),
     cleanup_policy: z.enum(['manual', 'auto_24h']).default('auto_24h'),
