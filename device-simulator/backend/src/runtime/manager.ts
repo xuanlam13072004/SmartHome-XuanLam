@@ -70,6 +70,15 @@ export class RuntimeManager {
         this.devices.delete(mac);
     }
 
+    async stopRun(runId: string): Promise<number> {
+        const devices = [...this.devices.entries()].filter(
+            ([, device]) => device.runId === runId,
+        );
+        await Promise.all(devices.map(([, device]) => device.disconnect()));
+        for (const [mac] of devices) this.devices.delete(mac);
+        return devices.length;
+    }
+
     async pauseDevice(mac: string): Promise<void> {
         const device = this.devices.get(mac);
         if (device) {

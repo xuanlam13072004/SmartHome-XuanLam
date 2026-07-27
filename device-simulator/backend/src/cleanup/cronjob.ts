@@ -17,6 +17,20 @@ import { recordSimulatorEvent } from '../events/service';
 import { decrypt } from '../security/crypto';
 import { classifyAccountCleanupTargets } from './targets';
 
+export interface CleanupResult {
+    status: 'cleaned' | 'cleanup_blocked';
+    accountsDeleted?: number;
+    devicesDeleted?: number;
+    retainedUsers?: number;
+    untrackedDevices?: Array<{ owner_id: string; mac: string }>;
+    unverifiedAccounts?: string[];
+}
+
+interface CleanupScope {
+    kind: 'run' | 'user';
+    accountId?: string;
+}
+
 export class CleanupCronjob {
     private readonly logger: FastifyBaseLogger;
     private timer: NodeJS.Timeout | null = null;
@@ -40,51 +54,140 @@ export class CleanupCronjob {
         }
     }
 
-    async cleanupRun(runId: string): Promise<{
-        status: 'cleaned' | 'cleanup_blocked';
-        untrackedDevices?: Array<{ owner_id: string; mac: string }>;
-        unverifiedAccounts?: string[];
-    }> {
+    async cleanupRun(runId: string): Promise<CleanupResult> {
         const registryDb = getMongoDb();
         const run = await registryDb.collection<SimulationRun>('simulation_runs').findOne({ id: runId });
         if (!run) throw Object.assign(new Error('Simulation run not found'), { statusCode: 404 });
         if (run.status === 'cleaned') return { status: 'cleaned' };
 
-        const users = await registryDb.collection<SimulatedUserRecord>('simulated_users')
+        const allUsers = await registryDb.collection<SimulatedUserRecord>('simulated_users')
             .find({ run_id: runId })
             .toArray();
+        const users = allUsers.filter((user) => user.retention_policy !== 'permanent');
+        const accountIds = new Set(users.flatMap((user) => user.account_id ? [user.account_id] : []));
         const devices = await registryDb.collection<SimulatedDeviceRecord>('simulated_devices')
             .find({ run_id: runId })
             .toArray();
+        const selectedDevices = devices.filter((device) =>
+            device.retention_policy !== 'permanent'
+            && accountIds.has(device.simulator_user_id),
+        );
+
+        await registryDb.collection<SimulationRun>('simulation_runs').updateOne(
+            { id: runId },
+            { $set: { status: 'cleaning', updated_at: new Date() } },
+        );
+        getGenerationQueue(this.logger).stopRun(runId);
+
+        try {
+            const result = await this.cleanupTargets(run, users, selectedDevices, { kind: 'run' });
+            if (result.status === 'cleanup_blocked') return result;
+
+            const cleanedAt = new Date();
+            const retainedUsers = allUsers.length - users.length;
+            const runUpdate = retainedUsers > 0
+                ? {
+                    $set: {
+                        status: 'completed' as const,
+                        'config.cleanup_policy': 'manual' as const,
+                        updated_at: cleanedAt,
+                        last_cleanup_error: null,
+                    },
+                    $unset: { cleanup_after: '' as const },
+                }
+                : {
+                    $set: {
+                        status: 'cleaned' as const,
+                        cleaned_at: cleanedAt,
+                        updated_at: cleanedAt,
+                        last_cleanup_error: null,
+                    },
+                };
+            await registryDb.collection<SimulationRun>('simulation_runs').updateOne(
+                { id: runId },
+                runUpdate,
+            );
+            await recordSimulatorEvent({
+                type: 'cleanup.completed',
+                severity: 'info',
+                run_id: runId,
+                message: 'Simulation run TTL data was cleaned successfully',
+                data: {
+                    accounts_deleted: result.accountsDeleted || 0,
+                    devices_deleted: result.devicesDeleted || 0,
+                    retained_permanent_users: retainedUsers,
+                },
+            }).catch(() => undefined);
+            this.logger.info({
+                runId,
+                accountsDeleted: result.accountsDeleted,
+                devicesDeleted: result.devicesDeleted,
+                retainedUsers,
+            }, 'Simulation run cleanup completed');
+            return { ...result, retainedUsers };
+        } catch (error) {
+            await this.markCleanupFailure(runId, error);
+            throw error;
+        }
+    }
+
+    async cleanupUser(accountId: string): Promise<CleanupResult> {
+        const registryDb = getMongoDb();
+        const user = await registryDb.collection<SimulatedUserRecord>('simulated_users')
+            .findOne({ account_id: accountId });
+        if (!user) throw Object.assign(new Error('Simulated user not found'), { statusCode: 404 });
+        const run = await registryDb.collection<SimulationRun>('simulation_runs')
+            .findOne({ id: user.run_id });
+        if (!run) throw Object.assign(new Error('Simulation run not found'), { statusCode: 404 });
+        if (['queued', 'running', 'paused', 'cleaning'].includes(run.status)) {
+            throw Object.assign(
+                new Error('A user cannot be cleaned while its simulation run is active'),
+                { statusCode: 409 },
+            );
+        }
+
+        const devices = await registryDb.collection<SimulatedDeviceRecord>('simulated_devices')
+            .find({ simulator_user_id: accountId })
+            .toArray();
+        const result = await this.cleanupTargets(run, [user], devices, {
+            kind: 'user',
+            accountId,
+        });
+        if (result.status === 'cleaned') {
+            await recordSimulatorEvent({
+                type: 'cleanup.user_completed',
+                severity: 'info',
+                run_id: run.id,
+                account_id: accountId,
+                message: 'Simulated user and its tracked devices were cleaned successfully',
+                data: {
+                    accounts_deleted: result.accountsDeleted || 0,
+                    devices_deleted: result.devicesDeleted || 0,
+                },
+            }).catch(() => undefined);
+        }
+        return result;
+    }
+
+    private async cleanupTargets(
+        run: SimulationRun,
+        users: SimulatedUserRecord[],
+        devices: SimulatedDeviceRecord[],
+        scope: CleanupScope,
+    ): Promise<CleanupResult> {
+        const registryDb = getMongoDb();
         const {
             ownedAccountIds: accountIds,
             unverifiedAccountIds,
         } = classifyAccountCleanupTargets(users);
-        const macs = devices.map((device) => device.mac);
-
         if (unverifiedAccountIds.length > 0) {
-            await registryDb.collection<SimulationRun>('simulation_runs').updateOne(
-                { id: runId },
-                {
-                    $set: {
-                        status: 'cleanup_blocked',
-                        last_cleanup_error: 'Registry contains accounts without verified simulator ownership',
-                        updated_at: new Date(),
-                    },
-                    $inc: { cleanup_retries: 1 },
-                },
+            return this.blockCleanup(
+                run.id,
+                scope,
+                'Registry contains accounts without verified simulator ownership',
+                { unverified_account_ids: unverifiedAccountIds },
+                { status: 'cleanup_blocked', unverifiedAccounts: unverifiedAccountIds },
             );
-            await recordSimulatorEvent({
-                type: 'cleanup.blocked',
-                severity: 'warning',
-                run_id: runId,
-                message: 'Cleanup blocked because account ownership is not verified',
-                data: { unverified_account_ids: unverifiedAccountIds },
-            }).catch(() => undefined);
-            return {
-                status: 'cleanup_blocked',
-                unverifiedAccounts: unverifiedAccountIds,
-            };
         }
 
         const ownedFactoryMacs: string[] = [];
@@ -116,7 +219,6 @@ export class CleanupCronjob {
             tracked.add(device.mac);
             trackedByOwner.set(device.simulator_user_id, tracked);
         }
-
         if (accountIds.length > 0) {
             const ownedDevices = await getPgPool().query<{ owner_id: string; mac: string }>(
                 `SELECT owner_id::text, mac
@@ -128,132 +230,134 @@ export class CleanupCronjob {
                 !trackedByOwner.get(row.owner_id)?.has(row.mac),
             );
             if (untrackedDevices.length > 0) {
-                await registryDb.collection<SimulationRun>('simulation_runs').updateOne(
-                    { id: runId },
-                    {
-                        $set: {
-                            status: 'cleanup_blocked',
-                            last_cleanup_error: 'Generated account owns devices outside this simulator registry',
-                            updated_at: new Date(),
-                        },
-                        $inc: { cleanup_retries: 1 },
-                    },
+                return this.blockCleanup(
+                    run.id,
+                    scope,
+                    'Generated account owns devices outside this simulator registry',
+                    { untracked_devices: untrackedDevices },
+                    { status: 'cleanup_blocked', untrackedDevices },
                 );
-                await recordSimulatorEvent({
-                    type: 'cleanup.blocked',
-                    severity: 'warning',
-                    run_id: runId,
-                    message: 'Cleanup blocked because a generated account owns untracked devices',
-                    data: { untracked_devices: untrackedDevices },
-                }).catch(() => undefined);
-                return { status: 'cleanup_blocked', untrackedDevices };
             }
         }
 
+        const macs = devices.map((device) => device.mac);
+        const runtimeManager = getRuntimeManager(this.logger);
+        await Promise.all(macs.map((mac) => runtimeManager.removeDevice(mac)));
+
+        const pgClient = await getPgPool().connect();
         try {
-            await registryDb.collection<SimulationRun>('simulation_runs').updateOne(
-                { id: runId },
-                { $set: { status: 'cleaning', updated_at: new Date() } },
-            );
-            getGenerationQueue(this.logger).stopRun(runId);
-            const runtimeManager = getRuntimeManager(this.logger);
-            await Promise.all(macs.map((mac) => runtimeManager.removeDevice(mac)));
-
-            const pgClient = await getPgPool().connect();
-            try {
-                await pgClient.query('BEGIN');
-                if (accountIds.length > 0) {
-                    await pgClient.query(
-                        'DELETE FROM accounts WHERE id = ANY($1::uuid[])',
-                        [accountIds],
-                    );
-                }
-                if (ownedFactoryMacs.length > 0) {
-                    await pgClient.query(
-                        'DELETE FROM factory_devices WHERE mac = ANY($1::text[])',
-                        [ownedFactoryMacs],
-                    );
-                }
-                await pgClient.query('COMMIT');
-            } catch (error) {
-                await pgClient.query('ROLLBACK');
-                throw error;
-            } finally {
-                pgClient.release();
+            await pgClient.query('BEGIN');
+            if (accountIds.length > 0) {
+                await pgClient.query('DELETE FROM accounts WHERE id = ANY($1::uuid[])', [accountIds]);
             }
-
-            if (macs.length > 0) {
-                const mainDb = getMainMongoDb();
-                await Promise.all([
-                    mainDb.collection<{ _id: string }>(env.MAIN_MONGO_DEVICES_COLLECTION).deleteMany({
-                        _id: { $in: macs },
-                    }),
-                    mainDb.collection(env.MAIN_MONGO_TELEMETRY_COLLECTION).deleteMany({
-                        'metadata.device_id': { $in: macs },
-                    }),
-                    mainDb.collection('active_commands').deleteMany({
-                        $or: [
-                            { mac: { $in: macs } },
-                            { device_id: { $in: macs } },
-                        ],
-                    }),
-                ]);
+            if (ownedFactoryMacs.length > 0) {
+                await pgClient.query(
+                    'DELETE FROM factory_devices WHERE mac = ANY($1::text[])',
+                    [ownedFactoryMacs],
+                );
             }
-
-            await Promise.all([
-                registryDb.collection('simulated_users').deleteMany({ run_id: runId }),
-                registryDb.collection('simulated_devices').deleteMany({ run_id: runId }),
-            ]);
-            const cleanedAt = new Date();
-            await registryDb.collection<SimulationRun>('simulation_runs').updateOne(
-                { id: runId },
-                {
-                    $set: {
-                        status: 'cleaned',
-                        cleaned_at: cleanedAt,
-                        updated_at: cleanedAt,
-                        last_cleanup_error: null,
-                    },
-                },
-            );
-            await recordSimulatorEvent({
-                type: 'cleanup.completed',
-                severity: 'info',
-                run_id: runId,
-                message: 'Simulation run data was cleaned successfully',
-                data: {
-                    accounts_deleted: accountIds.length,
-                    devices_deleted: macs.length,
-                },
-            }).catch(() => undefined);
-            this.logger.info({
-                runId,
-                accountsDeleted: accountIds.length,
-                devicesDeleted: macs.length,
-            }, 'Simulation run cleanup completed');
-            return { status: 'cleaned' };
+            await pgClient.query('COMMIT');
         } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            await registryDb.collection<SimulationRun>('simulation_runs').updateOne(
+            await pgClient.query('ROLLBACK');
+            throw error;
+        } finally {
+            pgClient.release();
+        }
+
+        if (macs.length > 0) {
+            const mainDb = getMainMongoDb();
+            await Promise.all([
+                mainDb.collection<{ _id: string }>(env.MAIN_MONGO_DEVICES_COLLECTION).deleteMany({
+                    _id: { $in: macs },
+                }),
+                mainDb.collection(env.MAIN_MONGO_TELEMETRY_COLLECTION).deleteMany({
+                    'metadata.device_id': { $in: macs },
+                }),
+                mainDb.collection('active_commands').deleteMany({
+                    $or: [{ mac: { $in: macs } }, { device_id: { $in: macs } }],
+                }),
+            ]);
+        }
+
+        const userFilter = scope.kind === 'user'
+            ? { account_id: scope.accountId }
+            : {
+                run_id: run.id,
+                retention_policy: { $ne: 'permanent' },
+                $or: [
+                    { account_id: { $in: accountIds } },
+                    { account_id: { $exists: false } },
+                ],
+            };
+        const deviceFilter = scope.kind === 'user'
+            ? { simulator_user_id: scope.accountId }
+            : {
+                run_id: run.id,
+                simulator_user_id: { $in: accountIds },
+                retention_policy: { $ne: 'permanent' },
+            };
+        await Promise.all([
+            registryDb.collection('simulated_users').deleteMany(userFilter),
+            registryDb.collection('simulated_devices').deleteMany(deviceFilter),
+        ]);
+        return {
+            status: 'cleaned',
+            accountsDeleted: accountIds.length,
+            devicesDeleted: macs.length,
+        };
+    }
+
+    private async blockCleanup(
+        runId: string,
+        scope: CleanupScope,
+        message: string,
+        data: Record<string, unknown>,
+        result: CleanupResult,
+    ): Promise<CleanupResult> {
+        if (scope.kind === 'run') {
+            await getMongoDb().collection<SimulationRun>('simulation_runs').updateOne(
                 { id: runId },
                 {
                     $set: {
-                        status: 'cleanup_failed',
-                        last_cleanup_error: message.slice(0, 1000),
+                        status: 'cleanup_blocked',
+                        last_cleanup_error: message,
                         updated_at: new Date(),
                     },
                     $inc: { cleanup_retries: 1 },
                 },
             );
-            await recordSimulatorEvent({
-                type: 'cleanup.failed',
-                severity: 'error',
-                run_id: runId,
-                message: 'Simulation run cleanup failed',
-                data: { error: message },
-            }).catch(() => undefined);
-            throw error;
         }
+        await recordSimulatorEvent({
+            type: 'cleanup.blocked',
+            severity: 'warning',
+            run_id: runId,
+            account_id: scope.accountId,
+            message,
+            data,
+        }).catch(() => undefined);
+        return result;
+    }
+
+    private async markCleanupFailure(runId: string, error: unknown): Promise<void> {
+        const message = error instanceof Error ? error.message : String(error);
+        await getMongoDb().collection<SimulationRun>('simulation_runs').updateOne(
+            { id: runId },
+            {
+                $set: {
+                    status: 'cleanup_failed',
+                    last_cleanup_error: message.slice(0, 1000),
+                    updated_at: new Date(),
+                },
+                $inc: { cleanup_retries: 1 },
+            },
+        );
+        await recordSimulatorEvent({
+            type: 'cleanup.failed',
+            severity: 'error',
+            run_id: runId,
+            message: 'Simulation run cleanup failed',
+            data: { error: message },
+        }).catch(() => undefined);
     }
 
     private async runCleanup(): Promise<void> {
@@ -267,7 +371,6 @@ export class CleanupCronjob {
                     cleanup_after: { $lte: new Date() },
                 })
                 .toArray();
-
             for (const run of expiredRuns) {
                 try {
                     await this.cleanupRun(run.id);

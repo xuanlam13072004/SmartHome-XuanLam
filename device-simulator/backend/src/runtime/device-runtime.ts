@@ -11,6 +11,7 @@ import {
     type DeviceState,
     evolveState,
     generateInitialState,
+    patchDeviceState,
 } from '../generation/telemetry-generator';
 import { getMongoDb } from '../infrastructure/mongodb/client';
 import { getProduct } from '../catalog/loader';
@@ -169,6 +170,20 @@ export class DeviceRuntime {
 
     async publishNow(): Promise<void> {
         await this.publishTelemetry(false);
+    }
+
+    async resetState(): Promise<DeviceState> {
+        this.state = generateInitialState(getProduct(this.productId));
+        await this.persistRegistryState(new Date(), true);
+        if (this.mqttClient?.connected) await this.publishTelemetry(false);
+        return this.state;
+    }
+
+    async patchState(patch: Partial<DeviceState>): Promise<DeviceState> {
+        this.state = patchDeviceState(this.state, getProduct(this.productId), patch);
+        await this.persistRegistryState(new Date(), true);
+        if (this.mqttClient?.connected) await this.publishTelemetry(false);
+        return this.state;
     }
 
     private controlTopic(): string {
@@ -358,7 +373,9 @@ export class DeviceRuntime {
                 $set: {
                     state_snapshot: this.state,
                     ...(this.lastTelemetryAt ? { last_telemetry: this.lastTelemetryAt } : {}),
-                    runtime_state: 'online',
+                    runtime_state: this.isPaused
+                        ? 'paused'
+                        : this.mqttClient?.connected ? 'online' : 'offline',
                     updated_at: timestamp,
                 },
             },

@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { fetchPreflight, getAdminToken } from './api'
 import { CommandPalette } from './components/CommandPalette'
 import ControlPanel from './components/ControlPanel'
 import { DeviceDetail } from './components/DeviceDetail'
@@ -56,6 +57,13 @@ function App() {
   const [detail, setDetail] = useState<DetailView>(null)
   const [infrastructureReady, setInfrastructureReady] = useState(false)
   const [focusRunId, setFocusRunId] = useState<string>()
+
+  useEffect(() => {
+    if (!getAdminToken()) return
+    void fetchPreflight()
+      .then((result) => setInfrastructureReady(result.success))
+      .catch(() => setInfrastructureReady(false))
+  }, [])
 
   const navigate = (nextView: MainView) => {
     setDetail(null)

@@ -16,7 +16,7 @@ import { probeMqtt } from './infrastructure/mqtt/client';
 import { apiGateway } from './infrastructure/api-gateway/client';
 import { loadCatalog, getCachedCatalog } from './catalog/loader';
 import { createRunsRoutes } from './api/routes/runs';
-import usersRoutes from './api/routes/users';
+import { createUsersRoutes } from './api/routes/users';
 import devicesRoutes from './api/routes/devices';
 import eventsRoutes from './api/routes/events';
 import streamRoutes from './api/routes/stream';
@@ -96,7 +96,7 @@ export const buildApp = async (): Promise<{
             if (!origin || allowedOrigins.has(origin)) callback(null, true);
             else callback(new Error('Origin is not allowed by simulator CORS policy'), false);
         },
-        methods: ['GET', 'POST', 'OPTIONS'],
+        methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
         allowedHeaders: ['Content-Type', 'Authorization'],
     });
 
@@ -161,7 +161,7 @@ export const buildApp = async (): Promise<{
 
     const cleanupJob = new CleanupCronjob(app.log);
     await app.register(createRunsRoutes(cleanupJob));
-    await app.register(usersRoutes);
+    await app.register(createUsersRoutes(cleanupJob));
     await app.register(devicesRoutes);
     await app.register(eventsRoutes);
     await app.register(streamRoutes);

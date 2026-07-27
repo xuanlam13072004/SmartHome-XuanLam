@@ -112,6 +112,33 @@ export class ApiGatewayClient {
         return data.user;
     }
 
+    async refreshSession(input: {
+        sessionId: string;
+        refreshToken: string;
+    }): Promise<{ accessToken: string; refreshToken: string; sessionId: string }> {
+        const data = await this.request<{
+            success: boolean;
+            access_token: string;
+            refresh_token: string;
+            session_id: string;
+        }>('/auth/refresh', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                session_id: input.sessionId,
+                refresh_token: input.refreshToken,
+            }),
+        });
+        if (!data.success || !data.access_token || !data.refresh_token || !data.session_id) {
+            throw new Error('API Gateway returned an invalid refresh response');
+        }
+        return {
+            accessToken: data.access_token,
+            refreshToken: data.refresh_token,
+            sessionId: data.session_id,
+        };
+    }
+
     async claimDevice(
         accessToken: string,
         claimData: { mac: string; secret_key: string; name?: string },

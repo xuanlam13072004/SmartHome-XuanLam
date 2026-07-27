@@ -220,3 +220,75 @@ export const applyCommandToState = (
 
     return next;
 };
+
+export const patchDeviceState = (
+    state: DeviceState,
+    product: ProductCatalog,
+    patch: Partial<DeviceState>,
+): DeviceState => {
+    const stateProperties = new Map<string, StateProperty>();
+    const diagnosticProperties = new Map<string, StateProperty>();
+    for (const instance of getInstances(product)) {
+        for (const [key, property] of Object.entries(instance.state_properties || {})) {
+            stateProperties.set(key, property);
+        }
+        for (const [key, property] of Object.entries(instance.diagnostic_properties || {})) {
+            diagnosticProperties.set(key, property);
+        }
+    }
+
+    validateStateSection('metrics', patch.metrics, stateProperties);
+    validateStateSection('diagnostics', patch.diagnostics, diagnosticProperties);
+    return {
+        metrics: { ...state.metrics, ...(patch.metrics || {}) },
+        diagnostics: { ...state.diagnostics, ...(patch.diagnostics || {}) },
+    };
+};
+
+const validateStateSection = (
+    section: string,
+    values: Record<string, unknown> | undefined,
+    properties: Map<string, StateProperty>,
+): void => {
+    if (!values) return;
+    for (const [key, value] of Object.entries(values)) {
+        const property = properties.get(key);
+        if (!property) throw new Error(`Unknown ${section} state key ${key}`);
+        if (property.value_type === 'number' && (typeof value !== 'number' || !Number.isFinite(value))) {
+            throw new Error(`${section}.${key} must be a finite number`);
+        }
+        if (property.value_type === 'boolean' && typeof value !== 'boolean') {
+            throw new Error(`${section}.${key} must be a boolean`);
+        }
+        if (property.value_type === 'string' && typeof value !== 'string') {
+            throw new Error(`${section}.${key} must be a string`);
+        }
+        if (
+            typeof value === 'number'
+            && property.validation?.min !== undefined
+            && value < property.validation.min
+        ) {
+            throw new Error(`${section}.${key} must be at least ${property.validation.min}`);
+        }
+        if (
+            typeof value === 'number'
+            && property.validation?.max !== undefined
+            && value > property.validation.max
+        ) {
+            throw new Error(`${section}.${key} must be at most ${property.validation.max}`);
+        }
+        if (
+            typeof value === 'string'
+            && property.validation?.max_length !== undefined
+            && value.length > property.validation.max_length
+        ) {
+            throw new Error(`${section}.${key} exceeds ${property.validation.max_length} characters`);
+        }
+        if (
+            property.validation?.enum
+            && !property.validation.enum.some((item) => Object.is(item, value))
+        ) {
+            throw new Error(`${section}.${key} is not an allowed enum value`);
+        }
+    }
+};

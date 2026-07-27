@@ -1,5 +1,6 @@
 import type {
   CatalogProduct,
+  DeviceCommand,
   Preflight,
   RunMetrics,
   RunConfig,
@@ -80,7 +81,12 @@ export const fetchUsers = async (runId?: string): Promise<SimulatedUser[]> => {
 }
 
 export const fetchUser = async (accountId: string) =>
-  request<{ user: SimulatedUser; devices: SimulatedDevice[] }>(
+  request<{
+    user: SimulatedUser
+    devices: SimulatedDevice[]
+    telemetry: Record<string, unknown>[]
+    commands: DeviceCommand[]
+  }>(
     `/users/${encodeURIComponent(accountId)}`,
   )
 
@@ -89,6 +95,17 @@ export const revealUserCredential = async (accountId: string) =>
     `/users/${encodeURIComponent(accountId)}/reveal-credential`,
     { method: 'POST' },
   )
+
+export const userAction = (
+  accountId: string,
+  action: 'relogin' | 'refresh-session' | 'make-permanent' | 'cleanup',
+) => request(`/users/${encodeURIComponent(accountId)}/${action}`, { method: 'POST' })
+
+export const extendUser = (accountId: string, hours: number) =>
+  request(`/users/${encodeURIComponent(accountId)}/extend`, {
+    method: 'POST',
+    body: JSON.stringify({ hours }),
+  })
 
 export const fetchDevices = async (
   runId?: string,
@@ -103,7 +120,9 @@ export const fetchDevices = async (
 export const fetchDevice = async (mac: string) =>
   request<{
     device: SimulatedDevice
+    backend_shadow: Record<string, unknown> | null
     telemetry: Record<string, unknown>[]
+    commands: DeviceCommand[]
     events: SimulatorEvent[]
   }>(`/devices/${encodeURIComponent(mac)}`)
 
@@ -114,6 +133,19 @@ export const setDeviceConnection = (mac: string, online: boolean) =>
 
 export const sendDeviceTelemetry = (mac: string) =>
   request(`/devices/${encodeURIComponent(mac)}/telemetry`, { method: 'POST' })
+
+export const deviceAction = (
+  mac: string,
+  action: 'pause' | 'resume' | 'force-offline' | 'reconnect' | 'reset-state',
+) => request(`/devices/${encodeURIComponent(mac)}/${action}`, { method: 'POST' })
+
+export const updateDeviceState = (
+  mac: string,
+  state: { metrics?: Record<string, unknown>; diagnostics?: Record<string, unknown> },
+) => request(`/devices/${encodeURIComponent(mac)}/state`, {
+  method: 'PATCH',
+  body: JSON.stringify(state),
+})
 
 export const revealDeviceSecret = (mac: string) =>
   request<{ device: { mac: string; secret_key: string; product_id: string } }>(
@@ -129,7 +161,7 @@ export const createRun = (config: RunConfig) =>
 
 export const runAction = (
   id: string,
-  action: 'pause' | 'resume' | 'cancel' | 'cleanup',
+  action: 'pause' | 'resume' | 'cancel' | 'cleanup' | 'stop-runtime' | 'restart-runtime',
 ) => request(`/simulation-runs/${encodeURIComponent(id)}/${action}`, { method: 'POST' })
 
 export const extendRun = (id: string, hours: number) =>
@@ -158,36 +190,55 @@ export const subscribeStream = (
   onError?: (error: Error) => void,
 ): (() => void) => {
   const controller = new AbortController()
-  const token = getAdminToken()
-
-  void fetch(`${API_BASE}/events/stream`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    signal: controller.signal,
-  }).then(async (response) => {
-    if (!response.ok || !response.body) {
-      throw new ApiError('Could not open simulator event stream', response.status)
-    }
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
+  const connect = async () => {
+    let retryMs = 1000
     while (!controller.signal.aborted) {
-      const { value, done } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const frames = buffer.split('\n\n')
-      buffer = frames.pop() || ''
-      for (const frame of frames) {
-        const dataLine = frame.split('\n').find((line) => line.startsWith('data: '))
-        if (!dataLine) continue
-        const parsed = JSON.parse(dataLine.slice(6)) as SimulatorEvent
-        if (parsed.type !== 'connected') onEvent(parsed)
+      try {
+        const token = getAdminToken()
+        const response = await fetch(`${API_BASE}/events/stream`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          signal: controller.signal,
+        })
+        if (!response.ok || !response.body) {
+          throw new ApiError('Could not open simulator event stream', response.status)
+        }
+        retryMs = 1000
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        while (!controller.signal.aborted) {
+          const { value, done } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          const frames = buffer.split('\n\n')
+          buffer = frames.pop() || ''
+          for (const frame of frames) {
+            const dataLine = frame.split('\n').find((line) => line.startsWith('data: '))
+            if (!dataLine) continue
+            try {
+              const parsed = JSON.parse(dataLine.slice(6)) as SimulatorEvent
+              if (parsed.type !== 'connected') onEvent(parsed)
+            } catch {
+              // Ignore one malformed SSE frame and keep the stream alive.
+            }
+          }
+        }
+        if (!controller.signal.aborted) throw new Error('Simulator event stream closed')
+      } catch (error) {
+        if (controller.signal.aborted) break
+        onError?.(error instanceof Error ? error : new Error(String(error)))
+        await new Promise<void>((resolve) => {
+          const timer = window.setTimeout(resolve, retryMs)
+          controller.signal.addEventListener('abort', () => {
+            window.clearTimeout(timer)
+            resolve()
+          }, { once: true })
+        })
+        retryMs = Math.min(retryMs * 2, 30000)
       }
     }
-  }).catch((error) => {
-    if (!controller.signal.aborted) {
-      onError?.(error instanceof Error ? error : new Error(String(error)))
-    }
-  })
+  }
+  void connect()
 
   return () => controller.abort()
 }

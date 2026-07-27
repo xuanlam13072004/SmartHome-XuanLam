@@ -94,7 +94,10 @@ export default function RunsList({
     }
   }
 
-  const act = async (run: SimulationRun, action: 'pause' | 'resume' | 'cancel') => {
+  const act = async (
+    run: SimulationRun,
+    action: 'pause' | 'resume' | 'cancel' | 'stop-runtime' | 'restart-runtime',
+  ) => {
     setActing(`${run.id}:${action}`)
     setError('')
     try {
@@ -215,6 +218,12 @@ export default function RunsList({
                     )}
                     {!['completed', 'partial', 'failed', 'cancelled', 'cleaned', 'cleaning'].includes(run.status) && (
                       <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void act(run, 'cancel')} type="button">Cancel</button>
+                    )}
+                    {!['cleaning', 'cleaned', 'cleanup_blocked'].includes(run.status) && (
+                      <>
+                        <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void act(run, 'stop-runtime')} type="button">Stop devices</button>
+                        <button className="button button--quiet" disabled={Boolean(acting) || run.status === 'paused'} onClick={() => void act(run, 'restart-runtime')} type="button">Restart devices</button>
+                      </>
                     )}
                     {run.status !== 'cleaned' && (
                       <>

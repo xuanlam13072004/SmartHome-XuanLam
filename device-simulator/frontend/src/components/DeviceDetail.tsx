@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
+  deviceAction,
   fetchDevice,
   revealDeviceSecret,
   sendDeviceTelemetry,
   setDeviceConnection,
+  updateDeviceState,
 } from '../api'
-import type { SimulatedDevice, SimulatorEvent } from '../types'
+import type { DeviceCommand, SimulatedDevice, SimulatorEvent } from '../types'
 import { CopyButton } from './CopyButton'
 import { DetailHeading } from './UserDetail'
 import { StatusBadge } from './RunsList'
@@ -19,7 +21,10 @@ export function DeviceDetail({
 }) {
   const [device, setDevice] = useState<SimulatedDevice | null>(null)
   const [telemetry, setTelemetry] = useState<Record<string, unknown>[]>([])
+  const [commands, setCommands] = useState<DeviceCommand[]>([])
+  const [backendShadow, setBackendShadow] = useState<Record<string, unknown> | null>(null)
   const [events, setEvents] = useState<SimulatorEvent[]>([])
+  const [stateDraft, setStateDraft] = useState('')
   const [secret, setSecret] = useState('')
   const [error, setError] = useState('')
   const [acting, setActing] = useState('')
@@ -29,7 +34,10 @@ export function DeviceDetail({
       const result = await fetchDevice(mac)
       setDevice(result.device)
       setTelemetry(result.telemetry)
+      setCommands(result.commands)
+      setBackendShadow(result.backend_shadow)
       setEvents(result.events)
+      setStateDraft(JSON.stringify(result.device.state_snapshot || { metrics: {}, diagnostics: {} }, null, 2))
       setError('')
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not load virtual device')
@@ -73,6 +81,36 @@ export function DeviceDetail({
     }
   }
 
+  const act = async (
+    action: 'pause' | 'resume' | 'force-offline' | 'reconnect' | 'reset-state',
+  ) => {
+    setActing(action)
+    try {
+      await deviceAction(mac, action)
+      await load()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : `Could not ${action}`)
+    } finally {
+      setActing('')
+    }
+  }
+
+  const saveState = async () => {
+    setActing('state')
+    try {
+      const parsed = JSON.parse(stateDraft) as {
+        metrics?: Record<string, unknown>
+        diagnostics?: Record<string, unknown>
+      }
+      await updateDeviceState(mac, parsed)
+      await load()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not update device state')
+    } finally {
+      setActing('')
+    }
+  }
+
   const latestTelemetry = telemetry[0]
 
   return (
@@ -89,6 +127,12 @@ export function DeviceDetail({
             <button className="button button--primary" disabled={Boolean(acting) || device.runtime_state !== 'online'} onClick={() => void sendNow()} type="button">
               {acting === 'telemetry' ? 'Publishing…' : 'Send telemetry now'}
             </button>
+            {device.runtime_state === 'paused'
+              ? <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void act('resume')} type="button">Resume telemetry</button>
+              : <button className="button button--quiet" disabled={Boolean(acting) || device.runtime_state !== 'online'} onClick={() => void act('pause')} type="button">Pause telemetry</button>}
+            <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void act('force-offline')} type="button">Force offline</button>
+            <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void act('reconnect')} type="button">Reconnect</button>
+            <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void act('reset-state')} type="button">Reset state</button>
           </div>
 
           <dl className="detail-spec">
@@ -109,10 +153,27 @@ export function DeviceDetail({
 
           <div className="device-data-grid">
             <section className="data-panel">
+              <div className="section-heading section-heading--compact"><div><h3>Editable device state</h3><p>Values are validated against the product catalog.</p></div></div>
+              <textarea className="state-editor" onChange={(event) => setStateDraft(event.target.value)} rows={12} spellCheck={false} value={stateDraft} />
+              <button className="button button--primary" disabled={Boolean(acting)} onClick={() => void saveState()} type="button">Apply state</button>
+            </section>
+            <section className="data-panel">
+              <div className="section-heading section-heading--compact"><div><h3>Backend shadow</h3><p>Current state stored by SmartHomeDB.</p></div></div>
+              {backendShadow
+                ? <pre>{JSON.stringify(backendShadow, null, 2)}</pre>
+                : <p className="empty-inline">No backend shadow is available.</p>}
+            </section>
+            <section className="data-panel">
               <div className="section-heading section-heading--compact"><div><h3>Latest telemetry</h3><p>{telemetry.length} stored packets loaded.</p></div></div>
               {latestTelemetry
                 ? <pre>{JSON.stringify(latestTelemetry, null, 2)}</pre>
                 : <p className="empty-inline">No telemetry has reached SmartHomeDB yet.</p>}
+            </section>
+            <section className="data-panel">
+              <div className="section-heading section-heading--compact"><div><h3>Command history</h3><p>{commands.length} backend commands loaded.</p></div></div>
+              {commands[0]
+                ? <pre>{JSON.stringify(commands[0], null, 2)}</pre>
+                : <p className="empty-inline">No command has been sent to this device.</p>}
             </section>
             <section className="data-panel">
               <div className="section-heading section-heading--compact"><div><h3>Recent events</h3><p>Command, runtime and security events.</p></div></div>

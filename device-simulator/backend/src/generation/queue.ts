@@ -21,6 +21,7 @@ import {
 } from './deterministic';
 import { verifyRecoverableGeneratedAccount } from './account-ownership';
 import { recordSimulatorEvent } from '../events/service';
+import { encryptAuthSession } from '../security/auth-session';
 
 const delay = (milliseconds: number) =>
     new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -125,9 +126,12 @@ export class GenerationQueue {
             await this.updateRunStatus(run.id, status, completionFields);
 
             const retentionPolicy = run.config.cleanup_policy === 'auto_24h' ? 'ttl' : 'permanent';
+            const retentionFilter = retentionPolicy === 'ttl'
+                ? { run_id: run.id, retention_policy: { $ne: 'permanent' as const } }
+                : { run_id: run.id };
             await Promise.all([
                 db.collection('simulated_users').updateMany(
-                    { run_id: run.id },
+                    retentionFilter,
                     {
                         $set: {
                             retention_policy: retentionPolicy,
@@ -137,7 +141,7 @@ export class GenerationQueue {
                     },
                 ),
                 db.collection('simulated_devices').updateMany(
-                    { run_id: run.id },
+                    retentionFilter,
                     {
                         $set: {
                             retention_policy: retentionPolicy,
@@ -340,7 +344,13 @@ export class GenerationQueue {
         session ||= await apiGateway.login({ email: user.email, password });
         await db.collection<SimulatedUserRecord>('simulated_users').updateOne(
             { run_id: run.id, generation_index: index },
-            { $set: { generation_state: 'provisioning', updated_at: new Date() } },
+            {
+                $set: {
+                    generation_state: 'provisioning',
+                    auth_session: encryptAuthSession(session),
+                    updated_at: new Date(),
+                },
+            },
         );
 
         for (let deviceIndex = 0; deviceIndex < user.target_device_count; deviceIndex += 1) {

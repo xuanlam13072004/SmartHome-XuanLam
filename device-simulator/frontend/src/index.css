@@ -32,7 +32,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   color: inherit;
   font: inherit;
 }
@@ -44,13 +45,15 @@ button {
 button,
 a,
 input,
-select {
+select,
+textarea {
   -webkit-tap-highlight-color: transparent;
 }
 
 button:focus-visible,
 input:focus-visible,
-select:focus-visible {
+select:focus-visible,
+textarea:focus-visible {
   outline: var(--rule-focus) solid var(--color-focus);
   outline-offset: var(--space-2xs);
 }
@@ -58,6 +61,7 @@ select:focus-visible {
 button:disabled,
 input:disabled,
 select:disabled,
+textarea:disabled,
 fieldset:disabled {
   cursor: not-allowed;
 }
@@ -1248,6 +1252,21 @@ input[type="checkbox"] {
   tab-size: 2;
 }
 
+.state-editor {
+  width: 100%;
+  margin-block-end: var(--space-sm);
+  padding: var(--space-lg);
+  resize: vertical;
+  border: var(--rule-thin) solid var(--color-graphite-2);
+  border-radius: var(--radius-md);
+  background: var(--color-graphite);
+  color: var(--color-graphite-ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.65;
+  tab-size: 2;
+}
+
 .event-list {
   display: grid;
   margin: 0;
@@ -1352,7 +1371,8 @@ input[type="checkbox"] {
   }
 
   input:hover,
-  select:hover {
+  select:hover,
+  textarea:hover {
     background: var(--color-paper-2);
   }
 }

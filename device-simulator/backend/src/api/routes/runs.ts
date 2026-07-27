@@ -250,6 +250,67 @@ export const createRunsRoutes = (cleanupJob: CleanupCronjob): FastifyPluginAsync
             return { success: true, status: 'cancelled', cleanup_after: cleanupAfter };
         });
 
+        app.post('/api/simulation-runs/:id/stop-runtime', async (request, reply) => {
+            const { id } = request.params as { id: string };
+            const run = await getMongoDb().collection<SimulationRun>('simulation_runs')
+                .findOne({ id });
+            if (!run) return reply.status(404).send({ success: false, error: 'Run not found' });
+            if (['cleaning', 'cleaned', 'cleanup_blocked'].includes(run.status)) {
+                return reply.status(409).send({
+                    success: false,
+                    error: 'Runtime cannot be stopped during or after cleanup',
+                });
+            }
+            const stopped = await getRuntimeManager(app.log).stopRun(id);
+            await getMongoDb().collection('simulated_devices').updateMany(
+                {
+                    run_id: id,
+                    provisioning_state: 'claimed',
+                    desired_state: 'online',
+                },
+                { $set: { runtime_state: 'stopped', updated_at: new Date() } },
+            );
+            await recordSimulatorEvent({
+                type: 'run.runtime_stopped',
+                severity: 'info',
+                run_id: id,
+                message: 'All active virtual device runtimes were stopped',
+                data: { stopped_devices: stopped },
+            });
+            return { success: true, stopped_devices: stopped };
+        });
+
+        app.post('/api/simulation-runs/:id/restart-runtime', async (request, reply) => {
+            const { id } = request.params as { id: string };
+            const run = await getMongoDb().collection<SimulationRun>('simulation_runs')
+                .findOne({ id });
+            if (!run) return reply.status(404).send({ success: false, error: 'Run not found' });
+            if (run.status === 'paused') {
+                return reply.status(409).send({
+                    success: false,
+                    error: 'Resume the paused run before restarting its runtime',
+                });
+            }
+            if (['cleaning', 'cleaned', 'cleanup_blocked'].includes(run.status)) {
+                return reply.status(409).send({
+                    success: false,
+                    error: 'Runtime cannot restart during or after cleanup',
+                });
+            }
+            const recovery = await restoreRunDevices(run, app.log);
+            await recordSimulatorEvent({
+                type: 'run.runtime_restarted',
+                severity: recovery.failed > 0 ? 'warning' : 'info',
+                run_id: id,
+                message: 'Virtual device runtimes restarted',
+                data: recovery,
+            });
+            return {
+                success: recovery.failed === 0,
+                runtime_recovery: recovery,
+            };
+        });
+
         app.post('/api/simulation-runs/:id/cleanup', async (request, reply) => {
             const { id } = request.params as { id: string };
             const result = await cleanupJob.cleanupRun(id);

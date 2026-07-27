@@ -1,4 +1,5 @@
 import type { DeviceState } from '../generation/telemetry-generator';
+import type { EncryptedAuthSession } from '../security/auth-session';
 
 export type RetentionPolicy = 'ttl' | 'permanent';
 export type UserGenerationState = 'planned' | 'registered' | 'provisioning' | 'ready' | 'failed';
@@ -9,6 +10,7 @@ export type DeviceRuntimeState =
     | 'online'
     | 'paused'
     | 'offline'
+    | 'stopped'
     | 'mqtt_error';
 export type DeviceDesiredState = 'online' | 'offline';
 
@@ -28,6 +30,7 @@ export interface SimulatedUserRecord {
     email: string;
     full_name: string;
     credential: EncryptedValue;
+    auth_session?: EncryptedAuthSession;
     target_device_count: number;
     generation_state: UserGenerationState;
     status: 'active' | 'failed';

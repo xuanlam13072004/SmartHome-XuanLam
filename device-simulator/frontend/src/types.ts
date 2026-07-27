@@ -103,7 +103,23 @@ export interface SimulatedUser {
   generation_state: string
   status: string
   retention_policy: 'ttl' | 'permanent'
+  auth_session?: {
+    session_id: string
+    updated_at: string
+  }
   expires_at?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface DeviceCommand {
+  id: string
+  mac: string
+  status: string
+  command: Record<string, unknown>
+  error_log?: string | null
+  retry_count: number
+  event_version: number
   created_at: string
   updated_at: string
 }
