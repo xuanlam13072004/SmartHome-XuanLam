@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import '../../core.dart';
-import '../primitives/neu_card.dart';
+import '../primitives/neu_container.dart';
 import '../primitives/neu_icon_box.dart';
 import '../indicators/status_badge.dart';
 import '../../../features/dashboard/models/capability_model.dart';
 
-/// Thẻ thiết bị tổng hợp (Presentational component) thiết kế dạng Tile (Bento Grid).
-class DeviceCard extends StatelessWidget {
+/// Thẻ thiết bị — Hallmark Premium Neumorphic.
+/// Glow effect khi thiết bị ON, icon animation pulse, improved hierarchy.
+class DeviceCard extends StatefulWidget {
   const DeviceCard({
     super.key,
     required this.title,
@@ -17,6 +18,8 @@ class DeviceCard extends StatelessWidget {
     this.actionWidget,
     this.onTap,
     this.capabilities = const [],
+    this.glowColor,
+    this.isPrimaryOn = false,
   });
 
   final String title;
@@ -30,21 +33,54 @@ class DeviceCard extends StatelessWidget {
   /// Danh sách các capabilities để lấy thông tin sensor hiển thị.
   final List<CapabilityModel> capabilities;
 
+  /// Hallmark: Glow color cho card khi thiết bị ON.
+  final Color? glowColor;
+
+  /// Thiết bị đang bật (primary capability ON).
+  final bool isPrimaryOn;
+
+  @override
+  State<DeviceCard> createState() => _DeviceCardState();
+}
+
+class _DeviceCardState extends State<DeviceCard>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _tapController;
+  late Animation<double> _tapScale;
+
+  @override
+  void initState() {
+    super.initState();
+    _tapController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 80),
+      reverseDuration: const Duration(milliseconds: 120),
+    );
+    _tapScale = Tween<double>(begin: 1.0, end: 0.96).animate(
+      CurvedAnimation(parent: _tapController, curve: Curves.easeOutCubic),
+    );
+  }
+
+  @override
+  void dispose() {
+    _tapController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final isOffline = status == DeviceStatus.offline;
+    final isOffline = widget.status == DeviceStatus.offline;
+    final isOn = widget.isPrimaryOn && !isOffline;
 
     // Lấy thông tin các cảm biến (sensor) để hiển thị lên thẻ
     final sensorCaps =
-        capabilities.where((c) => c.type == 'sensor').take(2).toList();
-
-    // Fallback: nếu có brightness/color cũng có thể coi là thông số phụ
+        widget.capabilities.where((c) => c.type == 'sensor').take(2).toList();
     final rangeCaps =
-        capabilities.where((c) => c.type == 'range').take(1).toList();
+        widget.capabilities.where((c) => c.type == 'range').take(1).toList();
 
-    String subtitleText = subtitle ?? (isOffline ? 'Offline' : 'Online');
+    String subtitleText = widget.subtitle ?? (isOffline ? 'Offline' : 'Online');
 
-    if (subtitle == null && !isOffline) {
+    if (widget.subtitle == null && !isOffline) {
       if (sensorCaps.isNotEmpty) {
         subtitleText = sensorCaps.map((c) {
           final val = c.value is double
@@ -61,64 +97,105 @@ class DeviceCard extends StatelessWidget {
     }
 
     return GestureDetector(
-      onTap: isOffline ? null : onTap,
+      onTapDown: (_) => _tapController.forward(),
+      onTapUp: (_) {
+        _tapController.reverse();
+        if (!isOffline) widget.onTap?.call();
+      },
+      onTapCancel: () => _tapController.reverse(),
       behavior: HitTestBehavior.opaque,
-      child: AnimatedOpacity(
-        duration: const Duration(milliseconds: 200),
-        opacity: isOffline ? 0.6 : 1.0,
-        child: NeuCard(
-          padding: const EdgeInsets.all(AppSpacing.md),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Top row: Icon and Action
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  NeuIconBox(
-                    icon: icon,
-                    size: 40,
-                    iconSize: 20,
-                    iconColor: iconColor,
-                    isActive: status == DeviceStatus.online,
-                    activeIconColor: iconColor,
-                  ),
-                  if (actionWidget != null)
-                    actionWidget!
-                  else
-                    Padding(
-                      padding: const EdgeInsets.all(4.0),
-                      child: StatusBadge(status: status, size: 8),
+      child: ScaleTransition(
+        scale: _tapScale,
+        child: AnimatedOpacity(
+          duration: const Duration(milliseconds: 250),
+          opacity: isOffline ? 0.55 : 1.0,
+          child: NeuContainer(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            borderRadius: AppRadius.lg,
+            depth: NeuDepth.raisedMedium,
+            // Hallmark Colorful: Khi ON, tint toàn bộ thẻ bằng màu accent pha với trắng
+            color: isOn && widget.glowColor != null
+                ? Color.alphaBlend(
+                    widget.glowColor!.withValues(alpha: 0.8), // 80% glow color, the rest is surface
+                    Colors.white.withValues(alpha: 0.9), // Bright base for lively look
+                  )
+                : null,
+            // Vẫn giữ glow lan tỏa nếu muốn
+            glowColor: isOn ? widget.glowColor : null,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Top row: Icon and Action
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    NeuIconBox(
+                      icon: widget.icon,
+                      size: 44,
+                      iconSize: 22,
+                      iconColor: widget.iconColor,
+                      isActive: widget.status == DeviceStatus.online,
+                      activeIconColor: widget.iconColor,
                     ),
-                ],
-              ),
-              const Spacer(),
-              // Bottom row: Title and Sensor Info
-              Text(
-                title,
-                style: context.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  height: 1.2,
-                  letterSpacing: -0.3,
-                  color: const Color(0xFF1D2939),
+                    if (widget.actionWidget != null)
+                      widget.actionWidget!
+                    else
+                      Padding(
+                        padding: const EdgeInsets.all(4.0),
+                        child: StatusBadge(status: widget.status, size: 8),
+                      ),
+                  ],
                 ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                subtitleText,
-                style: context.textTheme.labelMedium?.copyWith(
-                  color: isOffline
-                      ? const Color(0xFF98A2B3)
-                      : context.colorScheme.primary,
-                  fontWeight: FontWeight.w600,
+                const Spacer(),
+                // Bottom: Title + Subtitle
+                Text(
+                  widget.title,
+                  style: context.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    height: 1.2,
+                    letterSpacing: -0.3,
+                    // Hallmark: dùng theme token thay vì hardcode color
+                    color: context.colorScheme.onSurface,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    // Hallmark: Online dot nhỏ
+                    if (!isOffline) ...[
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: isOn
+                              ? context.colorScheme.primary
+                              : context.neu.deviceOnline,
+                        ),
+                      ),
+                      const SizedBox(width: 5),
+                    ],
+                    Expanded(
+                      child: Text(
+                        subtitleText,
+                        style: context.textTheme.labelMedium?.copyWith(
+                          color: isOffline
+                              ? context.colorScheme.onSurfaceVariant
+                                  .withValues(alpha: 0.5)
+                              : context.colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),

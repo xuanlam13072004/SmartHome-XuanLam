@@ -4,6 +4,7 @@ import '../../../../core/widgets/widgets.dart';
 import '../../models/capability_model.dart';
 import 'capability_visuals.dart';
 
+/// Hallmark Premium: Toggle widget với glow effect khi ON.
 class CapabilityToggleWidget extends StatelessWidget {
   const CapabilityToggleWidget({
     super.key,
@@ -16,14 +17,14 @@ class CapabilityToggleWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Ép kiểu an toàn (phòng trường hợp backend trả sai type)
     final bool currentValue = (capability.value as bool?) ?? false;
-
     final accent = CapabilityVisuals.accentFor(context, capability);
+
+    // Hallmark: Background tinted khi ON, glow qua NeuCard
     final background = currentValue
         ? Color.alphaBlend(
-            accent.withValues(alpha: 0.08),
-            context.neu.surface,
+            accent.withValues(alpha: 0.8),
+            Colors.white.withValues(alpha: 0.9),
           )
         : context.neu.surface;
 

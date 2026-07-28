@@ -20,26 +20,52 @@ class DashboardScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: context.colorScheme.surface,
-      body: CustomScrollView(
-        slivers: [
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              const Color(0xFFF0F4FF), // Soft blue tint
+              context.colorScheme.surface,
+              const Color(0xFFFFF0F5), // Soft pink/purple tint
+            ],
+            stops: const [0.0, 0.5, 1.0],
+          ),
+        ),
+        child: CustomScrollView(
+          slivers: [
           // ── Sliver AppBar ────────────────────────────────────────────────
           SliverAppBar(
-            expandedHeight: 100.0,
+            expandedHeight: 120.0,
             floating: true,
             pinned: true,
-            backgroundColor: context.colorScheme.surface,
+            backgroundColor: Colors.transparent,
             elevation: 0,
             flexibleSpace: FlexibleSpaceBar(
               titlePadding: const EdgeInsets.symmetric(
                 horizontal: AppSpacing.md,
-                vertical: AppSpacing.sm,
+                vertical: AppSpacing.smMd,
               ),
-              title: Text(
-                'SmartHome',
-                style: context.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: context.colorScheme.onSurface,
-                ),
+              title: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _greeting(),
+                    style: context.textTheme.labelMedium?.copyWith(
+                      color: context.colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                  Text(
+                    'SmartHome',
+                    style: context.textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: context.colorScheme.onSurface,
+                    ),
+                  ),
+                ],
               ),
               background: Container(
                 padding: const EdgeInsets.only(
@@ -211,17 +237,28 @@ class DashboardScreen extends ConsumerWidget {
                         );
                       }
 
+                      // Hallmark: Solid color theo category
+                      final glowColor = AppPalette.colorForCategory(
+                        device.productId.contains('light')
+                            ? 'light'
+                            : device.productId.contains('security')
+                                ? 'security'
+                                : device.productId.contains('roof')
+                                    ? 'environment'
+                                    : 'sensor',
+                      );
+
                       return DeviceCard(
                         title: device.name,
-                        subtitle: device.status == DeviceStatus.online
-                            ? 'Online'
-                            : 'Offline',
                         icon: device.icon,
                         status: device.status,
                         iconColor: device.isPrimaryOn
                             ? context.colorScheme.primary
                             : null,
                         actionWidget: actionWidget,
+                        capabilities: device.capabilities,
+                        isPrimaryOn: device.isPrimaryOn,
+                        glowColor: glowColor,
                         onTap: () {
                           context.push('/device/${device.mac}');
                         },
@@ -234,11 +271,11 @@ class DashboardScreen extends ConsumerWidget {
             },
           ),
 
-          // Padding dưới cùng cho ScrollView để không bị lẹm vào BottomBar
           const SliverToBoxAdapter(
             child: SizedBox(height: 100),
           ),
         ],
+        ),
       ),
       floatingActionButton: Padding(
         padding: const EdgeInsets.only(bottom: 80.0), // Tránh đè lên Bottom Nav
@@ -261,6 +298,15 @@ class DashboardScreen extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  /// Hallmark: Lời chào theo thời gian trong ngày.
+  static String _greeting() {
+    final hour = DateTime.now().hour;
+    if (hour < 6) return 'Khuya rồi 🌙';
+    if (hour < 12) return 'Chào buổi sáng ☀️';
+    if (hour < 18) return 'Chào buổi chiều 🌤️';
+    return 'Chào buổi tối 🌆';
   }
 }
 

@@ -91,6 +91,15 @@ class NeuColors extends ThemeExtension<NeuColors> {
         lightShadow: shadowLight,
       );
 
+  /// Glow — active/ON state với accent color halo (Hallmark Premium)
+  NeuShadowStyle glowWith(Color glowColor, {double radius = 16.0}) =>
+      AppShadows.glow(
+        darkShadow: shadowDark,
+        lightShadow: shadowLight,
+        glowColor: glowColor,
+        glowRadius: radius,
+      );
+
   // ── ThemeExtension lifecycle ───────────────────────────────────────────────
 
   @override

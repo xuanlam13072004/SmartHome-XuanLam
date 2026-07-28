@@ -124,6 +124,7 @@ class DeviceDetailScreen extends ConsumerWidget {
               ),
             ],
           ),
+          scrollable: false,
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
           child: ListView(
             padding: const EdgeInsets.only(

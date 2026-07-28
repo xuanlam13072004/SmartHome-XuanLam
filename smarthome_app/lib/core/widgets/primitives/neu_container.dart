@@ -13,6 +13,7 @@ enum NeuDepth {
 
 /// Nền tảng cơ bản của Neumorphism.
 /// Tự động xử lý màu nền, bo góc, và hiệu ứng shadow (animated).
+/// Hallmark: Thêm glowColor param cho active state.
 class NeuContainer extends StatelessWidget {
   const NeuContainer({
     super.key,
@@ -25,8 +26,9 @@ class NeuContainer extends StatelessWidget {
     this.shape = BoxShape.rectangle,
     this.depth = NeuDepth.raisedMedium,
     this.color,
-    this.duration = const Duration(milliseconds: 150),
-    this.curve = Curves.easeInOut,
+    this.glowColor,
+    this.duration = const Duration(milliseconds: 200),
+    this.curve = Curves.easeOutCubic,
   });
 
   final Widget? child;
@@ -43,11 +45,19 @@ class NeuContainer extends StatelessWidget {
   
   /// Nếu null sẽ tự lấy [NeuColors.surface]
   final Color? color;
+
+  /// Hallmark: Accent glow color — khi set, thêm một lớp shadow lan tỏa.
+  /// Dùng cho device card khi ON, toggle khi active, etc.
+  final Color? glowColor;
   
   final Duration duration;
   final Curve curve;
 
   List<BoxShadow>? _getShadows(NeuColors neu) {
+    // Nếu có glowColor, dùng glow shadow thay vì depth thường
+    if (glowColor != null) {
+      return neu.glowWith(glowColor!).shadows;
+    }
     switch (depth) {
       case NeuDepth.raisedStrong:
         return neu.raisedStrong.shadows;

@@ -12,6 +12,7 @@ class NeuCard extends StatelessWidget {
     this.margin,
     this.depth = NeuDepth.raisedMedium,
     this.color,
+    this.glowColor,
   });
 
   final Widget child;
@@ -19,6 +20,7 @@ class NeuCard extends StatelessWidget {
   final EdgeInsetsGeometry? margin;
   final NeuDepth depth;
   final Color? color;
+  final Color? glowColor;
 
   @override
   Widget build(BuildContext context) {
@@ -28,6 +30,7 @@ class NeuCard extends StatelessWidget {
       borderRadius: AppRadius.lg, // Card chuẩn dùng borderRadius lg (24)
       depth: depth,
       color: color,
+      glowColor: glowColor,
       child: child,
     );
   }

@@ -2,6 +2,8 @@
 //
 // Raw color palette & semantic color aliases cho SmartHome XuanLam.
 // Không import file này trực tiếp trong UI — dùng qua ThemeExtension (NeuColors).
+//
+// Hallmark Redesign: Premium Neumorphic — softer shadows, glow accents.
 
 import 'package:flutter/material.dart';
 
@@ -15,17 +17,18 @@ abstract final class AppPalette {
   static const Color neuSurfaceDark = Color(0xFF1E2028);
 
   // ── Shadow pairs (light source: top-left) ─────────────────────────────────
-  /// Bóng tối chế độ sáng
-  static const Color neuShadowDarkLight = Color(0xB2A8B0BE); // ~70% opacity
+  // Hallmark: Giảm opacity ~30% so với bản cũ → mềm mại, premium hơn.
+  /// Bóng tối chế độ sáng (~50% opacity, was 70%)
+  static const Color neuShadowDarkLight = Color(0x80A8B0BE);
 
-  /// Bóng sáng chế độ sáng
-  static const Color neuShadowLightLight = Color(0xE6FFFFFF); // ~90% opacity
+  /// Bóng sáng chế độ sáng (~85% opacity, was 90%)
+  static const Color neuShadowLightLight = Color(0xD9FFFFFF);
 
-  /// Bóng tối chế độ tối
-  static const Color neuShadowDarkDark = Color(0x80000000); // ~50% opacity
+  /// Bóng tối chế độ tối (~35% opacity, was 50%)
+  static const Color neuShadowDarkDark = Color(0x59000000);
 
-  /// Bóng sáng chế độ tối
-  static const Color neuShadowLightDark = Color(0xCC2A2D3A); // ~80% opacity
+  /// Bóng sáng chế độ tối (~60% opacity, was 80%)
+  static const Color neuShadowLightDark = Color(0x992A2D3A);
 
   // ── Brand / Accent ────────────────────────────────────────────────────────
   /// Màu chủ đạo (teal xanh ngọc)
@@ -81,4 +84,68 @@ abstract final class AppPalette {
   static const Color catOutlet    = Color(0xFFA5D6A7); // Ổ cắm
   static const Color catSensor    = Color(0xFF80DEEA); // Cảm biến
   static const Color catGeneric   = Color(0xFFBCAAA4); // Khác
+
+  // ── Glow colors (Hallmark Premium — cho active/ON state) ──────────────────
+  // Dùng làm BoxShadow color với blur lớn để tạo hiệu ứng ánh sáng lan tỏa.
+  /// Glow chung cho primary accent
+  static const Color glowPrimary      = Color(0x4000B4A6); // teal 25%
+  static const Color glowPrimaryLight = Color(0x2600B4A6); // teal 15%
+
+  /// Glow theo category thiết bị (opacity thấp, blur lớn → mềm mại)
+  static const Color glowLight     = Color(0x33FFD54F); // vàng ấm 20%
+  static const Color glowClimate   = Color(0x3342A5F5); // xanh dương 20%
+  static const Color glowSecurity  = Color(0x33AB47BC); // tím 20%
+  static const Color glowSensor    = Color(0x3326C6DA); // cyan 20%
+  static const Color glowFan       = Color(0x3366BB6A); // xanh lá 20%
+  static const Color glowGeneric   = Color(0x339E9E9E); // xám 20%
+
+  // ── Sensor value color coding ─────────────────────────────────────────────
+  /// Giá trị bình thường
+  static const Color sensorNormal  = Color(0xFF43A047);
+  /// Giá trị cảnh báo (gần giới hạn)
+  static const Color sensorWarning = Color(0xFFFB8C00);
+  /// Giá trị nguy hiểm (vượt giới hạn)
+  static const Color sensorDanger  = Color(0xFFE53935);
+
+  /// Trả về glow color theo product category.
+  static Color glowForCategory(String category) {
+    switch (category) {
+      case 'light':
+      case 'led':
+        return glowLight;
+      case 'ac':
+      case 'hvac':
+      case 'environment':
+        return glowClimate;
+      case 'security':
+        return glowSecurity;
+      case 'sensor':
+        return glowSensor;
+      case 'fan':
+        return glowFan;
+      default:
+        return glowGeneric;
+    }
+  }
+
+  /// Trả về solid accent color theo product category.
+  static Color colorForCategory(String category) {
+    switch (category) {
+      case 'light':
+      case 'led':
+        return catLight;
+      case 'ac':
+      case 'hvac':
+      case 'environment':
+        return catClimate;
+      case 'security':
+        return catSecurity;
+      case 'sensor':
+        return catSensor;
+      case 'fan':
+        return catOutlet;
+      default:
+        return catGeneric;
+    }
+  }
 }

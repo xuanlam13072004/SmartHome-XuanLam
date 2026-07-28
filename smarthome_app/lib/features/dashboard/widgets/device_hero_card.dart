@@ -24,10 +24,21 @@ class DeviceHeroCard extends StatelessWidget {
     final accent = primaryPower == null
         ? context.colorScheme.primary
         : CapabilityVisuals.accentFor(context, primaryPower!);
+        
+    final glowColor = AppPalette.colorForCategory(
+      device.productId.contains('light')
+          ? 'light'
+          : device.productId.contains('security')
+              ? 'security'
+              : device.productId.contains('roof')
+                  ? 'environment'
+                  : 'sensor',
+    );
+
     final background = isOn
         ? Color.alphaBlend(
-            accent.withValues(alpha: 0.08),
-            context.neu.surface,
+            glowColor.withValues(alpha: 0.8),
+            Colors.white.withValues(alpha: 0.9),
           )
         : context.neu.surface;
 
@@ -35,6 +46,7 @@ class DeviceHeroCard extends StatelessWidget {
       color: background,
       padding: const EdgeInsets.all(AppSpacing.lg),
       depth: NeuDepth.raisedStrong,
+      glowColor: isOn ? glowColor : null,
       child: LayoutBuilder(
         builder: (context, constraints) {
           final wide = constraints.maxWidth >= 560;

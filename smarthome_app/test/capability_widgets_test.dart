@@ -111,6 +111,34 @@ final device = DeviceModel(
 );
 
 void main() {
+  testWidgets('device detail layout has a single vertical scroll owner', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: PageScaffold(
+          scrollable: false,
+          child: ListView(
+            children: const [
+              SizedBox(height: 1200),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(Scrollable), findsOneWidget);
+  });
+
   for (final themeBrightness in [Brightness.light, Brightness.dark]) {
     for (final width in [320.0, 375.0, 414.0, 768.0]) {
       testWidgets(

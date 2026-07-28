@@ -45,7 +45,7 @@ class SmartHomeApp extends ConsumerWidget {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
-      themeMode: ThemeMode.system,
+      themeMode: ThemeMode.light,
       locale: const Locale('vi'),
       supportedLocales: AppL10n.supportedLocales,
       localizationsDelegates: const [
