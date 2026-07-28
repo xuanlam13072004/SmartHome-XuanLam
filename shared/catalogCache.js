@@ -221,6 +221,16 @@ class CatalogCache {
                 capInstances.push({
                     capability_id: prodCap.capability_id,
                     instance: instanceId,
+                    semantic_role: prodCap.semantic_role || prodCap.capability_id,
+                    default_display_name: prodCap.default_display_name || cap.name || instanceId,
+                    default_icon: prodCap.default_icon || (
+                        prodCap.capability_id === 'system-diagnostics'
+                            ? 'monitor_heart'
+                            : 'tune'
+                    ),
+                    display_order: Number.isFinite(prodCap.display_order)
+                        ? prodCap.display_order
+                        : Number.MAX_SAFE_INTEGER,
                     value_type: cap.value_type || '',
                     validation: cap.validation || {},
                     state_properties,
