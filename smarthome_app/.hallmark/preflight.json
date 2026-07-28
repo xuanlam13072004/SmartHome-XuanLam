@@ -1,0 +1,17 @@
+{
+  "date": "2026-07-28",
+  "framework": "Flutter Material 3",
+  "font_stack": "Inter via GoogleFonts",
+  "palette": "Teal accent with light/dark Neumorphic surfaces",
+  "motion": "Built-in Flutter transitions, 150-200ms",
+  "spacing": "4pt AppSpacing scale",
+  "preserve": [
+    "AppTheme color schemes",
+    "NeuColors semantic palette",
+    "AppTypography",
+    "AppSpacing",
+    "AppRadius",
+    "dark mode"
+  ],
+  "direction": "modern-minimal, calm precision"
+}

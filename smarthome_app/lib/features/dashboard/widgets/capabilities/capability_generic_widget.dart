@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/core.dart';
 import '../../../../core/widgets/widgets.dart';
 import '../../models/capability_model.dart';
+import 'capability_visuals.dart';
 
 /// Generic fallback widget for unknown capability types.
 /// Displays capability name and current value as-is to ensure
@@ -18,37 +19,20 @@ class CapabilityGenericWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     return NeuCard(
       padding: const EdgeInsets.all(AppSpacing.md),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  capability.name,
-                  style: context.textTheme.bodyLarge?.copyWith(
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.xs),
-                Text(
-                  '${capability.value ?? '—'}',
-                  style: context.textTheme.titleMedium?.copyWith(
-                    color: context.colorScheme.primary,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
+      child: CapabilityHeading(
+        capability: capability,
+        trailing: Flexible(
+          child: Text(
+            CapabilityVisuals.valueText(capability),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.end,
+            style: context.textTheme.titleMedium?.copyWith(
+              color: context.colorScheme.primary,
+              fontWeight: FontWeight.w700,
             ),
           ),
-          if (capability.properties.containsKey('unit'))
-            Text(
-              capability.properties['unit'] as String? ?? '',
-              style: context.textTheme.bodySmall?.copyWith(
-                color: context.colorScheme.onSurfaceVariant,
-              ),
-            ),
-        ],
+        ),
       ),
     );
   }

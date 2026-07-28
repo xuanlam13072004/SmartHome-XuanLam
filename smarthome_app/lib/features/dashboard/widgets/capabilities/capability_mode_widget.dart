@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/core.dart';
 import '../../../../core/widgets/widgets.dart';
 import '../../models/capability_model.dart';
+import 'capability_visuals.dart';
 
 class CapabilityModeWidget extends StatelessWidget {
   const CapabilityModeWidget({
@@ -16,34 +17,56 @@ class CapabilityModeWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final String currentValue = (capability.value as String?) ?? '';
-    final List<String> options = (capability.properties['options'] as List<dynamic>?)
-            ?.map((e) => e.toString())
-            .toList() ?? [];
+    final List<String> options =
+        (capability.properties['options'] as List<dynamic>?)
+                ?.map((e) => e.toString())
+                .toList() ??
+            [];
+
+    final accent = CapabilityVisuals.accentFor(context, capability);
 
     return NeuCard(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.md),
+      padding: const EdgeInsets.all(AppSpacing.md),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            capability.name,
-            style: context.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w500,
-            ),
-          ),
+          CapabilityHeading(capability: capability),
           const SizedBox(height: AppSpacing.md),
           Wrap(
             spacing: AppSpacing.sm,
             runSpacing: AppSpacing.sm,
             children: options.map((option) {
-              return NeuChip(
-                label: option,
-                isSelected: currentValue == option,
+              final selected = currentValue == option;
+              return ChoiceChip(
+                selected: selected,
+                showCheckmark: false,
+                avatar: Icon(
+                  CapabilityVisuals.optionIcon(option),
+                  size: 18,
+                  color: selected
+                      ? context.colorScheme.onPrimary
+                      : context.colorScheme.onSurfaceVariant,
+                ),
+                label: Text(CapabilityVisuals.optionLabel(option)),
                 onSelected: capability.isReadOnly
-                    ? (_) {}
-                    : (selected) {
-                        if (selected) onChanged(option);
+                    ? null
+                    : (isSelected) {
+                        if (isSelected) onChanged(option);
                       },
+                selectedColor: accent,
+                backgroundColor: context.colorScheme.surfaceContainerLow,
+                disabledColor: context.colorScheme.surfaceContainerHighest,
+                labelStyle: context.textTheme.labelLarge?.copyWith(
+                  color: selected
+                      ? context.colorScheme.onPrimary
+                      : context.colorScheme.onSurfaceVariant,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                ),
+                side: BorderSide(
+                  color: selected
+                      ? Colors.transparent
+                      : context.colorScheme.outlineVariant,
+                ),
               );
             }).toList(),
           ),

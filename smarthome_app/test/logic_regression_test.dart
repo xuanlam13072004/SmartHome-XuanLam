@@ -211,6 +211,49 @@ void main() {
       );
     });
 
+    test('exposes system diagnostics as a separate read-only section', () {
+      final product = _productWith(
+        CapabilityInstance(
+          capabilityId: 'system-diagnostics',
+          instance: 'diagnostics',
+          semanticRole: 'system-diagnostics',
+          defaultDisplayName: 'System Diagnostics',
+          defaultIcon: 'monitor_heart',
+          displayOrder: 99,
+          valueType: '',
+          validation: const {},
+          stateProperties: const {},
+          diagnosticProperties: const {
+            'rssi': {
+              'value_type': 'number',
+              'validation': {'min': -120, 'max': 0, 'unit': 'dBm'},
+            },
+          },
+          commands: const [],
+        ),
+      );
+      final deviceDto = DeviceDto(
+        mac: 'AA:BB:CC:DD:EE:FF',
+        ownerId: 'owner-1',
+        name: 'Test device',
+        productId: 'product-1',
+        isActive: true,
+        isOnline: true,
+        state: const {},
+        diagnostics: const {'rssi': -62},
+      );
+
+      final diagnostic =
+          CapabilityAssembler.assemble(deviceDto, product).capabilities.single;
+
+      expect(diagnostic.section, CapabilitySection.diagnostic);
+      expect(diagnostic.isReadOnly, isTrue);
+      expect(diagnostic.iconName, 'monitor_heart');
+      expect(diagnostic.properties['unit'], 'dBm');
+      expect(diagnostic.properties['min'], -120);
+      expect(diagnostic.properties['max'], 0);
+    });
+
     test('uses the command action and argument belonging to each state',
         () async {
       final product = _productWith(CapabilityInstance(

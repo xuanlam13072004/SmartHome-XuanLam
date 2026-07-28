@@ -29,8 +29,6 @@ class CapabilityAssembler {
       // Build capabilities from product capability instances + device state
       for (final indexedInstance in orderedInstances) {
         final capInstance = indexedInstance.value;
-        // Skip system-diagnostics from main capability list (handled separately)
-        if (capInstance.capabilityId == 'system-diagnostics') continue;
 
         // Process state_properties — these are the controllable/readable values
         for (final entry in capInstance.stateProperties.entries) {
@@ -116,6 +114,15 @@ class CapabilityAssembler {
           final properties = <String, dynamic>{};
           final validation =
               propMeta['validation'] as Map<String, dynamic>? ?? {};
+          if (validation.containsKey('min')) {
+            properties['min'] = validation['min'];
+          }
+          if (validation.containsKey('max')) {
+            properties['max'] = validation['max'];
+          }
+          if (validation.containsKey('step')) {
+            properties['step'] = validation['step'];
+          }
           if (validation.containsKey('unit')) {
             properties['unit'] = validation['unit'];
           }

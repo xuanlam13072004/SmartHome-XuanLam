@@ -54,7 +54,11 @@ class CapabilityRegistry {
     });
   }
 
-  Widget buildWidget(BuildContext context, CapabilityModel capability, ValueChanged<dynamic> onChanged) {
+  Widget buildWidget(
+    BuildContext context,
+    CapabilityModel capability,
+    ValueChanged<dynamic> onChanged,
+  ) {
     final builder = _registry[capability.type];
     if (builder != null) {
       return builder(context, capability, onChanged);
@@ -65,10 +69,14 @@ class CapabilityRegistry {
     );
   }
 
-  List<Widget> buildWidgets(BuildContext context, List<CapabilityModel> capabilities, void Function(String id, dynamic value) onCapabilityChanged) {
+  List<Widget> buildWidgets(
+    BuildContext context,
+    List<CapabilityModel> capabilities,
+    void Function(String id, dynamic value) onCapabilityChanged,
+  ) {
     return capabilities.map((cap) {
       return Padding(
-        padding: const EdgeInsets.only(bottom: 16.0),
+        padding: const EdgeInsets.only(bottom: 16),
         child: buildWidget(
           context,
           cap,
