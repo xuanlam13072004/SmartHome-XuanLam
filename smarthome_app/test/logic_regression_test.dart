@@ -7,6 +7,7 @@ import 'package:smarthome_app/data/models/dto/product_dto.dart';
 import 'package:smarthome_app/domain/mappers/capability_assembler.dart';
 import 'package:smarthome_app/domain/models/product_model.dart';
 import 'package:smarthome_app/features/dashboard/models/device_qr_payload.dart';
+import 'package:smarthome_app/features/dashboard/models/capability_model.dart';
 import 'package:smarthome_app/features/dashboard/repositories/device_repository.dart';
 
 class _RecordingDeviceRemoteDataSource implements IDeviceRemoteDataSource {
@@ -128,6 +129,88 @@ void main() {
   });
 
   group('Capability command mapping', () {
+    test('parses semantic metadata and preserves it through assembly', () {
+      final instance = CapabilityInstance.fromJson(const {
+        'capability_id': 'light_controller',
+        'instance': 'main_light',
+        'semantic_role': 'room_light',
+        'default_display_name': 'Đèn phòng khách',
+        'default_icon': 'lightbulb',
+        'display_order': 7,
+        'state_properties': {
+          'power': {'value_type': 'boolean'},
+        },
+        'diagnostic_properties': <String, dynamic>{},
+        'commands': <dynamic>[],
+      });
+
+      final capability = CapabilityAssembler.assemble(
+        _device(const {'power': true}),
+        _productWith(instance),
+      ).capabilities.single;
+
+      expect(capability.name, 'Đèn phòng khách');
+      expect(capability.capabilityId, 'light_controller');
+      expect(capability.semanticRole, 'room_light');
+      expect(capability.instanceDisplayName, 'Đèn phòng khách');
+      expect(capability.iconName, 'lightbulb');
+      expect(capability.displayOrder, 7);
+      expect(capability.section, CapabilitySection.sensor);
+    });
+
+    test('orders capability instances by display_order with stable ties', () {
+      CapabilityInstance instance(
+        String id,
+        String stateKey,
+        int displayOrder,
+      ) =>
+          CapabilityInstance(
+            capabilityId: id,
+            instance: id,
+            displayOrder: displayOrder,
+            valueType: 'number',
+            validation: const {},
+            stateProperties: {
+              stateKey: const {'value_type': 'number'},
+            },
+            diagnosticProperties: const {},
+            commands: const [],
+          );
+
+      final base = _productWith(instance('second', 'second_value', 2));
+      final product = ProductModel(
+        id: base.id,
+        manufacturer: base.manufacturer,
+        modelName: base.modelName,
+        displayName: base.displayName,
+        firmwareFamily: base.firmwareFamily,
+        connectivity: base.connectivity,
+        category: base.category,
+        icon: base.icon,
+        description: base.description,
+        defaultState: base.defaultState,
+        capabilityInstances: [
+          instance('second', 'second_value', 2),
+          instance('first-a', 'first_a_value', 1),
+          instance('first-b', 'first_b_value', 1),
+        ],
+      );
+
+      final capabilities = CapabilityAssembler.assemble(
+        _device(const {
+          'second_value': 2,
+          'first_a_value': 1,
+          'first_b_value': 1,
+        }),
+        product,
+      ).capabilities;
+
+      expect(
+        capabilities.map((item) => item.id),
+        ['first_a_value', 'first_b_value', 'second_value'],
+      );
+    });
+
     test('uses the command action and argument belonging to each state',
         () async {
       final product = _productWith(CapabilityInstance(

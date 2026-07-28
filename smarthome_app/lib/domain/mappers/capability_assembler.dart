@@ -17,8 +17,18 @@ class CapabilityAssembler {
       // Determine icon from product category
       icon = _resolveIcon(product.category);
 
+      final orderedInstances =
+          product.capabilityInstances.asMap().entries.toList()
+            ..sort((left, right) {
+              final order = left.value.displayOrder.compareTo(
+                right.value.displayOrder,
+              );
+              return order != 0 ? order : left.key.compareTo(right.key);
+            });
+
       // Build capabilities from product capability instances + device state
-      for (final capInstance in product.capabilityInstances) {
+      for (final indexedInstance in orderedInstances) {
+        final capInstance = indexedInstance.value;
         // Skip system-diagnostics from main capability list (handled separately)
         if (capInstance.capabilityId == 'system-diagnostics') continue;
 
@@ -47,6 +57,7 @@ class CapabilityAssembler {
             valueType,
             validation,
           );
+          final isReadOnly = commandDescriptors.isEmpty;
 
           // Build properties map for the widget
           final properties = <String, dynamic>{};
@@ -72,15 +83,23 @@ class CapabilityAssembler {
           capabilities.add(CapabilityModel(
             id: stateKey,
             type: widgetType,
-            name: _humaniseName(stateKey),
+            name: _stateDisplayName(capInstance, stateKey),
             value: currentValue,
             properties: properties,
-            isReadOnly: commandDescriptors.isEmpty,
+            isReadOnly: isReadOnly,
             instance: capInstance.instance,
             action: commandDescriptors.isNotEmpty
                 ? commandDescriptors.first.action
                 : null,
             commands: commandDescriptors,
+            capabilityId: capInstance.capabilityId,
+            semanticRole: capInstance.semanticRole,
+            instanceDisplayName: _instanceDisplayName(capInstance),
+            iconName: capInstance.defaultIcon,
+            displayOrder: capInstance.displayOrder,
+            section: isReadOnly
+                ? CapabilitySection.sensor
+                : CapabilitySection.control,
           ));
         }
 
@@ -109,6 +128,12 @@ class CapabilityAssembler {
             properties: properties,
             isReadOnly: true,
             instance: capInstance.instance,
+            capabilityId: capInstance.capabilityId,
+            semanticRole: capInstance.semanticRole,
+            instanceDisplayName: _instanceDisplayName(capInstance),
+            iconName: capInstance.defaultIcon,
+            displayOrder: capInstance.displayOrder,
+            section: CapabilitySection.diagnostic,
           ));
         }
       }
@@ -324,9 +349,30 @@ class CapabilityAssembler {
         type: type,
         name: _humaniseName(entry.key),
         value: value,
-        isReadOnly: type == 'sensor',
+        isReadOnly: true,
+        section: CapabilitySection.sensor,
       );
     }).toList();
+  }
+
+  static String _stateDisplayName(
+    CapabilityInstance instance,
+    String stateKey,
+  ) {
+    if (instance.stateProperties.length == 1 &&
+        instance.defaultDisplayName.trim().isNotEmpty) {
+      return instance.defaultDisplayName.trim();
+    }
+    return _humaniseName(stateKey);
+  }
+
+  static String _instanceDisplayName(CapabilityInstance instance) {
+    final displayName = instance.defaultDisplayName.trim();
+    if (displayName.isNotEmpty) return displayName;
+    if (instance.instance.trim().isNotEmpty) {
+      return _humaniseName(instance.instance);
+    }
+    return _humaniseName(instance.capabilityId);
   }
 
   /// Convert snake_case state key to a human-readable name.

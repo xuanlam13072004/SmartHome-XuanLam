@@ -8,6 +8,12 @@ class CapabilityCommandDescriptor {
   });
 }
 
+enum CapabilitySection {
+  control,
+  sensor,
+  diagnostic,
+}
+
 /// Represents a single capability rendered in the device detail UI.
 /// Built from Product Catalog data + device state, NOT hardcoded.
 class CapabilityModel {
@@ -24,6 +30,12 @@ class CapabilityModel {
   final String?
       action; // Command action to send (e.g. 'turn_on', 'set_brightness')
   final List<CapabilityCommandDescriptor> commands;
+  final String capabilityId;
+  final String semanticRole;
+  final String instanceDisplayName;
+  final String iconName;
+  final int displayOrder;
+  final CapabilitySection section;
 
   const CapabilityModel({
     required this.id,
@@ -35,6 +47,12 @@ class CapabilityModel {
     this.instance = '',
     this.action,
     this.commands = const [],
+    this.capabilityId = '',
+    this.semanticRole = '',
+    this.instanceDisplayName = '',
+    this.iconName = '',
+    this.displayOrder = 0,
+    this.section = CapabilitySection.control,
   });
 
   CapabilityModel copyWith({
@@ -47,6 +65,12 @@ class CapabilityModel {
     String? instance,
     String? action,
     List<CapabilityCommandDescriptor>? commands,
+    String? capabilityId,
+    String? semanticRole,
+    String? instanceDisplayName,
+    String? iconName,
+    int? displayOrder,
+    CapabilitySection? section,
   }) {
     return CapabilityModel(
       id: id ?? this.id,
@@ -58,6 +82,12 @@ class CapabilityModel {
       instance: instance ?? this.instance,
       action: action ?? this.action,
       commands: commands ?? this.commands,
+      capabilityId: capabilityId ?? this.capabilityId,
+      semanticRole: semanticRole ?? this.semanticRole,
+      instanceDisplayName: instanceDisplayName ?? this.instanceDisplayName,
+      iconName: iconName ?? this.iconName,
+      displayOrder: displayOrder ?? this.displayOrder,
+      section: section ?? this.section,
     );
   }
 }

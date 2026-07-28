@@ -16,6 +16,7 @@ class ProductModel {
   /// Each entry contains:
   /// - capability_id: String
   /// - instance: String (e.g. 'main', 'warm_white')
+  /// - semantic_role/default_display_name/default_icon/display_order: UI metadata
   /// - value_type: String ('boolean', 'integer', 'float', 'string', 'enum')
   /// - validation: Map (min, max, step, options, etc.)
   /// - state_properties: `Map<String, {value_type, validation}>`
@@ -42,6 +43,10 @@ class ProductModel {
 class CapabilityInstance {
   final String capabilityId;
   final String instance;
+  final String semanticRole;
+  final String defaultDisplayName;
+  final String defaultIcon;
+  final int displayOrder;
   final String valueType;
   final Map<String, dynamic> validation;
   final Map<String, dynamic> stateProperties;
@@ -51,6 +56,10 @@ class CapabilityInstance {
   CapabilityInstance({
     required this.capabilityId,
     required this.instance,
+    this.semanticRole = '',
+    this.defaultDisplayName = '',
+    this.defaultIcon = '',
+    this.displayOrder = 0,
     required this.valueType,
     required this.validation,
     required this.stateProperties,
@@ -71,10 +80,15 @@ class CapabilityInstance {
     return CapabilityInstance(
       capabilityId: json['capability_id'] as String? ?? '',
       instance: json['instance'] as String? ?? '',
+      semanticRole: json['semantic_role'] as String? ?? '',
+      defaultDisplayName: json['default_display_name'] as String? ?? '',
+      defaultIcon: json['default_icon'] as String? ?? '',
+      displayOrder: (json['display_order'] as num?)?.toInt() ?? 0,
       valueType: json['value_type'] as String? ?? '',
       validation: json['validation'] as Map<String, dynamic>? ?? {},
       stateProperties: json['state_properties'] as Map<String, dynamic>? ?? {},
-      diagnosticProperties: json['diagnostic_properties'] as Map<String, dynamic>? ?? {},
+      diagnosticProperties:
+          json['diagnostic_properties'] as Map<String, dynamic>? ?? {},
       commands: commandsList,
     );
   }
