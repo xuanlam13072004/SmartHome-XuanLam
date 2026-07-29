@@ -56,6 +56,30 @@ CREATE TABLE public.accounts (
 ALTER TABLE public.accounts OWNER TO postgres;
 
 --
+-- Name: device_networks; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.device_networks (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    owner_id uuid NOT NULL,
+    network_fingerprint text NOT NULL,
+    active_hub_device_id uuid,
+    topology_epoch bigint DEFAULT 0 NOT NULL,
+    next_join_rank bigint DEFAULT 1 NOT NULL,
+    topology_state text DEFAULT 'electing'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT device_networks_fingerprint_format_check CHECK ((network_fingerprint ~ '^[0-9a-f]{64}$'::text)),
+    CONSTRAINT device_networks_topology_epoch_check CHECK ((topology_epoch >= 0)),
+    CONSTRAINT device_networks_next_join_rank_check CHECK ((next_join_rank >= 1)),
+    CONSTRAINT device_networks_topology_state_check CHECK ((topology_state = ANY (ARRAY['stable'::text, 'degraded_direct'::text, 'electing'::text, 'empty'::text]))),
+    CONSTRAINT device_networks_state_hub_check CHECK ((((topology_state <> 'stable'::text) OR (active_hub_device_id IS NOT NULL)) AND ((topology_state <> 'empty'::text) OR (active_hub_device_id IS NULL))))
+);
+
+
+ALTER TABLE public.device_networks OWNER TO postgres;
+
+--
 -- Name: device_commands; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -99,14 +123,42 @@ CREATE TABLE public.device_metadata (
     name text NOT NULL,
     product_id text NOT NULL,
     gateway_id text,
+    network_id uuid,
+    join_rank bigint,
     is_active boolean DEFAULT true,
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
-    CONSTRAINT check_mac_format CHECK (((mac)::text ~ '^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$'::text))
+    CONSTRAINT check_mac_format CHECK (((mac)::text ~ '^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$'::text)),
+    CONSTRAINT device_metadata_network_membership_pair_check CHECK ((((network_id IS NULL) AND (join_rank IS NULL)) OR ((network_id IS NOT NULL) AND (join_rank IS NOT NULL)))),
+    CONSTRAINT device_metadata_join_rank_check CHECK (((join_rank IS NULL) OR (join_rank >= 1)))
 );
 
 
 ALTER TABLE public.device_metadata OWNER TO postgres;
+
+--
+-- Name: topology_outbox; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.topology_outbox (
+    id bigserial NOT NULL,
+    network_id uuid NOT NULL,
+    topology_epoch bigint NOT NULL,
+    reason text NOT NULL,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    processed_at timestamp with time zone,
+    attempts integer DEFAULT 0 NOT NULL,
+    last_error text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT topology_outbox_epoch_check CHECK ((topology_epoch >= 0)),
+    CONSTRAINT topology_outbox_reason_check CHECK ((length(btrim(reason)) > 0)),
+    CONSTRAINT topology_outbox_payload_check CHECK ((jsonb_typeof(payload) = 'object'::text)),
+    CONSTRAINT topology_outbox_attempts_check CHECK ((attempts >= 0))
+);
+
+
+ALTER TABLE public.topology_outbox OWNER TO postgres;
 
 --
 -- Name: factory_devices; Type: TABLE; Schema: public; Owner: postgres
@@ -157,6 +209,15 @@ ALTER TABLE ONLY public.device_commands
 ALTER TABLE ONLY public.command_outbox
     ADD CONSTRAINT command_outbox_pkey PRIMARY KEY (command_id);
 
+ALTER TABLE ONLY public.device_networks
+    ADD CONSTRAINT device_networks_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.device_networks
+    ADD CONSTRAINT device_networks_owner_fingerprint_key UNIQUE (owner_id, network_fingerprint);
+
+ALTER TABLE ONLY public.device_networks
+    ADD CONSTRAINT device_networks_id_owner_key UNIQUE (id, owner_id);
+
 
 --
 -- Name: device_metadata device_metadata_mac_key; Type: CONSTRAINT; Schema: public; Owner: postgres
@@ -172,6 +233,15 @@ ALTER TABLE ONLY public.device_metadata
 
 ALTER TABLE ONLY public.device_metadata
     ADD CONSTRAINT device_metadata_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.device_metadata
+    ADD CONSTRAINT device_metadata_id_network_key UNIQUE (id, network_id);
+
+ALTER TABLE ONLY public.topology_outbox
+    ADD CONSTRAINT topology_outbox_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.topology_outbox
+    ADD CONSTRAINT topology_outbox_network_epoch_key UNIQUE (network_id, topology_epoch);
 
 
 --
@@ -259,6 +329,10 @@ CREATE INDEX idx_device_commands_timeline ON public.device_commands USING btree 
 
 CREATE INDEX idx_command_outbox_pending ON public.command_outbox USING btree (created_at) WHERE (published_at IS NULL);
 
+CREATE INDEX idx_device_networks_owner_state ON public.device_networks USING btree (owner_id, topology_state, updated_at DESC);
+
+CREATE INDEX idx_device_networks_active_hub ON public.device_networks USING btree (active_hub_device_id) WHERE (active_hub_device_id IS NOT NULL);
+
 
 --
 -- Name: idx_device_mac; Type: INDEX; Schema: public; Owner: postgres
@@ -272,6 +346,14 @@ CREATE INDEX idx_device_mac ON public.device_metadata USING btree (mac) WITH (de
 --
 
 CREATE INDEX idx_device_owner ON public.device_metadata USING btree (owner_id) WITH (deduplicate_items='true');
+
+CREATE UNIQUE INDEX uq_device_metadata_network_join_rank ON public.device_metadata USING btree (network_id, join_rank) WHERE (network_id IS NOT NULL);
+
+CREATE INDEX idx_device_metadata_network ON public.device_metadata USING btree (network_id, join_rank) WHERE (network_id IS NOT NULL);
+
+CREATE INDEX idx_topology_outbox_pending ON public.topology_outbox USING btree (id) WHERE (processed_at IS NULL);
+
+CREATE INDEX idx_topology_outbox_network_timeline ON public.topology_outbox USING btree (network_id, topology_epoch DESC);
 
 
 --
@@ -301,6 +383,10 @@ CREATE TRIGGER trg_device_commands_updated_at BEFORE UPDATE ON public.device_com
 
 CREATE TRIGGER trg_device_metadata_updated_at BEFORE UPDATE ON public.device_metadata FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
+CREATE TRIGGER trg_device_networks_updated_at BEFORE UPDATE ON public.device_networks FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+CREATE TRIGGER trg_topology_outbox_updated_at BEFORE UPDATE ON public.topology_outbox FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
 
 --
 -- Name: device_commands device_commands_owner_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
@@ -319,6 +405,18 @@ ALTER TABLE ONLY public.command_outbox
 
 ALTER TABLE ONLY public.device_metadata
     ADD CONSTRAINT device_metadata_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES public.accounts(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.device_networks
+    ADD CONSTRAINT device_networks_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES public.accounts(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.device_metadata
+    ADD CONSTRAINT device_metadata_network_owner_fkey FOREIGN KEY (network_id, owner_id) REFERENCES public.device_networks(id, owner_id) DEFERRABLE INITIALLY DEFERRED;
+
+ALTER TABLE ONLY public.device_networks
+    ADD CONSTRAINT device_networks_active_hub_membership_fkey FOREIGN KEY (active_hub_device_id, id) REFERENCES public.device_metadata(id, network_id) DEFERRABLE INITIALLY DEFERRED;
+
+ALTER TABLE ONLY public.topology_outbox
+    ADD CONSTRAINT topology_outbox_network_id_fkey FOREIGN KEY (network_id) REFERENCES public.device_networks(id) ON DELETE CASCADE;
 
 
 --
