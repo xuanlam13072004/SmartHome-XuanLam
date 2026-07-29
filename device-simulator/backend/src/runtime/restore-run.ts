@@ -4,6 +4,7 @@ import type { SimulationRun } from '../domain/simulation-run';
 import { getMongoDb } from '../infrastructure/mongodb/client';
 import { getRuntimeManager } from './manager';
 import { shouldRestoreRunRuntime } from './recovery-policy';
+import { assignmentFromClaim } from './topology';
 
 export const restoreRunDevices = async (
     run: SimulationRun,
@@ -32,6 +33,7 @@ export const restoreRunDevices = async (
             run.config.startup_ramp_seconds ?? 30,
             device.seq || 0,
             device.state_snapshot,
+            assignmentFromClaim(device),
         );
         try {
             await runtime.connect();

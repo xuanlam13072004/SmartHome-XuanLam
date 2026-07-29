@@ -87,6 +87,11 @@ const setupCollections = async (logger: FastifyBaseLogger): Promise<void> => {
                 { unique: true },
             ),
             registryDb.collection('simulated_devices').createIndex({ desired_state: 1, provisioning_state: 1 }),
+            registryDb.collection('simulated_devices').createIndex({
+                run_id: 1,
+                network_id: 1,
+                topology_role: 1,
+            }),
             registryDb.collection('simulator_events').createIndex({ run_id: 1, created_at: -1 }),
             registryDb.collection('simulator_events').createIndex({ mac: 1, created_at: -1 }),
             registryDb.collection('simulator_events').createIndex(

@@ -158,6 +158,8 @@ export const buildApp = async (): Promise<{
     metricsService.start();
     await loadCatalog();
     app.log.info({ productCount: getCachedCatalog().length }, 'Product catalog loaded');
+    const runtimeManager = getRuntimeManager(app.log);
+    await runtimeManager.start();
 
     const cleanupJob = new CleanupCronjob(app.log);
     await app.register(createRunsRoutes(cleanupJob));
@@ -169,7 +171,7 @@ export const buildApp = async (): Promise<{
 
     app.addHook('onClose', async () => {
         cleanupJob.stop();
-        await getRuntimeManager(app.log).disconnectAll();
+        await runtimeManager.disconnectAll();
         getTelemetryScheduler().stop();
         await metricsService.stop();
         await Promise.all([closeMongo(), closePostgres()]);

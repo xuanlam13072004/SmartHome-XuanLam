@@ -22,6 +22,8 @@ export interface RunConfig {
   email_domain: string
   devices_min: number
   devices_max: number
+  networks_min: number
+  networks_max: number
   products: ProductWeight[]
   telemetry_interval: number
   telemetry_jitter_percent: number
@@ -78,6 +80,9 @@ export interface RunMetrics {
   runtime: {
     registered: number
     connected: number
+    broker_connected: number
+    relay_connected: number
+    direct_fallback_connected: number
     paused: number
     scheduler_active: number
     scheduler_due: number
@@ -132,6 +137,15 @@ export interface SimulatedDevice {
   device_id?: string
   name: string
   product_id: string
+  simulated_network_index: number
+  network_fingerprint: string
+  network_id?: string
+  join_rank?: number
+  topology_role?: 'hub' | 'node'
+  topology_epoch?: number
+  topology_state?: 'stable' | 'degraded_direct' | 'electing' | 'empty'
+  active_hub_mac?: string | null
+  transport_mode?: 'hub' | 'relay' | 'direct_fallback'
   provisioning_state: string
   runtime_state: string
   desired_state: 'online' | 'offline'

@@ -13,6 +13,9 @@ export type DeviceRuntimeState =
     | 'stopped'
     | 'mqtt_error';
 export type DeviceDesiredState = 'online' | 'offline';
+export type TopologyRole = 'hub' | 'node';
+export type TopologyState = 'stable' | 'degraded_direct' | 'electing' | 'empty';
+export type TransportMode = 'hub' | 'relay' | 'direct_fallback';
 
 export interface EncryptedValue {
     iv: string;
@@ -49,6 +52,15 @@ export interface SimulatedDeviceRecord {
     device_id?: string;
     name: string;
     product_id: string;
+    simulated_network_index: number;
+    network_fingerprint: string;
+    network_id?: string;
+    join_rank?: number;
+    topology_role?: TopologyRole;
+    topology_epoch?: number;
+    topology_state?: TopologyState;
+    active_hub_mac?: string | null;
+    transport_mode?: TransportMode;
     secret: EncryptedValue;
     factory_owned: boolean;
     provisioning_state: DeviceProvisioningState;

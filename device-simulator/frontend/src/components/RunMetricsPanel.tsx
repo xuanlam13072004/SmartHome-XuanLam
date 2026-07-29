@@ -38,7 +38,10 @@ export function RunMetricsPanel({ runId }: { runId: string }) {
       <div className="metrics-grid" aria-live="polite">
         <Metric label="Telemetry rate" value={`${formatRate(metrics.rates.telemetry_per_second)} msg/s`} />
         <Metric label="Failures" value={`${formatRate(metrics.rates.telemetry_failures_per_minute)}/min`} />
-        <Metric label="MQTT online" value={`${formatInteger(metrics.runtime.connected)} / ${formatInteger(metrics.runtime.registered)}`} />
+        <Metric label="Devices online" value={`${formatInteger(metrics.runtime.connected)} / ${formatInteger(metrics.runtime.registered)}`} />
+        <Metric label="Broker connections" value={formatInteger(metrics.runtime.broker_connected)} />
+        <Metric label="Nodes via Hub" value={formatInteger(metrics.runtime.relay_connected)} />
+        <Metric label="Direct fallback" value={formatInteger(metrics.runtime.direct_fallback_connected)} />
         <Metric label="Publish slots" value={formatInteger(metrics.runtime.scheduler_active)} />
         <Metric label="Scheduler backlog" value={formatInteger(metrics.runtime.scheduler_due)} />
         <Metric label="Published" value={formatInteger(metrics.totals.telemetry_published)} />

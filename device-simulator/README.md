@@ -11,11 +11,21 @@ thị, khôi phục và cleanup an toàn.
 
 ## Chức năng
 
-- Tạo run theo số user, khoảng thiết bị/user, seed và phân phối product.
+- Tạo run theo số user, khoảng thiết bị/user, số mạng Wi-Fi/user, seed và phân
+  phối product.
 - Đăng ký user qua `/auth/register`; provision factory identity và claim qua
   `/devices/claim`.
-- Mỗi thiết bị có MQTT client riêng, state theo catalog, telemetry QoS 1,
-  command validation, ACK và telemetry phản hồi.
+- Mỗi mạng Wi-Fi dùng fingerprint SHA-256 riêng, không lưu SSID/mật khẩu. Thiết
+  bị đầu tiên của mạng được backend bầu làm Hub; các thiết bị sau là Node theo
+  `join_rank`.
+- Chỉ Hub giữ kết nối MQTT trong trạng thái ổn định. Telemetry/status/ACK của
+  Node được relay qua topic của Hub; command gửi xuống Hub được chuyển đúng Node
+  đích trong mạng giả lập.
+- Khi Hub mất kết nối, Node tự mở kết nối MQTT `direct_fallback` để tiếp tục gửi
+  dữ liệu trong lúc backend bầu Hub mới. Assignment có `network_id` và
+  `topology_epoch` được kiểm tra trước khi nhận command hoặc gửi ACK.
+- Runtime ghi nhớ `command_id` đã xử lý để lệnh được định tuyến lại sau failover
+  không làm mutate state hai lần.
 - Command được kiểm tra lại tại virtual device trước khi mutate state: cấu trúc
   JSON, action/instance, argument thiếu hoặc dư, kiểu dữ liệu, min/max, enum và
   độ dài chuỗi. Payload sai nhận ACK `error` và không làm thay đổi state.
@@ -23,7 +33,8 @@ thị, khôi phục và cleanup an toàn.
 - Kiểm tra trước trần user, device, MQTT client và message/giây; workload vượt
   ngân sách bị từ chối trước khi tạo dữ liệu.
 - Theo dõi realtime telemetry/giây, lỗi/phút, byte đã gửi, command, ACK, số
-  MQTT client online và bộ nhớ backend. Counter được giữ qua restart.
+  thiết bị logic online, số kết nối MQTT broker thực tế, số Node relay/direct
+  fallback và bộ nhớ backend. Counter được giữ qua restart.
 - Pause, resume, cancel và cleanup run; connect/disconnect thiết bị; gửi
   telemetry tức thì.
 - Khôi phục run dở dang và thiết bị cần online sau khi backend khởi động lại.

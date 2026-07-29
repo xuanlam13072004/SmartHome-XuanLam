@@ -22,6 +22,8 @@ export interface SimulationRunConfig {
     email_domain: string;
     devices_min: number;
     devices_max: number;
+    networks_min: number;
+    networks_max: number;
     products: ProductWeight[];
     telemetry_interval: number;
     telemetry_jitter_percent: number;

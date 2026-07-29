@@ -17,6 +17,9 @@ interface RateBucket {
 export interface RuntimeMetricStats {
     registered: number;
     connected: number;
+    broker_connected: number;
+    relay_connected: number;
+    direct_fallback_connected: number;
     paused: number;
     scheduler_active: number;
     scheduler_due: number;

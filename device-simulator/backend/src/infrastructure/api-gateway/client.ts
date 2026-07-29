@@ -1,4 +1,22 @@
 import { env } from '../../config/env';
+import type {
+    TopologyRole,
+    TopologyState,
+} from '../../domain/registry';
+
+export interface ClaimedDevice {
+    id: string;
+    mac: string;
+    owner_id: string;
+    product_id: string;
+    network_id?: string | null;
+    join_rank?: number | string | null;
+    topology_role?: TopologyRole;
+    topology_epoch?: number | string | null;
+    topology_state?: TopologyState;
+    active_hub_device_id?: string | null;
+    active_hub_mac?: string | null;
+}
 
 interface ApiErrorEnvelope {
     error?: string | {
@@ -141,11 +159,16 @@ export class ApiGatewayClient {
 
     async claimDevice(
         accessToken: string,
-        claimData: { mac: string; secret_key: string; name?: string },
-    ): Promise<{ id: string; mac: string; owner_id: string; product_id: string }> {
+        claimData: {
+            mac: string;
+            secret_key: string;
+            name?: string;
+            network_fingerprint?: string;
+        },
+    ): Promise<ClaimedDevice> {
         const data = await this.request<{
             success: boolean;
-            device: { id: string; mac: string; owner_id: string; product_id: string };
+            device: ClaimedDevice;
         }>('/devices/claim', {
             method: 'POST',
             headers: {

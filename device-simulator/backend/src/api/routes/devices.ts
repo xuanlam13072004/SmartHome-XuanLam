@@ -17,6 +17,7 @@ import {
 import { getPgPool } from '../../infrastructure/postgres/client';
 import { getRuntimeManager, type RuntimeManager } from '../../runtime/manager';
 import { decrypt } from '../../security/crypto';
+import { assignmentFromClaim } from '../../runtime/topology';
 
 const deviceProjection = { secret: 0 } as const;
 const statePatchSchema = z.object({
@@ -344,6 +345,7 @@ const getOrCreateRuntime = (
     context.run.config.startup_ramp_seconds ?? 30,
     context.device.seq || 0,
     context.device.state_snapshot,
+    assignmentFromClaim(context.device),
 );
 
 const persistOfflineState = async (mac: string, state: DeviceState): Promise<void> => {

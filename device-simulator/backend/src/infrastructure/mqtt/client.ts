@@ -20,7 +20,9 @@ export const createDeviceMqttClient = (clientId: string, cleanSession: boolean =
 };
 
 export const resolveMqttTopic = (template: string, deviceId: string): string =>
-    template.replaceAll('{device_id}', deviceId);
+    template
+        .replaceAll('{device_id}', deviceId)
+        .replaceAll('{hub_id}', deviceId);
 
 export const probeMqtt = async (): Promise<void> => {
     const brokerUrl = `mqtt://${env.MQTT_HOST}:${env.MQTT_PORT}`;

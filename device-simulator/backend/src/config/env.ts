@@ -62,8 +62,14 @@ const envSchema = z.object({
     MQTT_PASSWORD: optionalString,
     MQTT_CONNECT_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(10000),
     MQTT_CONTROL_TOPIC: z.string().default('smarthome/{device_id}/control'),
+    MQTT_HUB_CONTROL_TOPIC: z.string().default('smarthome/{hub_id}/hub/control'),
     MQTT_TELEMETRY_TOPIC: z.string().default('smarthome/{device_id}/telemetry'),
     MQTT_ACK_TOPIC: z.string().default('smarthome/{device_id}/ack'),
+    MQTT_STATUS_TOPIC: z.string().default('smarthome/{device_id}/status'),
+    MQTT_TOPOLOGY_TOPIC: z.string().default('smarthome/{device_id}/topology'),
+    MQTT_TOPOLOGY_ACK_TOPIC: z.string().default('smarthome/{device_id}/topology/ack'),
+    COMMAND_DEDUP_TTL_MS: z.coerce.number().int().min(1000).max(24 * 60 * 60 * 1000)
+        .default(10 * 60 * 1000),
 
     CLEANUP_INTERVAL_MS: z.coerce.number().int().min(10000).default(15 * 60 * 1000),
     CLEANUP_RETENTION_HOURS: z.coerce.number().int().min(1).max(24 * 365).default(24),

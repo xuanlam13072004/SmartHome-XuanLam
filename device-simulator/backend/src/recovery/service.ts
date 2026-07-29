@@ -6,6 +6,7 @@ import { getGenerationQueue } from '../generation/queue';
 import { getRuntimeManager } from '../runtime/manager';
 import { recordSimulatorEvent } from '../events/service';
 import { shouldRestoreRunRuntime } from '../runtime/recovery-policy';
+import { assignmentFromClaim } from '../runtime/topology';
 
 export class RecoveryService {
     private readonly logger: FastifyBaseLogger;
@@ -71,6 +72,7 @@ export class RecoveryService {
                 run.config.startup_ramp_seconds ?? 30,
                 device.seq || 0,
                 device.state_snapshot,
+                assignmentFromClaim(device),
             );
             try {
                 await runtime.connect();

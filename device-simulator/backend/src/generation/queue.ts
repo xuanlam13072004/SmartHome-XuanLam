@@ -22,6 +22,13 @@ import {
 import { verifyRecoverableGeneratedAccount } from './account-ownership';
 import { recordSimulatorEvent } from '../events/service';
 import { encryptAuthSession } from '../security/auth-session';
+import type { ClaimedDevice } from '../infrastructure/api-gateway/client';
+import {
+    assignmentFromClaim,
+    chooseNetworkCount,
+    createNetworkFingerprint,
+    networkIndexForDevice,
+} from '../runtime/topology';
 
 const delay = (milliseconds: number) =>
     new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -359,6 +366,7 @@ export class GenerationQueue {
                 accountId,
                 userIndex: index,
                 deviceIndex,
+                targetDeviceCount: user.target_device_count,
                 accessToken: session.accessToken,
             });
             if (deviceIndex < user.target_device_count - 1 && env.CLAIM_DELAY_MS > 0) {
@@ -398,11 +406,32 @@ export class GenerationQueue {
             accountId: string;
             userIndex: number;
             deviceIndex: number;
+            targetDeviceCount: number;
             accessToken: string;
         },
     ): Promise<void> {
         const db = getMongoDb();
         const seed = run.config.random_seed || run.id;
+        const configuredNetworkCount = deterministicInteger(
+            seed,
+            `user:${input.userIndex}:network-count`,
+            run.config.networks_min ?? 1,
+            run.config.networks_max ?? 1,
+        );
+        const networkCount = chooseNetworkCount(
+            input.targetDeviceCount,
+            configuredNetworkCount,
+        );
+        const simulatedNetworkIndex = networkIndexForDevice(
+            input.deviceIndex,
+            networkCount,
+        );
+        const networkFingerprint = createNetworkFingerprint(
+            seed,
+            run.id,
+            input.userIndex,
+            simulatedNetworkIndex,
+        );
         let device: SimulatedDeviceRecord | null =
             await db.collection<SimulatedDeviceRecord>('simulated_devices').findOne({
             run_id: run.id,
@@ -429,6 +458,8 @@ export class GenerationQueue {
                 mac: identity.mac,
                 name: `Virtual Device ${input.userIndex + 1}-${input.deviceIndex + 1}`,
                 product_id: product.product_id,
+                simulated_network_index: simulatedNetworkIndex,
+                network_fingerprint: networkFingerprint,
                 secret: encrypt(identity.rawSecret),
                 factory_owned: false,
                 provisioning_state: 'planned',
@@ -441,6 +472,19 @@ export class GenerationQueue {
             };
             await db.collection<SimulatedDeviceRecord>('simulated_devices').insertOne(record);
             device = record;
+        } else if (!device.network_fingerprint) {
+            await db.collection<SimulatedDeviceRecord>('simulated_devices').updateOne(
+                { mac: device.mac },
+                {
+                    $set: {
+                        simulated_network_index: simulatedNetworkIndex,
+                        network_fingerprint: networkFingerprint,
+                        updated_at: new Date(),
+                    },
+                },
+            );
+            device.simulated_network_index = simulatedNetworkIndex;
+            device.network_fingerprint = networkFingerprint;
         }
         if (!device) throw new Error(`Failed to initialize virtual device ${input.deviceIndex}`);
 
@@ -473,27 +517,54 @@ export class GenerationQueue {
         }
 
         if (device.provisioning_state !== 'claimed') {
-            let claimedDevice: { id: string; mac: string } | null = null;
+            let claimedDevice: ClaimedDevice | null = null;
             try {
                 claimedDevice = await apiGateway.claimDevice(input.accessToken, {
                     mac: device.mac,
                     secret_key: rawSecret,
                     name: device.name,
+                    network_fingerprint: device.network_fingerprint,
                 });
             } catch (error) {
                 const existing = await getPgPool().query(
-                    `SELECT id, mac
-                     FROM device_metadata
-                     WHERE owner_id = $1 AND mac = $2 AND is_active = true`,
+                    `SELECT d.id, d.mac, d.owner_id, d.product_id, d.network_id,
+                            d.join_rank, n.active_hub_device_id,
+                            n.topology_epoch, n.topology_state,
+                            hub.mac AS active_hub_mac,
+                            CASE
+                                WHEN d.id = n.active_hub_device_id THEN 'hub'
+                                ELSE 'node'
+                            END AS topology_role
+                     FROM device_metadata AS d
+                     LEFT JOIN device_networks AS n ON n.id = d.network_id
+                     LEFT JOIN device_metadata AS hub
+                            ON hub.id = n.active_hub_device_id
+                     WHERE d.owner_id = $1 AND d.mac = $2 AND d.is_active = true`,
                     [input.accountId, device.mac],
                 );
                 if (existing.rows.length === 0) throw error;
                 claimedDevice = {
                     id: String(existing.rows[0].id),
                     mac: String(existing.rows[0].mac),
+                    owner_id: String(existing.rows[0].owner_id),
+                    product_id: String(existing.rows[0].product_id),
+                    network_id: existing.rows[0].network_id
+                        ? String(existing.rows[0].network_id)
+                        : null,
+                    join_rank: existing.rows[0].join_rank,
+                    topology_role: existing.rows[0].topology_role,
+                    topology_epoch: existing.rows[0].topology_epoch,
+                    topology_state: existing.rows[0].topology_state,
+                    active_hub_device_id: existing.rows[0].active_hub_device_id
+                        ? String(existing.rows[0].active_hub_device_id)
+                        : null,
+                    active_hub_mac: existing.rows[0].active_hub_mac
+                        ? String(existing.rows[0].active_hub_mac)
+                        : null,
                 };
             }
 
+            const assignment = assignmentFromClaim(claimedDevice);
             await db.collection<SimulatedDeviceRecord>('simulated_devices').updateOne(
                 { mac: device.mac },
                 {
@@ -501,6 +572,15 @@ export class GenerationQueue {
                         device_id: claimedDevice.id,
                         provisioning_state: 'claimed',
                         runtime_state: 'claimed',
+                        ...(assignment ? {
+                            network_id: assignment.network_id,
+                            join_rank: assignment.join_rank,
+                            topology_role: assignment.role,
+                            topology_epoch: assignment.topology_epoch,
+                            topology_state: assignment.topology_state,
+                            active_hub_mac: assignment.active_hub_mac,
+                            transport_mode: assignment.transport_mode,
+                        } : {}),
                         last_error: null,
                         updated_at: new Date(),
                     },
@@ -508,6 +588,15 @@ export class GenerationQueue {
             );
             device.provisioning_state = 'claimed';
             device.device_id = claimedDevice.id;
+            if (assignment) {
+                device.network_id = assignment.network_id;
+                device.join_rank = assignment.join_rank;
+                device.topology_role = assignment.role;
+                device.topology_epoch = assignment.topology_epoch;
+                device.topology_state = assignment.topology_state;
+                device.active_hub_mac = assignment.active_hub_mac;
+                device.transport_mode = assignment.transport_mode;
+            }
             await this.safeEvent({
                 type: 'device.claimed',
                 severity: 'info',
@@ -528,6 +617,7 @@ export class GenerationQueue {
                 run.config.startup_ramp_seconds ?? 30,
                 device.seq || 0,
                 device.state_snapshot,
+                assignmentFromClaim(device),
             );
             await runtime.connect();
         }

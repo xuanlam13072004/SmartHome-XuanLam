@@ -8,6 +8,8 @@ const defaultConfig: RunConfig = {
   email_domain: 'simulator.local',
   devices_min: 1,
   devices_max: 3,
+  networks_min: 1,
+  networks_max: 1,
   products: [],
   telemetry_interval: 15,
   telemetry_jitter_percent: 10,
@@ -89,6 +91,12 @@ export default function ControlPanel({
     if (config.devices_min > config.devices_max) {
       return 'Maximum devices must be greater than or equal to minimum devices.'
     }
+    if (config.networks_min > config.networks_max) {
+      return 'Maximum networks must be greater than or equal to minimum networks.'
+    }
+    if (config.devices_max > 0 && config.networks_min > config.devices_max) {
+      return 'Minimum networks cannot exceed maximum devices per user.'
+    }
     if (config.products.length === 0) {
       return 'Select at least one product. The simulator needs a real catalog template.'
     }
@@ -155,6 +163,12 @@ export default function ControlPanel({
             </Field>
             <Field label="Maximum per user">
               <input min="0" max="100" onChange={(event) => updateNumber('devices_max', event.target.value)} required type="number" value={config.devices_max} />
+            </Field>
+            <Field label="Minimum Wi-Fi networks" help="Each network elects its own Hub">
+              <input min="1" max="100" onChange={(event) => updateNumber('networks_min', event.target.value)} required type="number" value={config.networks_min} />
+            </Field>
+            <Field label="Maximum Wi-Fi networks" help="Devices are spread deterministically">
+              <input min="1" max="100" onChange={(event) => updateNumber('networks_max', event.target.value)} required type="number" value={config.networks_max} />
             </Field>
             <Field label="Telemetry interval" help="Seconds; minimum 5">
               <input min="5" max="86400" onChange={(event) => updateNumber('telemetry_interval', event.target.value)} required type="number" value={config.telemetry_interval} />

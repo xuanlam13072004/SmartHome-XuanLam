@@ -1,11 +1,14 @@
 import type { CapabilityCommand } from '../catalog/loader';
+import type { CommandRoute } from '../runtime/topology';
 
 export interface DeviceCommand {
     command_id: string;
+    target_device_id?: string;
     capability_id?: string;
     action: string;
     instance?: string;
     payload: Record<string, unknown>;
+    route?: CommandRoute;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -32,6 +35,9 @@ export const parseDeviceCommand = (input: unknown): DeviceCommand => {
 
     const commandId = requireNonEmptyString(input.command_id, 'command_id', 200);
     const action = requireNonEmptyString(input.action, 'action', 100);
+    const targetDeviceId = input.target_device_id === undefined
+        ? undefined
+        : requireNonEmptyString(input.target_device_id, 'target_device_id', 100).toUpperCase();
     const capabilityId = input.capability_id === undefined
         ? undefined
         : requireNonEmptyString(input.capability_id, 'capability_id', 100);
@@ -41,13 +47,41 @@ export const parseDeviceCommand = (input: unknown): DeviceCommand => {
     if (input.payload !== undefined && !isRecord(input.payload)) {
         throw new Error('Command payload must be a JSON object');
     }
+    let route: CommandRoute | undefined;
+    if (input.route !== undefined) {
+        if (!isRecord(input.route)) throw new Error('Command route must be a JSON object');
+        if (!['direct', 'hub', 'relay', 'direct_fallback'].includes(String(input.route.mode))) {
+            throw new Error('Command route mode is invalid');
+        }
+        const topologyEpoch = input.route.topology_epoch === null
+            ? null
+            : Number(input.route.topology_epoch);
+        if (
+            topologyEpoch !== null
+            && (!Number.isSafeInteger(topologyEpoch) || topologyEpoch < 0)
+        ) {
+            throw new Error('Command route topology_epoch is invalid');
+        }
+        route = {
+            mode: input.route.mode as CommandRoute['mode'],
+            network_id: input.route.network_id === null
+                ? null
+                : requireNonEmptyString(input.route.network_id, 'route.network_id', 200),
+            topology_epoch: topologyEpoch,
+            hub_mac: input.route.hub_mac === null
+                ? null
+                : requireNonEmptyString(input.route.hub_mac, 'route.hub_mac', 100).toUpperCase(),
+        };
+    }
 
     return {
         command_id: commandId,
         action,
+        ...(targetDeviceId ? { target_device_id: targetDeviceId } : {}),
         ...(capabilityId ? { capability_id: capabilityId } : {}),
         ...(instance ? { instance } : {}),
         payload: input.payload || {},
+        ...(route ? { route } : {}),
     };
 };
 

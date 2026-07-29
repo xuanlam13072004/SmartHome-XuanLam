@@ -122,7 +122,7 @@ export function DeviceDetail({
           <div className="device-toolbar">
             <StatusBadge status={device.runtime_state} />
             <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void setConnection(device.runtime_state !== 'online')} type="button">
-              {device.runtime_state === 'online' ? 'Disconnect MQTT' : 'Connect MQTT'}
+              {device.runtime_state === 'online' ? 'Disconnect device' : 'Connect device'}
             </button>
             <button className="button button--primary" disabled={Boolean(acting) || device.runtime_state !== 'online'} onClick={() => void sendNow()} type="button">
               {acting === 'telemetry' ? 'Publishing…' : 'Send telemetry now'}
@@ -140,6 +140,12 @@ export function DeviceDetail({
             <Spec label="Product" value={device.product_id} />
             <Spec label="Provisioning" value={device.provisioning_state} />
             <Spec label="Desired runtime" value={device.desired_state} />
+            <Spec label="Topology role" value={device.topology_role || 'legacy / unassigned'} />
+            <Spec label="Transport" value={device.transport_mode || 'direct'} />
+            <Spec label="Network" value={device.network_id || 'Not assigned'} mono />
+            <Spec label="Topology epoch" value={device.topology_epoch === undefined ? '—' : String(device.topology_epoch)} />
+            <Spec label="Active Hub" value={device.active_hub_mac || '—'} mono />
+            <Spec label="Join rank" value={device.join_rank === undefined ? '—' : String(device.join_rank)} />
             <Spec label="Sequence" value={String(device.seq)} />
             <Spec label="Last telemetry" value={formatDate(device.last_telemetry)} />
           </dl>

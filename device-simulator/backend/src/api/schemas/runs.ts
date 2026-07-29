@@ -6,6 +6,8 @@ export const createRunBodySchema = z.object({
     email_domain: z.string().trim().min(3).max(120).regex(/^[a-zA-Z0-9.-]+$/).default('simulator.local'),
     devices_min: z.number().int().min(0).max(100).default(1),
     devices_max: z.number().int().min(0).max(100).default(5),
+    networks_min: z.number().int().min(1).max(100).default(1),
+    networks_max: z.number().int().min(1).max(100).default(1),
     products: z.array(z.object({
         product_id: z.string().trim().min(1).max(64),
         weight: z.number().positive().max(10000),
@@ -23,6 +25,20 @@ export const createRunBodySchema = z.object({
             code: 'custom',
             path: ['devices_max'],
             message: 'devices_max must be greater than or equal to devices_min',
+        });
+    }
+    if (value.networks_min > value.networks_max) {
+        context.addIssue({
+            code: 'custom',
+            path: ['networks_max'],
+            message: 'networks_max must be greater than or equal to networks_min',
+        });
+    }
+    if (value.devices_max > 0 && value.networks_min > value.devices_max) {
+        context.addIssue({
+            code: 'custom',
+            path: ['networks_min'],
+            message: 'networks_min cannot exceed devices_max',
         });
     }
 
