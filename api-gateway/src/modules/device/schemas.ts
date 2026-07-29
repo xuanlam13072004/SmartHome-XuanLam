@@ -4,12 +4,17 @@ const macRegex = /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/;
 const macSchema = z.string().trim().transform(value => value.toUpperCase()).pipe(
     z.string().regex(macRegex)
 );
+const networkFingerprintSchema = z.string()
+    .trim()
+    .transform(value => value.toLowerCase())
+    .pipe(z.string().regex(/^[0-9a-f]{64}$/));
 
 export const claimSchema = z.object({
     body: z.object({
         mac: macSchema,
         secret_key: z.string().min(8).max(128),
         name: z.string().min(1).max(120).optional(),
+        network_fingerprint: networkFingerprintSchema.optional(),
     }),
 });
 

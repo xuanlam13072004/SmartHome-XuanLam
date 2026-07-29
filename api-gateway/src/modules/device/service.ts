@@ -7,6 +7,11 @@ import { validateValueAgainstSchema } from '../../../../shared/validation';
 // @ts-ignore
 import { REDIS_CHANNELS, COMMAND_STATUS, CACHE_PREFIXES } from '../../../../shared/constants';
 import { dispatchDeviceShadowOutboxEvent } from '../../workers/deviceShadowOutboxDispatcher';
+import {
+    claimTopologyMembership,
+    removeTopologyMembership,
+    resolveNetworkFingerprint,
+} from './topologyRepository';
 
 function buildError(message: string, statusCode: number, code: string) {
     const err = new Error(message) as any;
@@ -23,6 +28,7 @@ export async function claimDevice(app: FastifyInstance, input: {
     mac: string;
     secret_key: string;
     name?: string;
+    network_fingerprint?: string;
 }, ownerId: string) {
     const mac = normalizeMac(input.mac);
     const client = await app.pg.connect();
@@ -32,7 +38,10 @@ export async function claimDevice(app: FastifyInstance, input: {
 
         // Đọc thông tin thiết bị xuất xưởng
         const factoryResult = await client.query(
-            'SELECT mac, secret_key, product_id, is_claimed FROM factory_devices WHERE mac = $1',
+            `SELECT mac, secret_key, product_id, is_claimed
+             FROM factory_devices
+             WHERE mac = $1
+             FOR UPDATE`,
             [mac]
         );
 
@@ -71,16 +80,20 @@ export async function claimDevice(app: FastifyInstance, input: {
         const productId = claimResult.rows[0].product_id;
         const defaultName = `${product.display_name || 'Device'} ${mac.slice(-5)}`;
         const name = input.name?.trim() || defaultName;
-
-        // Ghi metadata quyền sở hữu vào PostgreSQL
-        const insertResult = await client.query(
-            `
-            INSERT INTO device_metadata (owner_id, mac, name, product_id, gateway_id, is_active, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, NULL, true, NOW(), NOW())
-            RETURNING id, owner_id, mac, name, product_id, gateway_id, is_active, created_at, updated_at
-            `,
-            [ownerId, mac, name, productId]
+        const networkFingerprint = resolveNetworkFingerprint(
+            input.network_fingerprint,
+            mac
         );
+
+        // Ownership, network membership, Hub selection and topology outbox are
+        // committed atomically with the factory claim.
+        const topologyResult = await claimTopologyMembership(client, {
+            ownerId,
+            mac,
+            name,
+            productId,
+            networkFingerprint,
+        });
 
         const shadowOutboxResult = await client.query(
             `INSERT INTO device_shadow_outbox (mac, operation, payload)
@@ -96,7 +109,17 @@ export async function claimDevice(app: FastifyInstance, input: {
 
         await client.query('COMMIT');
 
-        const device = insertResult.rows[0];
+        const assignedMember = topologyResult.topology.members.find(
+            member => member.device_id === topologyResult.device.id
+        );
+        const device = {
+            ...topologyResult.device,
+            topology_role: assignedMember?.role ?? 'node',
+            topology_epoch: topologyResult.topology.topology_epoch,
+            topology_state: topologyResult.topology.topology_state,
+            active_hub_device_id: topologyResult.topology.active_hub_device_id,
+            active_hub_mac: topologyResult.topology.active_hub_mac,
+        };
         await dispatchDeviceShadowOutboxEvent(
             app.pg,
             app.mongo.db,
@@ -145,19 +168,29 @@ export async function unpairDevice(app: FastifyInstance, mac: string, ownerId: s
     try {
         await client.query('BEGIN');
 
-        const deleteResult = await client.query(
-            'DELETE FROM device_metadata WHERE owner_id = $1 AND mac = $2 RETURNING mac, product_id',
-            [ownerId, mac]
+        const removalResult = await removeTopologyMembership(
+            client,
+            ownerId,
+            mac
         );
-
-        if (deleteResult.rows.length === 0) {
+        if (!removalResult) {
             throw buildError('Device not found', 404, 'DEVICE_NOT_FOUND');
         }
 
-        await client.query(
-            'UPDATE factory_devices SET is_claimed = false WHERE mac = $1',
+        const factoryReleaseResult = await client.query(
+            `UPDATE factory_devices
+             SET is_claimed = false
+             WHERE mac = $1
+             RETURNING mac`,
             [mac]
         );
+        if (factoryReleaseResult.rows.length !== 1) {
+            throw buildError(
+                'Factory device record is missing',
+                500,
+                'FACTORY_DEVICE_INCONSISTENT'
+            );
+        }
 
         const shadowOutboxResult = await client.query(
             `INSERT INTO device_shadow_outbox (mac, operation, payload)
@@ -191,7 +224,16 @@ export async function unpairDevice(app: FastifyInstance, mac: string, ownerId: s
             app.log.warn({ err, ownerId }, 'Failed to invalidate user devices cache');
         }
 
-        return { mac };
+        return {
+            mac,
+            network_id: removalResult.topology?.network_id ?? null,
+            topology_epoch: removalResult.topology?.topology_epoch ?? null,
+            topology_state: removalResult.topology?.topology_state ?? null,
+            active_hub_device_id:
+                removalResult.topology?.active_hub_device_id ?? null,
+            active_hub_mac: removalResult.topology?.active_hub_mac ?? null,
+            hub_changed: removalResult.hubChanged,
+        };
     } catch (err) {
         await client.query('ROLLBACK');
         throw err;
@@ -219,14 +261,31 @@ export async function listDevices(app: FastifyInstance, ownerId: string) {
     if (devices.length === 0) {
         const result = await app.pg.query(
             `
-            SELECT id, owner_id, mac, name, product_id, gateway_id, is_active, created_at, updated_at
-            FROM device_metadata
-            WHERE owner_id = $1
-            ORDER BY created_at DESC
+            SELECT d.id, d.owner_id, d.mac, d.name, d.product_id,
+                   d.gateway_id, d.network_id, d.join_rank, d.is_active,
+                   d.created_at, d.updated_at,
+                   n.active_hub_device_id, n.topology_epoch, n.topology_state,
+                   CASE
+                       WHEN d.id = n.active_hub_device_id THEN 'hub'
+                       WHEN d.network_id IS NOT NULL THEN 'node'
+                       ELSE NULL
+                   END AS topology_role
+            FROM device_metadata AS d
+            LEFT JOIN device_networks AS n ON n.id = d.network_id
+            WHERE d.owner_id = $1
+            ORDER BY d.created_at DESC
             `,
             [ownerId]
         );
-        devices = result.rows;
+        devices = result.rows.map(device => ({
+            ...device,
+            join_rank: device.join_rank === null
+                ? null
+                : Number(device.join_rank),
+            topology_epoch: device.topology_epoch === null
+                ? null
+                : Number(device.topology_epoch),
+        }));
 
         if (devices.length > 0) {
             try {
@@ -446,7 +505,8 @@ export async function updateDeviceName(app: FastifyInstance, mac: string, name: 
             `UPDATE device_metadata
              SET name = $1, updated_at = NOW()
              WHERE owner_id = $2 AND mac = $3
-             RETURNING id, owner_id, mac, name, product_id, gateway_id, is_active, created_at, updated_at`,
+             RETURNING id, owner_id, mac, name, product_id, gateway_id,
+                       network_id, join_rank, is_active, created_at, updated_at`,
             [trimmedName, ownerId, mac]
         );
         if (result.rows.length === 0) {

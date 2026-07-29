@@ -219,12 +219,14 @@ Luồng transaction:
 
 1. Lock device ownership và network liên quan.
 2. Xóa ownership/membership và trả `factory_devices.is_claimed = false`.
-3. Nếu thiết bị không phải Active Hub, giữ nguyên Hub và epoch.
+3. Nếu thiết bị không phải Active Hub, giữ nguyên Hub nhưng vẫn tăng epoch vì
+   network membership đã thay đổi.
 4. Nếu thiết bị là Active Hub:
    - Chọn device còn sở hữu có `join_rank` nhỏ nhất.
    - Gán device đó làm Hub mới.
    - Tăng topology epoch.
-5. Nếu không còn device, đánh dấu network `empty` và sau đó có thể xóa network.
+5. Nếu không còn device, đánh dấu network `empty`; giữ lại network để bảo toàn
+   fingerprint, join-rank monotonic và lịch sử outbox.
 6. Ghi shadow outbox và topology outbox.
 7. Commit rồi mới phát sự kiện.
 
