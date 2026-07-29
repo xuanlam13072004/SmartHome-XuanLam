@@ -13,6 +13,9 @@ const REDIS_CHANNELS = {
     DEVICE_COMMAND: 'device.command',
     CATALOG_UPDATED: 'catalog:updated',
     DEVICE_CONTEXT_INVALIDATED: 'device.context.invalidated',
+    TOPOLOGY_UPDATED: 'topology.updated',
+    TOPOLOGY_REMOVED: 'topology.removed',
+    TOPOLOGY_HUB_ACK: 'topology.hub.ack',
 };
 
 const COMMAND_STATUS = {
@@ -28,6 +31,14 @@ const CACHE_PREFIXES = {
     OWNER_OF: 'owner_of:',
     PRODUCT_OF: 'product_of:',
     ONLINE_LEASE: 'device:online:',
+    TOPOLOGY_NETWORK: 'topology:network:',
+    TOPOLOGY_DEVICE: 'topology:device:',
+    TOPOLOGY_ROUTE: 'topology:route:',
+    TOPOLOGY_REMOVED: 'topology:removed:',
+    HUB_LEASE: 'topology:hub:lease:',
+    COMMAND_ROUTE: 'command_route:',
+    ELECTION_LOCK: 'topology:election:lock:',
+    ELECTION_FAILED: 'topology:election:failed:',
 };
 
 module.exports = {

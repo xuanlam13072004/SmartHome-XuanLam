@@ -281,8 +281,8 @@ async function verifyTransactions(pool, claimDevice, unpairDevice) {
         'Lowest remaining join rank was not elected Hub'
     );
     assert(
-        unpairedHub.topology_state === 'stable',
-        'Network did not return to stable after synchronous election'
+        unpairedHub.topology_state === 'electing',
+        'Network was marked stable before the successor Hub acknowledged'
     );
 
     const emptiedNetwork = await unpairDevice(app, macB, ownerId);

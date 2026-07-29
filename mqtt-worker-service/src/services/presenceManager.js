@@ -76,6 +76,12 @@ async function recordActivity(clients, deviceId, ownerId, source, config, logger
  * @param {string} source - Lý do offline (ví dụ: 'Redis Expiry', 'Presence Sweep')
  */
 async function markDeviceOffline(clients, mac, ownerId, config, logger, source) {
+    await clients.redis
+        .del(`${CACHE_PREFIXES.ONLINE_LEASE}${mac}`)
+        .catch((err) => logger.warn(
+            { err, mac },
+            'Presence: Failed to clear online lease while marking offline'
+        ));
     const db = clients.mongoClient.db(config.MONGO_DB_NAME);
     const collection = db.collection(config.MONGO_DEVICES_COLLECTION);
     const now = new Date();

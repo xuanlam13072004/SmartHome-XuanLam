@@ -40,9 +40,14 @@ const envSchema = z.object({
     MQTT_QOS: z.coerce.number().int().min(0).max(2).default(1),
     MQTT_SHARED_GROUP: z.string().optional().default(''),
     MQTT_CONTROL_TOPIC: z.string().default('smarthome/{device_id}/control'),
+    MQTT_HUB_CONTROL_TOPIC: z.string().default('smarthome/{hub_id}/hub/control'),
+    MQTT_TOPOLOGY_TOPIC: z.string().default('smarthome/{device_id}/topology'),
     MQTT_TELEMETRY_TOPIC: z.string().default('smarthome/+/telemetry'),
     MQTT_ACK_TOPIC: z.string().default('smarthome/+/ack'),
+    MQTT_TOPOLOGY_ACK_TOPIC: z.string().default('smarthome/+/topology/ack'),
     MQTT_STATUS_TOPIC: z.string().default('smarthome/+/status'),
+    HUB_LEASE_SECONDS: z.coerce.number().int().positive().default(15),
+    DIRECT_FALLBACK_ROUTE_SECONDS: z.coerce.number().int().positive().default(30),
 
 
     // MongoDB

@@ -216,7 +216,10 @@ export class CommandStatusConsumer {
                 SET 
                     status = $1, 
                     event_version = $2,
-                    retry_count = COALESCE($3, retry_count),
+                    retry_count = GREATEST(
+                        retry_count,
+                        COALESCE($3, retry_count)
+                    ),
                     error_log = COALESCE($4, error_log),
                     updated_at = NOW()
                 WHERE id = $5

@@ -9,6 +9,11 @@
 
 const { z } = require('zod');
 const { recordCommandSuccess, recordCommandFailure } = require('../monitoring/metrics');
+const {
+    resolveCommandRoute,
+    storeCommandRoute,
+    deleteCommandRoute,
+} = require('./topologyRuntime');
 
 /**
  * Schema validate cho command message từ Redis
@@ -34,23 +39,39 @@ function validateCommand(message) {
 /**
  * publishCommandToDevice: gửi lệnh xuống MQTT
  */
-function publishCommandToDevice(mqttClient, command, config, logger) {
-    // Tạo topic theo template phẳng: smarthome/{device_id}/control
-    const topic = config.MQTT_CONTROL_TOPIC
-        .replace('{device_id}', command.device_id);
+function publishCommandToDevice(mqttClient, command, route, config, logger) {
+    const topic = route.mode === 'relay'
+        ? config.MQTT_HUB_CONTROL_TOPIC
+            .replace('{hub_id}', route.publish_device_id)
+            .replace('{device_id}', route.publish_device_id)
+        : config.MQTT_CONTROL_TOPIC
+            .replace('{device_id}', route.publish_device_id);
 
     // Tạo payload lệnh
     const payload = {
         command_id: command.command_id,
+        target_device_id: route.target_device_id,
         capability_id: command.capability_id,
         action: command.action,
         instance: command.instance,
         timestamp: new Date().toISOString(),
+        route: {
+            mode: route.mode,
+            network_id: route.network_id,
+            topology_epoch: route.topology_epoch,
+            hub_mac: route.hub_mac,
+        },
         ...(command.payload && { payload: command.payload }),
     };
 
     logger.debug(
-        { topic, command_id: command.command_id, action: command.action },
+        {
+            topic,
+            command_id: command.command_id,
+            action: command.action,
+            route_mode: route.mode,
+            topology_epoch: route.topology_epoch,
+        },
         'Publishing command to MQTT'
     );
 
@@ -224,16 +245,47 @@ async function processCommand(rawMessage, clients, config, logger, retryCount = 
         logger.warn({ err, command_id }, 'Failed to update sending status, continuing execution');
     }
 
-    // Bước 2: Publish xuống MQTT. A publish failure is retryable, so return
-    // the command to pending and release only the processing lease.
+    // Bước 2: Resolve route from the topology cache before publishing. The
+    // route is persisted first so a very fast device ACK cannot beat it.
+    let route;
     try {
-        await publishCommandToDevice(clients.mqttClient, command, config, logger);
+        route = await resolveCommandRoute(clients.redis, command, config);
+        await storeCommandRoute(clients.redis, command_id, route, config);
+        await publishCommandToDevice(
+            clients.mqttClient,
+            command,
+            route,
+            config,
+            logger
+        );
     } catch (err) {
         try { recordCommandFailure(); } catch (mErr) {}
+        await deleteCommandRoute(clients.redis, command_id).catch(() => {});
+        const terminalRoutingFailure = err?.retryable === false;
         try {
-            await updateCommandStatus(clients.redis, config, command_id, 'pending', err.message, logger, retryCount);
+            await updateCommandStatus(
+                clients.redis,
+                config,
+                command_id,
+                terminalRoutingFailure ? 'failed' : 'pending',
+                err.message,
+                logger,
+                retryCount
+            );
         } catch (updateErr) {
-            logger.error({ updateErr }, 'Failed to return command status to pending');
+            logger.error({ updateErr }, 'Failed to synchronize command routing failure');
+        }
+        if (terminalRoutingFailure) {
+            await clients.redis
+                .multi()
+                .set(doneKey, '1', 'EX', config.COMMAND_IDEMPOTENCY_TTL_SECONDS)
+                .del(processingKey)
+                .exec();
+            logger.warn(
+                { command_id, code: err.code },
+                'Command rejected by topology routing'
+            );
+            return command_id;
         }
         await clients.redis.del(processingKey).catch(() => {});
         throw err;
@@ -254,7 +306,16 @@ async function processCommand(rawMessage, clients, config, logger, retryCount = 
     }
 
     try { recordCommandSuccess(); } catch (mErr) {}
-    logger.info({ command_id, device_id, action }, 'Command processed successfully');
+    logger.info(
+        {
+            command_id,
+            device_id,
+            action,
+            route_mode: route.mode,
+            topology_epoch: route.topology_epoch,
+        },
+        'Command processed successfully'
+    );
     return command_id;
 }
 

@@ -18,6 +18,7 @@ const { z } = require('zod');
 const { CACHE_PREFIXES } = require('../../../shared/constants');
 const { observeLatency } = require('../monitoring/metrics');
 const { recordActivity } = require('./presenceManager');
+const { validateInboundTransport } = require('./topologyRuntime');
 
 // Lớp LRUMap nội bộ cho cache L1
 class LRUMap {
@@ -91,13 +92,19 @@ function initTelemetryProcessor(clients, config, logger) {
 
 // Zod Schema cho telemetry packet
 const telemetrySchema = z.object({
-    device_id: z.string(),
+    device_id: z.string().transform(value => value.trim().toUpperCase()),
     timestamp: z.string().datetime().optional(),
     seq: z.coerce.number().int().nonnegative().optional(),
     metrics: z.record(z.any()),
     rssi: z.number().optional(),
     battery: z.number().optional(),
     trace_id: z.string().optional(),
+    transport: z.object({
+        mode: z.enum(['hub', 'relay', 'direct_fallback']),
+        network_id: z.string().uuid(),
+        topology_epoch: z.coerce.number().int().nonnegative(),
+        hub_mac: z.string().optional(),
+    }).optional(),
 });
 
 function getTelemetryDedupeId(telemetry) {
@@ -222,7 +229,7 @@ async function resolveDeviceContext(clients, deviceId, config, logger) {
 /**
  * Hàm điều phối luồng Telemetry Pipeline
  */
-async function processTelemetry(rawMessage, clients, config, logger) {
+async function processTelemetry(rawMessage, clients, config, logger, ingress = {}) {
 
     const startTime = process.hrtime.bigint();
     let telemetry;
@@ -236,6 +243,15 @@ async function processTelemetry(rawMessage, clients, config, logger) {
     }
 
     const deviceId = telemetry.device_id;
+    const transportContext = await validateInboundTransport(
+        clients.redis,
+        {
+            deviceId,
+            topicOrigin: ingress.topicOrigin || deviceId,
+            transport: telemetry.transport,
+        },
+        config
+    );
 
     // 2. Deduplicate
     const reservation = await reserveTelemetry(clients.redis, telemetry, config, logger);
@@ -275,6 +291,13 @@ async function processTelemetry(rawMessage, clients, config, logger) {
         await releaseTelemetryReservation(clients.redis, reservation, logger);
         return null;
     }
+    if (
+        transportContext.owner_id
+        && transportContext.owner_id !== context.ownerId
+    ) {
+        await releaseTelemetryReservation(clients.redis, reservation, logger);
+        throw new Error('Telemetry topology owner does not match device ownership');
+    }
 
     // Lấy product spec từ Catalog Cache
     const product = clients.catalogCache.getProduct(context.productId);
@@ -300,7 +323,15 @@ async function processTelemetry(rawMessage, clients, config, logger) {
     // 6. Ghi lô (Batch Writers)
         const telemetryDoc = {
             event_id: `${deviceId}:${reservation.dedupeId}`,
-            metadata: { device_id: deviceId, owner_id: context.ownerId },
+            metadata: {
+                device_id: deviceId,
+                owner_id: context.ownerId,
+                transport_mode: transportContext.mode,
+                network_id: transportContext.network_id,
+                topology_epoch: transportContext.topology_epoch,
+                hub_mac: transportContext.hub_mac,
+                mqtt_origin: transportContext.topic_origin,
+            },
             timestamp: telemetry.timestamp ? new Date(telemetry.timestamp) : new Date(),
             trace_id: telemetry.trace_id || null,
             ...sanitizedState,
@@ -337,7 +368,28 @@ async function processTelemetry(rawMessage, clients, config, logger) {
         }
 
         // 8. Presence Record activity
-        await recordActivity(clients, deviceId, context.ownerId, 'telemetry', config, logger);
+        await recordActivity(
+            clients,
+            deviceId,
+            context.ownerId,
+            `telemetry:${transportContext.mode}`,
+            config,
+            logger
+        );
+        if (
+            transportContext.mode === 'relay'
+            && transportContext.hub_mac
+            && transportContext.hub_mac !== deviceId
+        ) {
+            await recordActivity(
+                clients,
+                transportContext.hub_mac,
+                context.ownerId,
+                'relay',
+                config,
+                logger
+            );
+        }
 
         await completeTelemetryReservation(clients.redis, reservation, config);
 
@@ -346,7 +398,13 @@ async function processTelemetry(rawMessage, clients, config, logger) {
         observeLatency(durationSec);
 
         logger.info(
-            { device_id: deviceId, owner_id: context.ownerId, duration_ms: (durationSec * 1000).toFixed(2) },
+            {
+                device_id: deviceId,
+                owner_id: context.ownerId,
+                transport_mode: transportContext.mode,
+                topology_epoch: transportContext.topology_epoch,
+                duration_ms: (durationSec * 1000).toFixed(2),
+            },
             'Telemetry processed successfully'
         );
 

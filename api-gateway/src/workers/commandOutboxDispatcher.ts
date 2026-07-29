@@ -51,7 +51,7 @@ export class CommandOutboxDispatcher {
         );
 
         const result = await this.pgPool.query(
-            `SELECT outbox.command_id, outbox.payload
+            `SELECT outbox.command_id, outbox.payload, command.event_version
              FROM command_outbox AS outbox
              JOIN device_commands AS command ON command.id = outbox.command_id
              WHERE outbox.published_at IS NULL AND command.status = 'pending'
@@ -64,7 +64,18 @@ export class CommandOutboxDispatcher {
                 const payload = typeof row.payload === 'string' ? row.payload : JSON.stringify(row.payload);
                 const pipelineResult = await this.redis
                     .pipeline()
-                    .set(`command_version:${row.command_id}`, '1', 'EX', 600)
+                    .del(
+                        `command_done:${row.command_id}`,
+                        `command_processing:${row.command_id}`,
+                        `command_lock:${row.command_id}`,
+                        `command_route:${row.command_id}`
+                    )
+                    .set(
+                        `command_version:${row.command_id}`,
+                        String(row.event_version),
+                        'EX',
+                        600
+                    )
                     .xadd(env.REDIS_COMMAND_STREAM, '*', 'data', payload)
                     .exec();
                 const failed = pipelineResult?.find(([err]) => err);

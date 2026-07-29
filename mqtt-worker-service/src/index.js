@@ -15,6 +15,7 @@ const { recordCatalogReload } = require('./monitoring/metrics');
 const { startCommandConsumer } = require('./workers/commandConsumer');
 const { startTelemetrySubscriber } = require('./workers/telemetrySubscriber');
 const { startPresenceWorker } = require('./workers/presenceWorker');
+const { startTopologySubscriber } = require('./workers/topologySubscriber');
 const { startHealthMonitor } = require('./monitoring/healthMonitor');
 
 const { TelemetryBatchWriter } = require('./services/telemetryBatchWriter');
@@ -42,6 +43,7 @@ const state = {
     telemetrySubscriberTask: null,
     presenceWorkerTask: null,
     presenceWorkerCleanup: null,
+    topologySubscriberCleanup: null,
     telemetryWriter: null,
     shadowWriter: null,
     telemetryProcessorCleanup: null,
@@ -140,6 +142,14 @@ async function shutdown(signal) {
     }
 
     try {
+        if (state.topologySubscriberCleanup) {
+            await state.topologySubscriberCleanup();
+        }
+    } catch (err) {
+        logger.error({ err }, 'Error stopping topology subscriber');
+    }
+
+    try {
         if (state.telemetryProcessorCleanup) {
             await state.telemetryProcessorCleanup();
         }
@@ -224,6 +234,11 @@ async function start() {
 
     // Khởi tạo Telemetry Processor (Cache L1 & Invalidation Subscriber)
     state.telemetryProcessorCleanup = initTelemetryProcessor(clients, config, logger);
+    state.topologySubscriberCleanup = await startTopologySubscriber(
+        clients,
+        config,
+        logger
+    );
 
     // Khởi chạy Prometheus Metrics server (port 9100 mặc định hoặc từ METRICS_PORT)
     const metricsPort = process.env.METRICS_PORT || 9100;

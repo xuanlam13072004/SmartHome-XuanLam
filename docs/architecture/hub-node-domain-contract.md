@@ -225,6 +225,8 @@ Luồng transaction:
    - Chọn device còn sở hữu có `join_rank` nhỏ nhất.
    - Gán device đó làm Hub mới.
    - Tăng topology epoch.
+   - Chuyển network sang `electing`; các Node dùng direct fallback cho đến khi
+     Hub mới ACK đúng epoch, sau đó network mới trở lại `stable`.
 5. Nếu không còn device, đánh dấu network `empty`; giữ lại network để bảo toàn
    fingerprint, join-rank monotonic và lịch sử outbox.
 6. Ghi shadow outbox và topology outbox.

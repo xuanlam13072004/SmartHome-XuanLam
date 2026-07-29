@@ -26,6 +26,9 @@ const envSchema = z.object({
     REDIS_CACHE_OWNER_PREFIX: z.string().default('owner_of:'),
     REDIS_CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
     COMMAND_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(30),
+    TOPOLOGY_ELECTION_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(30),
+    TOPOLOGY_HUB_LEASE_SECONDS: z.coerce.number().int().positive().default(15),
+    TOPOLOGY_COMMAND_REROUTE_LIMIT: z.coerce.number().int().nonnegative().default(3),
 });
 
 const parseResult = envSchema.safeParse(process.env);

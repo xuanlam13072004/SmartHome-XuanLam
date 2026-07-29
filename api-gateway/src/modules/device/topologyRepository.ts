@@ -43,7 +43,7 @@ export type TopologySnapshot = {
 };
 
 type TopologyChange = {
-    type: 'claim' | 'unpair';
+    type: 'claim' | 'unpair' | 'hub_failure' | 'hub_ack';
     device_id: string;
     mac: string;
     hub_changed: boolean;
@@ -195,6 +195,16 @@ export async function claimTopologyMembership(
         input.networkFingerprint
     );
     const joinRank = toSafeInteger(network.next_join_rank, 'next_join_rank');
+    const existingMemberResult = await client.query<{ has_members: boolean }>(
+        `SELECT EXISTS (
+             SELECT 1 FROM device_metadata WHERE network_id = $1
+         ) AS has_members`,
+        [network.id]
+    );
+    const shouldAssignNewDeviceAsHub = (
+        network.active_hub_device_id === null
+        && !existingMemberResult.rows[0].has_members
+    );
 
     const insertResult = await client.query<DeviceRow>(
         `INSERT INTO device_metadata
@@ -213,23 +223,23 @@ export async function claimTopologyMembership(
         ]
     );
     const device = insertResult.rows[0];
-    const hubChanged = network.active_hub_device_id === null;
+    const hubChanged = shouldAssignNewDeviceAsHub;
 
     await client.query(
         `UPDATE device_networks
          SET active_hub_device_id = CASE
-                 WHEN active_hub_device_id IS NULL THEN $2
+                 WHEN $3::boolean THEN $2
                  ELSE active_hub_device_id
              END,
              topology_epoch = topology_epoch + 1,
              next_join_rank = next_join_rank + 1,
              topology_state = CASE
-                 WHEN active_hub_device_id IS NULL THEN 'stable'
+                 WHEN $3::boolean THEN 'stable'
                  ELSE topology_state
              END,
              updated_at = NOW()
          WHERE id = $1`,
-        [network.id, device.id]
+        [network.id, device.id, shouldAssignNewDeviceAsHub]
     );
 
     const topology = await loadTopologySnapshot(client, network.id);
@@ -310,7 +320,7 @@ export async function removeTopologyMembership(
              topology_epoch = topology_epoch + 1,
              topology_state = CASE
                  WHEN $3::boolean THEN 'empty'
-                 WHEN $4::boolean THEN 'stable'
+                 WHEN $4::boolean THEN 'electing'
                  ELSE topology_state
              END,
              updated_at = NOW()
@@ -332,4 +342,163 @@ export async function removeTopologyMembership(
     });
 
     return { device, topology, hubChanged };
+}
+
+export async function transitionTopologyForHubFailure(
+    client: PoolClient,
+    input: {
+        networkId: string;
+        expectedEpoch: number;
+        candidateDeviceId: string | null;
+    }
+) {
+    const networkResult = await client.query<NetworkRow>(
+        `SELECT id, owner_id, network_fingerprint, active_hub_device_id,
+                topology_epoch, next_join_rank, topology_state
+         FROM device_networks
+         WHERE id = $1
+         FOR UPDATE`,
+        [input.networkId]
+    );
+    if (networkResult.rows.length !== 1) return null;
+    const network = networkResult.rows[0];
+    if (
+        toSafeInteger(network.topology_epoch, 'topology_epoch')
+            !== input.expectedEpoch
+        || network.topology_state === 'empty'
+    ) {
+        return null;
+    }
+
+    const previousHubResult = network.active_hub_device_id
+        ? await client.query<{ id: string; mac: string }>(
+            `SELECT id, mac
+             FROM device_metadata
+             WHERE id = $1 AND network_id = $2`,
+            [network.active_hub_device_id, network.id]
+        )
+        : { rows: [] as { id: string; mac: string }[] };
+    const previousHub = previousHubResult.rows[0] || null;
+
+    let candidate: { id: string; mac: string } | null = null;
+    if (input.candidateDeviceId) {
+        const candidateResult = await client.query<{ id: string; mac: string }>(
+            `SELECT id, mac
+             FROM device_metadata
+             WHERE id = $1
+               AND network_id = $2
+               AND is_active = true`,
+            [input.candidateDeviceId, network.id]
+        );
+        candidate = candidateResult.rows[0] || null;
+        if (!candidate || candidate.id === network.active_hub_device_id) {
+            return null;
+        }
+    }
+
+    if (
+        !candidate
+        && network.topology_state === 'degraded_direct'
+        && network.active_hub_device_id === null
+    ) {
+        return null;
+    }
+
+    await client.query(
+        `UPDATE device_networks
+         SET active_hub_device_id = $2,
+             topology_epoch = topology_epoch + 1,
+             topology_state = $3,
+             updated_at = NOW()
+         WHERE id = $1`,
+        [
+            network.id,
+            candidate?.id ?? null,
+            candidate ? 'electing' : 'degraded_direct',
+        ]
+    );
+
+    const topology = await loadTopologySnapshot(client, network.id);
+    await recordTopologyEvent(
+        client,
+        topology,
+        candidate ? 'hub_failover_started' : 'hub_degraded_no_candidate',
+        {
+            type: 'hub_failure',
+            device_id: candidate?.id || previousHub?.id || '',
+            mac: candidate?.mac || previousHub?.mac || '',
+            hub_changed: true,
+        }
+    );
+    return topology;
+}
+
+export async function acknowledgeHubAssignment(
+    client: PoolClient,
+    input: {
+        networkId: string;
+        expectedEpoch: number;
+        hubDeviceId: string;
+        status: 'ready' | 'error';
+    }
+) {
+    const networkResult = await client.query<NetworkRow>(
+        `SELECT id, owner_id, network_fingerprint, active_hub_device_id,
+                topology_epoch, next_join_rank, topology_state
+         FROM device_networks
+         WHERE id = $1
+         FOR UPDATE`,
+        [input.networkId]
+    );
+    if (networkResult.rows.length !== 1) return null;
+    const network = networkResult.rows[0];
+    if (
+        toSafeInteger(network.topology_epoch, 'topology_epoch')
+            !== input.expectedEpoch
+        || network.active_hub_device_id !== input.hubDeviceId
+    ) {
+        return null;
+    }
+    if (network.topology_state === 'stable' && input.status === 'ready') {
+        return loadTopologySnapshot(client, network.id);
+    }
+    if (network.topology_state !== 'electing') return null;
+
+    const hubResult = await client.query<{ id: string; mac: string }>(
+        `SELECT id, mac
+         FROM device_metadata
+         WHERE id = $1 AND network_id = $2`,
+        [input.hubDeviceId, network.id]
+    );
+    if (hubResult.rows.length !== 1) return null;
+    const hub = hubResult.rows[0];
+
+    await client.query(
+        `UPDATE device_networks
+         SET active_hub_device_id = $2,
+             topology_epoch = topology_epoch + 1,
+             topology_state = $3,
+             updated_at = NOW()
+         WHERE id = $1`,
+        [
+            network.id,
+            input.status === 'ready' ? hub.id : null,
+            input.status === 'ready' ? 'stable' : 'degraded_direct',
+        ]
+    );
+    const topology = await loadTopologySnapshot(client, network.id);
+    await recordTopologyEvent(
+        client,
+        topology,
+        input.status === 'ready'
+            ? 'hub_assignment_ready'
+            : 'hub_assignment_failed',
+        {
+            type: 'hub_ack',
+            device_id: hub.id,
+            mac: hub.mac,
+            hub_changed: input.status === 'error',
+        }
+    );
+    return topology;
 }
