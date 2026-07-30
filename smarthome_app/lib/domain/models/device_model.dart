@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../features/dashboard/models/capability_model.dart';
 import '../../core/widgets/indicators/status_badge.dart' show DeviceStatus;
+import 'device_topology.dart';
 
 class DeviceModel {
   final String mac; // Canonical device identifier (matches backend)
@@ -14,6 +15,7 @@ class DeviceModel {
   final String? lastSeen;
   final int? rssi;
   final int? battery;
+  final DeviceTopology? topology;
 
   // Danh sách capabilities sau khi đã ghép nối với Product Catalog
   final List<CapabilityModel> capabilities;
@@ -31,6 +33,7 @@ class DeviceModel {
     this.lastSeen,
     this.rssi,
     this.battery,
+    this.topology,
   });
 
   DeviceModel copyWith({
@@ -46,6 +49,8 @@ class DeviceModel {
     String? lastSeen,
     int? rssi,
     int? battery,
+    DeviceTopology? topology,
+    bool clearTopology = false,
   }) {
     return DeviceModel(
       mac: mac ?? this.mac,
@@ -60,13 +65,15 @@ class DeviceModel {
       lastSeen: lastSeen ?? this.lastSeen,
       rssi: rssi ?? this.rssi,
       battery: battery ?? this.battery,
+      topology: clearTopology ? null : topology ?? this.topology,
     );
   }
 
   bool get isPrimaryOn {
     final onOffCap = capabilities.firstWhere(
       (c) => c.type == 'on_off',
-      orElse: () => const CapabilityModel(id: '', type: '', name: '', value: false),
+      orElse: () =>
+          const CapabilityModel(id: '', type: '', name: '', value: false),
     );
     return onOffCap.value as bool? ?? false;
   }

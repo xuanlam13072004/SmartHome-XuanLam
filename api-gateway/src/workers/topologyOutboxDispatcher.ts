@@ -96,6 +96,7 @@ async function applyTopologyCache(
         reason: event.reason,
         topology_updated_at: event.created_at.toISOString(),
     };
+    await redis.del(`user_devices:${payload.owner_id}`);
     const networkApplied = await redis.eval(
         APPLY_JSON_IF_NEWER,
         1,
@@ -227,6 +228,7 @@ async function applyTopologyShadow(
                 topology_epoch: payload.topology_epoch,
                 topology_state: payload.topology_state,
                 topology_role: member.role,
+                join_rank: member.join_rank,
                 transport_mode: transportMode(member, payload.topology_state),
                 last_transport_change: now,
             }

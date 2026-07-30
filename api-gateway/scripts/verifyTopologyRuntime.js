@@ -234,6 +234,8 @@ async function verifyRuntime(pool, redis, mongo, modules) {
     const eventRows = await pool.query(
         `SELECT id FROM topology_outbox ORDER BY id ASC`
     );
+    const userDevicesKey = `user_devices:${ownerId}`;
+    await redis.set(userDevicesKey, JSON.stringify([{ stale: true }]));
     await dispatchTopologyOutboxEvent(
         pool,
         redis,
@@ -247,6 +249,10 @@ async function verifyRuntime(pool, redis, mongo, modules) {
         mongo,
         logger,
         Number(eventRows.rows[1].id)
+    );
+    assert(
+        await redis.get(userDevicesKey) === null,
+        'Topology update did not invalidate the cached user device list'
     );
 
     const networkKey = `topology:network:${claimA.topology.network_id}`;

@@ -10,6 +10,7 @@ import '../models/capability_model.dart';
 import '../widgets/capabilities/capability_section_panel.dart';
 import '../widgets/device_hero_card.dart';
 import '../../../domain/models/device_model.dart';
+import '../widgets/device_topology_panel.dart';
 
 class DeviceDetailScreen extends ConsumerWidget {
   const DeviceDetailScreen({
@@ -144,6 +145,10 @@ class DeviceDetailScreen extends ConsumerWidget {
                               value,
                             ),
               ),
+              if (device.topology != null) ...[
+                const SizedBox(height: AppSpacing.xl),
+                DeviceTopologyPanel(topology: device.topology!),
+              ],
               if (controls.isNotEmpty) ...[
                 const SizedBox(height: AppSpacing.xl),
                 CapabilitySectionPanel(

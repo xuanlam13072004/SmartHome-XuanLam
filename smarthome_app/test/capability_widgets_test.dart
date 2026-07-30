@@ -6,6 +6,8 @@ import 'package:smarthome_app/domain/models/device_model.dart';
 import 'package:smarthome_app/features/dashboard/models/capability_model.dart';
 import 'package:smarthome_app/features/dashboard/widgets/capabilities/capability_section_panel.dart';
 import 'package:smarthome_app/features/dashboard/widgets/device_hero_card.dart';
+import 'package:smarthome_app/features/dashboard/widgets/device_topology_panel.dart';
+import 'package:smarthome_app/domain/models/device_topology.dart';
 
 const power = CapabilityModel(
   id: 'power',
@@ -108,6 +110,15 @@ final device = DeviceModel(
   diagnostics: const {'rssi': -62},
   capabilities: const [power, brightness, mode, temperature, rssi],
   lastSeen: '2026-07-28T10:30:00.000Z',
+  topology: const DeviceTopology(
+    networkId: 'network-12345678',
+    role: DeviceTopologyRole.node,
+    epoch: 7,
+    state: DeviceTopologyState.stable,
+    transportMode: DeviceTransportMode.relay,
+    joinRank: 2,
+    activeHubMac: 'AA:BB:CC:DD:EE:01',
+  ),
 );
 
 void main() {
@@ -165,6 +176,8 @@ void main() {
                       onPowerChanged: (_) {},
                     ),
                     const SizedBox(height: AppSpacing.xl),
+                    DeviceTopologyPanel(topology: device.topology!),
+                    const SizedBox(height: AppSpacing.xl),
                     CapabilitySectionPanel(
                       title: 'Điều khiển',
                       description: 'Các chức năng có thể thay đổi trực tiếp',
@@ -203,9 +216,13 @@ void main() {
         expect(tester.takeException(), isNull);
         expect(find.text('Đèn phòng khách'), findsWidgets);
         expect(find.text('Độ sáng'), findsOneWidget);
+        expect(find.text('Kết nối mạng'), findsOneWidget);
+        expect(find.text('Qua Hub'), findsWidgets);
         expect(find.text('28.4°C'), findsOneWidget);
         expect(find.text('-62dBm'), findsNothing);
 
+        await tester.ensureVisible(find.text('Chẩn đoán'));
+        await tester.pumpAndSettle();
         await tester.tap(find.text('Chẩn đoán'));
         await tester.pump();
         expect(find.text('-62dBm'), findsOneWidget);

@@ -5,6 +5,7 @@ import '../models/product_model.dart';
 import '../models/device_model.dart';
 import '../../features/dashboard/models/capability_model.dart';
 import '../../core/widgets/indicators/status_badge.dart' show DeviceStatus;
+import '../models/device_topology.dart';
 
 /// Assembles a DeviceModel from a DeviceDto + ProductModel.
 /// All capability mapping is driven by the Product Catalog — no hardcoding.
@@ -172,6 +173,19 @@ class CapabilityAssembler {
       lastSeen: deviceDto.lastSeen,
       rssi: deviceDto.rssi,
       battery: deviceDto.battery,
+      topology: deviceDto.networkId == null || deviceDto.topologyEpoch == null
+          ? null
+          : DeviceTopology(
+              networkId: deviceDto.networkId!,
+              role: DeviceTopologyRole.fromWire(deviceDto.topologyRole),
+              epoch: deviceDto.topologyEpoch!,
+              state: DeviceTopologyState.fromWire(deviceDto.topologyState),
+              transportMode:
+                  DeviceTransportMode.fromWire(deviceDto.transportMode),
+              joinRank: deviceDto.joinRank,
+              activeHubMac: deviceDto.activeHubMac,
+              lastTransportChange: deviceDto.lastTransportChange,
+            ),
     );
   }
 

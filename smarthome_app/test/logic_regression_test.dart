@@ -6,6 +6,8 @@ import 'package:smarthome_app/data/models/dto/device_dto.dart';
 import 'package:smarthome_app/data/models/dto/product_dto.dart';
 import 'package:smarthome_app/domain/mappers/capability_assembler.dart';
 import 'package:smarthome_app/domain/models/product_model.dart';
+import 'package:smarthome_app/domain/models/device_topology.dart';
+import 'package:smarthome_app/domain/models/ws_events.dart';
 import 'package:smarthome_app/features/dashboard/models/device_qr_payload.dart';
 import 'package:smarthome_app/features/dashboard/models/capability_model.dart';
 import 'package:smarthome_app/features/dashboard/repositories/device_repository.dart';
@@ -125,6 +127,73 @@ void main() {
         ),
         throwsFormatException,
       );
+    });
+  });
+
+  group('Hub-Node topology', () {
+    test('parses REST topology fields with numeric strings safely', () {
+      final dto = DeviceDto.fromJson(const {
+        'mac': 'AA:BB:CC:DD:EE:02',
+        'owner_id': 'owner-1',
+        'name': 'Node',
+        'product_id': 'product-1',
+        'is_online': true,
+        'network_id': 'network-a',
+        'join_rank': '2',
+        'topology_role': 'node',
+        'topology_epoch': '9',
+        'topology_state': 'stable',
+        'active_hub_mac': 'aa:bb:cc:dd:ee:01',
+        'transport_mode': 'relay',
+      });
+      final model = CapabilityAssembler.assemble(dto, null);
+
+      expect(model.topology, isNotNull);
+      expect(model.topology!.role, DeviceTopologyRole.node);
+      expect(model.topology!.joinRank, 2);
+      expect(model.topology!.epoch, 9);
+      expect(model.topology!.transportMode, DeviceTransportMode.relay);
+      expect(model.topology!.activeHubMac, 'AA:BB:CC:DD:EE:01');
+      expect(model.topology!.connectionLabel, 'Qua Hub');
+    });
+
+    test('parses a topology update and preserves failover as normal service',
+        () {
+      final event = WsEventParser.parse(
+        '{"event":"topology_updated","network_id":"network-a",'
+        '"topology_epoch":10,"topology_state":"electing",'
+        '"active_hub_mac":"AA:BB:CC:DD:EE:02","members":['
+        '{"mac":"AA:BB:CC:DD:EE:01","join_rank":1,"role":"node"},'
+        '{"mac":"AA:BB:CC:DD:EE:02","join_rank":2,"role":"hub"}],'
+        '"timestamp":"2026-07-30T01:00:00.000Z"}',
+      );
+
+      expect(event, isA<TopologyUpdatedEvent>());
+      final topologyEvent = event as TopologyUpdatedEvent;
+      expect(topologyEvent.epoch, 10);
+      expect(topologyEvent.members.length, 2);
+      expect(topologyEvent.members.last.role, 'hub');
+
+      const topology = DeviceTopology(
+        networkId: 'network-a',
+        role: DeviceTopologyRole.node,
+        epoch: 10,
+        state: DeviceTopologyState.electing,
+        transportMode: DeviceTransportMode.directFallback,
+      );
+      expect(topology.isOptimizing, isTrue);
+      expect(topology.connectionLabel, 'Kết nối trực tiếp');
+      expect(topology.stateLabel, 'Đang tối ưu kết nối');
+    });
+
+    test('reads removed device identity from an unpair topology event', () {
+      final event = WsEventParser.parse(
+        '{"event":"topology_updated","network_id":"network-a",'
+        '"topology_epoch":11,"topology_state":"stable","members":[],'
+        '"change":{"type":"unpair","mac":"aa:bb:cc:dd:ee:01"}}',
+      ) as TopologyUpdatedEvent;
+
+      expect(event.removedMac, 'AA:BB:CC:DD:EE:01');
     });
   });
 

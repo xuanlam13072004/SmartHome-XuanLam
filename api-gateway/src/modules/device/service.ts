@@ -264,14 +264,25 @@ export async function listDevices(app: FastifyInstance, ownerId: string) {
             SELECT d.id, d.owner_id, d.mac, d.name, d.product_id,
                    d.gateway_id, d.network_id, d.join_rank, d.is_active,
                    d.created_at, d.updated_at,
-                   n.active_hub_device_id, n.topology_epoch, n.topology_state,
+                   n.active_hub_device_id, hub.mac AS active_hub_mac,
+                   n.topology_epoch, n.topology_state,
+                   n.updated_at AS last_transport_change,
                    CASE
                        WHEN d.id = n.active_hub_device_id THEN 'hub'
                        WHEN d.network_id IS NOT NULL THEN 'node'
                        ELSE NULL
-                   END AS topology_role
+                   END AS topology_role,
+                   CASE
+                       WHEN d.id = n.active_hub_device_id THEN 'hub'
+                       WHEN d.network_id IS NOT NULL
+                            AND n.topology_state = 'stable' THEN 'relay'
+                       WHEN d.network_id IS NOT NULL THEN 'direct_fallback'
+                       ELSE NULL
+                   END AS transport_mode
             FROM device_metadata AS d
             LEFT JOIN device_networks AS n ON n.id = d.network_id
+            LEFT JOIN device_metadata AS hub
+                   ON hub.id = n.active_hub_device_id
             WHERE d.owner_id = $1
             ORDER BY d.created_at DESC
             `,

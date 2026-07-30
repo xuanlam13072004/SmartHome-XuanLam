@@ -6,6 +6,7 @@ import '../../../domain/mappers/capability_assembler.dart';
 import '../../../domain/mappers/product_mapper.dart';
 import '../../../core/widgets/indicators/status_badge.dart' show DeviceStatus;
 import '../models/capability_model.dart';
+import '../../../domain/models/device_topology.dart';
 
 abstract class IDeviceRepository {
   Future<List<DeviceModel>> getDevices();
@@ -98,6 +99,26 @@ class ApiDeviceRepository implements IDeviceRepository {
       lastSeen: device.lastSeen,
       rssi: device.rssi,
       battery: device.battery,
+      networkId: device.topology?.networkId,
+      joinRank: device.topology?.joinRank,
+      topologyRole: device.topology?.role.name,
+      topologyEpoch: device.topology?.epoch,
+      topologyState: switch (device.topology?.state) {
+        DeviceTopologyState.degradedDirect => 'degraded_direct',
+        DeviceTopologyState.stable => 'stable',
+        DeviceTopologyState.electing => 'electing',
+        DeviceTopologyState.empty => 'empty',
+        _ => null,
+      },
+      activeHubMac: device.topology?.activeHubMac,
+      transportMode: switch (device.topology?.transportMode) {
+        DeviceTransportMode.directFallback => 'direct_fallback',
+        DeviceTransportMode.hub => 'hub',
+        DeviceTransportMode.relay => 'relay',
+        DeviceTransportMode.offline => 'offline',
+        _ => null,
+      },
+      lastTransportChange: device.topology?.lastTransportChange,
     );
 
     return CapabilityAssembler.assemble(dto, product);

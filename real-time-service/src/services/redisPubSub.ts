@@ -5,7 +5,8 @@ import { REDIS_CHANNELS } from '../../../shared/constants.js';
 const CHANNELS = [
     REDIS_CHANNELS.DEVICE_TELEMETRY,
     REDIS_CHANNELS.DEVICE_STATUS,
-    REDIS_CHANNELS.DEVICE_COMMAND
+    REDIS_CHANNELS.DEVICE_COMMAND,
+    REDIS_CHANNELS.TOPOLOGY_UPDATED,
 ];
 
 export function startRedisPubSubListener(): void {
@@ -22,6 +23,25 @@ export function startRedisPubSubListener(): void {
     redisSub.on('message', (channel, message) => {
         try {
             const parsed = JSON.parse(message);
+
+            if (channel === REDIS_CHANNELS.TOPOLOGY_UPDATED) {
+                if (!parsed.owner_id) {
+                    console.warn('⚠️ Received topology update without owner_id:', message);
+                    return;
+                }
+                sendToUser(parsed.owner_id, {
+                    event: 'topology_updated',
+                    network_id: parsed.network_id,
+                    topology_epoch: parsed.topology_epoch,
+                    topology_state: parsed.topology_state,
+                    active_hub_mac: parsed.active_hub_mac || null,
+                    members: Array.isArray(parsed.members) ? parsed.members : [],
+                    change: parsed.change || null,
+                    timestamp: parsed.topology_updated_at || new Date().toISOString(),
+                });
+                return;
+            }
+
             const { owner_id, mac, payload, timestamp } = parsed;
 
             if (!owner_id) {

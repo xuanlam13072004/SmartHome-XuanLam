@@ -4,6 +4,7 @@ import '../../../core/widgets/widgets.dart';
 import '../../../domain/models/device_model.dart';
 import '../models/capability_model.dart';
 import 'capabilities/capability_visuals.dart';
+import 'topology_badge.dart';
 
 class DeviceHeroCard extends StatelessWidget {
   const DeviceHeroCard({
@@ -24,7 +25,7 @@ class DeviceHeroCard extends StatelessWidget {
     final accent = primaryPower == null
         ? context.colorScheme.primary
         : CapabilityVisuals.accentFor(context, primaryPower!);
-        
+
     final glowColor = AppPalette.colorForCategory(
       device.productId.contains('light')
           ? 'light'
@@ -153,6 +154,10 @@ class _DeviceIdentity extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: AppSpacing.sm),
+              if (device.topology != null) ...[
+                TopologyBadge(topology: device.topology!),
+                const SizedBox(height: AppSpacing.sm),
+              ],
               Text(
                 device.mac,
                 maxLines: 1,

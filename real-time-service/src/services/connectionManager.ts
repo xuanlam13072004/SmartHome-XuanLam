@@ -67,6 +67,16 @@ export async function sendInitialState(ownerId: string, socket: WebSocket): Prom
             rssi: doc.diagnostics?.rssi ?? doc.rssi ?? null,
             battery: doc.diagnostics?.battery ?? doc.battery ?? null,
             last_seen: doc.last_seen instanceof Date ? doc.last_seen.toISOString() : (doc.last_seen || null),
+            network_id: doc.network_id || null,
+            join_rank: doc.join_rank ?? null,
+            topology_role: doc.topology_role || null,
+            topology_epoch: doc.topology_epoch ?? null,
+            topology_state: doc.topology_state || null,
+            active_hub_mac: doc.active_hub_mac || null,
+            transport_mode: doc.transport_mode || null,
+            last_transport_change: doc.last_transport_change instanceof Date
+                ? doc.last_transport_change.toISOString()
+                : (doc.last_transport_change || null),
         }));
 
         const response = {

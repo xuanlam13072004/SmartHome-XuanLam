@@ -20,6 +20,9 @@ class DeviceCard extends StatefulWidget {
     this.capabilities = const [],
     this.glowColor,
     this.isPrimaryOn = false,
+    this.connectionIcon,
+    this.connectionLabel,
+    this.connectionColor,
   });
 
   final String title;
@@ -38,6 +41,9 @@ class DeviceCard extends StatefulWidget {
 
   /// Thiết bị đang bật (primary capability ON).
   final bool isPrimaryOn;
+  final IconData? connectionIcon;
+  final String? connectionLabel;
+  final Color? connectionColor;
 
   @override
   State<DeviceCard> createState() => _DeviceCardState();
@@ -100,7 +106,7 @@ class _DeviceCardState extends State<DeviceCard>
       onTapDown: (_) => _tapController.forward(),
       onTapUp: (_) {
         _tapController.reverse();
-        if (!isOffline) widget.onTap?.call();
+        widget.onTap?.call();
       },
       onTapCancel: () => _tapController.reverse(),
       behavior: HitTestBehavior.opaque,
@@ -116,8 +122,10 @@ class _DeviceCardState extends State<DeviceCard>
             // Hallmark Colorful: Khi ON, tint toàn bộ thẻ bằng màu accent pha với trắng
             color: isOn && widget.glowColor != null
                 ? Color.alphaBlend(
-                    widget.glowColor!.withValues(alpha: 0.8), // 80% glow color, the rest is surface
-                    Colors.white.withValues(alpha: 0.9), // Bright base for lively look
+                    widget.glowColor!.withValues(
+                        alpha: 0.8), // 80% glow color, the rest is surface
+                    Colors.white
+                        .withValues(alpha: 0.9), // Bright base for lively look
                   )
                 : null,
             // Vẫn giữ glow lan tỏa nếu muốn
@@ -174,6 +182,18 @@ class _DeviceCardState extends State<DeviceCard>
                           color: isOn
                               ? context.colorScheme.primary
                               : context.neu.deviceOnline,
+                        ),
+                      ),
+                      const SizedBox(width: 5),
+                    ],
+                    if (widget.connectionIcon != null) ...[
+                      Tooltip(
+                        message: widget.connectionLabel ?? 'Kết nối mạng',
+                        child: Icon(
+                          widget.connectionIcon,
+                          size: 13,
+                          color: widget.connectionColor ??
+                              context.colorScheme.primary,
                         ),
                       ),
                       const SizedBox(width: 5),

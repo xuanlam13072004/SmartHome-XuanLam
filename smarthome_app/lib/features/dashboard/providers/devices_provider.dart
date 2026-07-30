@@ -6,6 +6,7 @@ import '../../../data/datasources/remote/device_remote_data_source.dart';
 import 'realtime_provider.dart';
 import '../../../domain/models/ws_events.dart';
 import 'dart:async';
+import '../../../domain/models/device_topology.dart';
 
 part 'devices_provider.g.dart';
 
@@ -20,6 +21,7 @@ IDeviceRepository deviceRepository(Ref ref) {
 @riverpod
 class Devices extends _$Devices {
   StreamSubscription<WsEvent>? _realtimeSub;
+  final Map<String, TopologyUpdatedEvent> _pendingTopologyEvents = {};
 
   @override
   FutureOr<List<DeviceModel>> build() async {
@@ -34,6 +36,8 @@ class Devices extends _$Devices {
         _handleTelemetry(event);
       } else if (event is DeviceStatusEvent) {
         _handleDeviceStatus(event);
+      } else if (event is TopologyUpdatedEvent) {
+        _handleTopologyUpdated(event);
       }
       // CommandStatusEvent and ActiveCommandsEvent can be handled here
       // when command status UI is implemented
@@ -41,7 +45,8 @@ class Devices extends _$Devices {
 
     ref.onDispose(() => _realtimeSub?.cancel());
 
-    return repo.getDevices();
+    final devices = await repo.getDevices();
+    return _applyPendingTopology(devices);
   }
 
   void _handleInitialState(InitialStateEvent event) async {
@@ -54,7 +59,7 @@ class Devices extends _$Devices {
       updatedDevices.add(device);
     }
 
-    state = AsyncData(updatedDevices);
+    state = AsyncData(_applyPendingTopology(updatedDevices));
   }
 
   void _handleTelemetry(TelemetryEvent event) async {
@@ -90,6 +95,73 @@ class Devices extends _$Devices {
     final newState = List<DeviceModel>.from(currentState);
     newState[index] = newDevice;
     state = AsyncData(newState);
+  }
+
+  void _handleTopologyUpdated(TopologyUpdatedEvent event) {
+    if (event.networkId.isEmpty) return;
+    final pending = _pendingTopologyEvents[event.networkId];
+    if (pending != null && event.epoch < pending.epoch) return;
+    _pendingTopologyEvents[event.networkId] = event;
+
+    final currentState = state.value;
+    if (currentState == null) return;
+    state = AsyncData(_applyTopologyEvent(currentState, event));
+  }
+
+  List<DeviceModel> _applyPendingTopology(List<DeviceModel> devices) {
+    var result = devices;
+    final ordered = _pendingTopologyEvents.values.toList()
+      ..sort((left, right) => left.epoch.compareTo(right.epoch));
+    for (final event in ordered) {
+      result = _applyTopologyEvent(result, event);
+    }
+    return result;
+  }
+
+  List<DeviceModel> _applyTopologyEvent(
+    List<DeviceModel> devices,
+    TopologyUpdatedEvent event,
+  ) {
+    final members = {
+      for (final member in event.members) member.mac: member,
+    };
+    final removedMac = event.removedMac;
+    final topologyState = DeviceTopologyState.fromWire(event.state);
+
+    return devices.where((device) {
+      if (removedMac == null || device.mac != removedMac) return true;
+      final current = device.topology;
+      return current != null &&
+          (current.networkId != event.networkId || current.epoch > event.epoch);
+    }).map((device) {
+      final member = members[device.mac];
+      if (member == null) return device;
+      final current = device.topology;
+      if (current != null &&
+          current.networkId == event.networkId &&
+          current.epoch > event.epoch) {
+        return device;
+      }
+
+      final role = DeviceTopologyRole.fromWire(member.role);
+      final transportMode = role == DeviceTopologyRole.hub
+          ? DeviceTransportMode.hub
+          : topologyState == DeviceTopologyState.stable
+              ? DeviceTransportMode.relay
+              : DeviceTransportMode.directFallback;
+      return device.copyWith(
+        topology: DeviceTopology(
+          networkId: event.networkId,
+          role: role,
+          epoch: event.epoch,
+          state: topologyState,
+          transportMode: transportMode,
+          joinRank: member.joinRank,
+          activeHubMac: event.activeHubMac,
+          lastTransportChange: event.timestamp,
+        ),
+      );
+    }).toList();
   }
 
   Future<void> updateCapability(
