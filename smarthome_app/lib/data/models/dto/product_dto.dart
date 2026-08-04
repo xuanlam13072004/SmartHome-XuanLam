@@ -1,5 +1,7 @@
 class ProductDto {
   final String id;
+  final String uiProfile;
+  final int uiProfileVersion;
   final String manufacturer;
   final String modelName;
   final String displayName;
@@ -18,6 +20,8 @@ class ProductDto {
 
   ProductDto({
     required this.id,
+    this.uiProfile = 'generic',
+    this.uiProfileVersion = 1,
     required this.manufacturer,
     required this.modelName,
     required this.displayName,
@@ -45,6 +49,8 @@ class ProductDto {
 
     return ProductDto(
       id: json['_id'] as String? ?? '',
+      uiProfile: json['ui_profile'] as String? ?? 'generic',
+      uiProfileVersion: (json['ui_profile_version'] as num?)?.toInt() ?? 1,
       manufacturer: json['manufacturer'] as String? ?? '',
       modelName: json['model_name'] as String? ?? '',
       displayName: json['display_name'] as String? ?? '',

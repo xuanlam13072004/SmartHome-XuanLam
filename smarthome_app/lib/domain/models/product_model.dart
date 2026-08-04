@@ -2,6 +2,8 @@
 /// Contains capability metadata needed for dynamic widget rendering.
 class ProductModel {
   final String id;
+  final String uiProfile;
+  final int uiProfileVersion;
   final String manufacturer;
   final String modelName;
   final String displayName;
@@ -26,6 +28,8 @@ class ProductModel {
 
   ProductModel({
     required this.id,
+    this.uiProfile = 'generic',
+    this.uiProfileVersion = 1,
     required this.manufacturer,
     required this.modelName,
     required this.displayName,

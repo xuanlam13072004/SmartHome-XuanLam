@@ -1,0 +1,306 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://smarthome-xuanlam.local/schemas/catalog-v2.json",
+  "title": "SmartHome Product Catalog V2",
+  "type": "object",
+  "required": ["catalog_schema", "schema_version", "catalog_revision", "lifecycle", "capabilities", "products"],
+  "properties": {
+    "catalog_schema": { "const": "smarthome.catalog.v2" },
+    "schema_version": { "const": 2 },
+    "catalog_revision": { "type": "integer", "minimum": 1 },
+    "lifecycle": { "enum": ["draft", "published", "deprecated"] },
+    "capabilities": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/capability" }
+    },
+    "products": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/product" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{1,63}$"
+    },
+    "permission": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+    },
+    "capabilityRuntime": {
+      "type": "object",
+      "required": ["execution_authority", "reported_state_authority", "offline_behavior", "configuration_persistence"],
+      "properties": {
+        "execution_authority": { "enum": ["device_firmware", "hybrid_session"] },
+        "reported_state_authority": { "const": "device_firmware" },
+        "offline_behavior": { "enum": ["full_local", "local_core_only", "requires_connectivity"] },
+        "configuration_persistence": { "enum": ["none", "device_runtime", "device_nvs", "device_secure_storage"] }
+      },
+      "additionalProperties": false
+    },
+    "localizedPresentation": {
+      "type": "object",
+      "required": ["display_name", "icon"],
+      "properties": {
+        "display_name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "description": { "type": "string", "maxLength": 500 },
+        "icon": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "section": { "enum": ["overview", "controls", "measurements", "security", "safety", "diagnostics"] },
+        "order": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "valueSchema": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["boolean", "number", "integer", "string", "array"] },
+        "nullable": { "type": "boolean" },
+        "minimum": { "type": "number" },
+        "maximum": { "type": "number" },
+        "min_length": { "type": "integer", "minimum": 0 },
+        "max_length": { "type": "integer", "minimum": 1 },
+        "enum": { "type": "array", "minItems": 1, "items": {} },
+        "unit": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "precision": { "type": "integer", "minimum": 0, "maximum": 6 },
+        "format": { "type": "string", "maxLength": 64 },
+        "min_items": { "type": "integer", "minimum": 0 },
+        "max_items": { "type": "integer", "minimum": 1 },
+        "items": {
+          "type": "object",
+          "required": ["type"],
+          "properties": {
+            "type": { "enum": ["boolean", "number", "integer", "string"] },
+            "min_length": { "type": "integer", "minimum": 0 },
+            "max_length": { "type": "integer", "minimum": 1 }
+          },
+          "additionalProperties": false
+        },
+        "default": {}
+      },
+      "additionalProperties": true
+    },
+    "property": {
+      "allOf": [
+        { "$ref": "#/$defs/valueSchema" },
+        {
+          "type": "object",
+          "required": ["id", "channel", "required", "history", "automation", "presentation"],
+          "properties": {
+            "id": { "$ref": "#/$defs/identifier" },
+            "channel": { "enum": ["reported", "desired", "diagnostic"] },
+            "state_authority": { "enum": ["device_firmware", "backend_intent"] },
+            "persistence": { "enum": ["volatile", "device_nvs", "device_secure_storage", "none"] },
+            "required": { "type": "boolean" },
+            "history": { "enum": ["none", "latest", "sampled"] },
+            "automation": {
+              "type": "object",
+              "required": ["trigger", "condition"],
+              "properties": {
+                "trigger": { "type": "boolean" },
+                "condition": { "type": "boolean" }
+              },
+              "additionalProperties": false
+            },
+            "presentation": {
+              "type": "object",
+              "required": ["ui_hint", "label"],
+              "properties": {
+                "ui_hint": { "type": "string", "minLength": 1, "maxLength": 64 },
+                "label": { "type": "string", "minLength": 1, "maxLength": 120 }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "operation": {
+      "type": "object",
+      "required": ["id", "permission", "risk", "confirmation", "timeout_ms", "idempotent", "input", "effects", "safety_constraints", "presentation"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "execution_authority": { "enum": ["device_firmware", "hybrid_session"] },
+        "offline_behavior": {
+          "type": "object",
+          "required": ["remote_available", "local_equivalent"],
+          "properties": {
+            "remote_available": { "type": "boolean" },
+            "local_equivalent": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        "ack_policy": {
+          "type": "object",
+          "required": ["success_condition", "completion_signal"],
+          "properties": {
+            "success_condition": { "enum": ["accepted", "persisted", "effect_applied", "resource_ready"] },
+            "completion_signal": { "enum": ["ack", "reported_state", "event", "resource"] },
+            "reference": { "type": "string", "minLength": 1, "maxLength": 160 }
+          },
+          "additionalProperties": false
+        },
+        "permission": { "$ref": "#/$defs/permission" },
+        "risk": { "enum": ["normal", "sensitive", "dangerous"] },
+        "confirmation": { "enum": ["none", "confirm", "reauthenticate"] },
+        "timeout_ms": { "type": "integer", "minimum": 100, "maximum": 300000 },
+        "idempotent": { "type": "boolean" },
+        "input": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/valueSchema" }
+        },
+        "effects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["type", "property"],
+            "properties": {
+              "type": { "enum": ["set_desired", "expect_reported", "create_event", "create_resource_session", "create_credential_job"] },
+              "property": { "type": "string", "minLength": 1 },
+              "value": {},
+              "value_from": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "safety_constraints": { "type": "array", "items": { "$ref": "#/$defs/identifier" } },
+        "presentation": {
+          "type": "object",
+          "required": ["label", "ui_hint"],
+          "properties": {
+            "label": { "type": "string", "minLength": 1, "maxLength": 120 },
+            "ui_hint": { "type": "string", "minLength": 1, "maxLength": 64 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "event": {
+      "type": "object",
+      "required": ["id", "severity", "retention", "data"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "producer": { "const": "device_firmware" },
+        "severity": { "enum": ["info", "warning", "critical"] },
+        "retention": { "enum": ["none", "timeline", "incident"] },
+        "data": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/valueSchema" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "resource": {
+      "type": "object",
+      "required": ["id", "kind", "permission", "session_ttl_seconds"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "producer": { "const": "device_firmware" },
+        "authorization_authority": { "const": "backend" },
+        "kind": { "enum": ["video_stream", "snapshot", "diagnostic_file"] },
+        "permission": { "$ref": "#/$defs/permission" },
+        "session_ttl_seconds": { "type": "integer", "minimum": 1, "maximum": 3600 }
+      },
+      "additionalProperties": false
+    },
+    "credential": {
+      "type": "object",
+      "required": ["id", "kind", "permission", "delegable", "write_only"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "verification_authority": { "const": "device_firmware" },
+        "storage": { "const": "device_secure_storage" },
+        "offline_usable": { "type": "boolean" },
+        "management_success_condition": { "const": "persisted_on_device" },
+        "kind": { "enum": ["pin", "face", "rfid", "fingerprint"] },
+        "permission": { "$ref": "#/$defs/permission" },
+        "delegable": { "type": "boolean" },
+        "write_only": { "type": "boolean" },
+        "constraints": { "$ref": "#/$defs/valueSchema" }
+      },
+      "additionalProperties": false
+    },
+    "capability": {
+      "type": "object",
+      "required": ["capability_id", "revision", "kind", "properties", "operations", "events", "resources", "credentials"],
+      "properties": {
+        "capability_id": { "$ref": "#/$defs/identifier" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "kind": { "enum": ["actuator", "measurement", "event_source", "resource", "credential", "policy", "diagnostic", "composite"] },
+        "runtime": { "$ref": "#/$defs/capabilityRuntime" },
+        "properties": { "type": "array", "items": { "$ref": "#/$defs/property" } },
+        "operations": { "type": "array", "items": { "$ref": "#/$defs/operation" } },
+        "events": { "type": "array", "items": { "$ref": "#/$defs/event" } },
+        "resources": { "type": "array", "items": { "$ref": "#/$defs/resource" } },
+        "credentials": { "type": "array", "items": { "$ref": "#/$defs/credential" } }
+      },
+      "additionalProperties": false
+    },
+    "capabilityInstance": {
+      "type": "object",
+      "required": ["instance_id", "capability_id", "capability_revision", "availability", "semantic_role", "presentation"],
+      "properties": {
+        "instance_id": { "$ref": "#/$defs/identifier" },
+        "capability_id": { "$ref": "#/$defs/identifier" },
+        "capability_revision": { "type": "integer", "minimum": 1 },
+        "availability": { "enum": ["active", "planned"] },
+        "semantic_role": { "$ref": "#/$defs/identifier" },
+        "property_overrides": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/valueSchema" }
+        },
+        "presentation": { "$ref": "#/$defs/localizedPresentation" }
+      },
+      "additionalProperties": false
+    },
+    "localPolicy": {
+      "type": "object",
+      "required": ["id", "priority", "enforced_locally", "description"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "priority": { "type": "integer", "minimum": 1 },
+        "enforced_locally": { "type": "boolean" },
+        "description": { "type": "string", "minLength": 1, "maxLength": 500 }
+      },
+      "additionalProperties": false
+    },
+    "product": {
+      "type": "object",
+      "required": ["product_id", "ui_profile", "ui_profile_version", "catalog_revision", "lifecycle", "manufacturer", "model_name", "category", "description", "firmware_compatibility", "connectivity_profiles", "behavior_profile", "capability_instances", "local_policies", "presentation"],
+      "properties": {
+        "product_id": { "$ref": "#/$defs/identifier" },
+        "ui_profile": { "$ref": "#/$defs/identifier" },
+        "ui_profile_version": { "type": "integer", "minimum": 1 },
+        "catalog_revision": { "type": "integer", "minimum": 1 },
+        "lifecycle": { "enum": ["draft", "published", "deprecated"] },
+        "contract_maturity": { "enum": ["draft", "edge_reviewed", "approved"] },
+        "manufacturer": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "model_name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "category": { "$ref": "#/$defs/identifier" },
+        "description": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "firmware_compatibility": {
+          "type": "object",
+          "required": ["family", "minimum_version"],
+          "properties": {
+            "family": { "$ref": "#/$defs/identifier" },
+            "minimum_version": { "type": "string", "minLength": 1, "maxLength": 32 }
+          },
+          "additionalProperties": false
+        },
+        "connectivity_profiles": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "enum": ["wifi", "ethernet", "hub_node"] }
+        },
+        "behavior_profile": { "$ref": "#/$defs/identifier" },
+        "capability_instances": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/capabilityInstance" } },
+        "local_policies": { "type": "array", "items": { "$ref": "#/$defs/localPolicy" } },
+        "presentation": { "$ref": "#/$defs/localizedPresentation" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

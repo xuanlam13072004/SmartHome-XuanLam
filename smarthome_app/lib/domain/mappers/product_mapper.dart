@@ -5,6 +5,8 @@ class ProductMapper {
   static ProductModel fromDto(ProductDto dto) {
     return ProductModel(
       id: dto.id,
+      uiProfile: dto.uiProfile,
+      uiProfileVersion: dto.uiProfileVersion,
       manufacturer: dto.manufacturer,
       modelName: dto.modelName,
       displayName: dto.displayName,

@@ -307,6 +307,10 @@ class CatalogCache {
 
             prodMap.set(prod._id.toString(), {
                 _id: prod._id.toString(),
+                ui_profile: prod.ui_profile || 'generic',
+                ui_profile_version: Number.isInteger(prod.ui_profile_version)
+                    ? prod.ui_profile_version
+                    : 1,
                 manufacturer: prod.manufacturer || 'Unknown',
                 model_name: prod.model_name || 'Unknown',
                 display_name: prod.display_name || prod.model_name || 'Unknown',

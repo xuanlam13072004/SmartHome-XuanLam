@@ -1,0 +1,133 @@
+[
+  {
+    "product_id": "prod_entrance_controller",
+    "ui_profile": "entrance_controller",
+    "ui_profile_version": 1,
+    "catalog_revision": 1,
+    "lifecycle": "draft",
+    "contract_maturity": "edge_reviewed",
+    "manufacturer": "SmartHome XuanLam Ltd.",
+    "model_name": "Entrance Controller",
+    "category": "security",
+    "description": "Bộ kiểm soát cửa chính với khóa servo, LCD 4x20, ESP32-CAM và bàn phím 4x4.",
+    "firmware_compatibility": { "family": "entrance_controller", "minimum_version": "2.0.0" },
+    "connectivity_profiles": ["wifi", "hub_node"],
+    "behavior_profile": "entrance_controller_v2",
+    "capability_instances": [
+      { "instance_id": "main_lock", "capability_id": "door_lock", "capability_revision": 1, "availability": "active", "semantic_role": "entrance_lock", "presentation": { "display_name": "Khóa cửa chính", "description": "Điều khiển cơ cấu khóa dùng servo SG90.", "icon": "lock", "section": "controls", "order": 10 } },
+      { "instance_id": "door_camera", "capability_id": "camera_stream", "capability_revision": 1, "availability": "active", "semantic_role": "entrance_camera", "presentation": { "display_name": "Camera cửa chính", "description": "Video trực tiếp và ảnh chụp có phiên truy cập bảo vệ.", "icon": "videocam", "section": "security", "order": 20 } },
+      { "instance_id": "face_auth", "capability_id": "face_authentication", "capability_revision": 1, "availability": "active", "semantic_role": "face_authenticator", "presentation": { "display_name": "Nhận diện khuôn mặt", "description": "Kết quả nhận diện và quản lý mẫu khuôn mặt.", "icon": "face", "section": "security", "order": 30 } },
+      { "instance_id": "pin_auth", "capability_id": "pin_authentication", "capability_revision": 1, "availability": "active", "semantic_role": "pin_authenticator", "presentation": { "display_name": "Mã PIN", "description": "Credential dạng write-only, chỉ chủ sở hữu được quản lý.", "icon": "password", "section": "security", "order": 40 } },
+      { "instance_id": "keypad", "capability_id": "keypad_input", "capability_revision": 1, "availability": "active", "semantic_role": "local_keypad", "presentation": { "display_name": "Bàn phím 4x4", "description": "Nguồn thao tác cục bộ; không truyền nội dung PIN thô.", "icon": "dialpad", "section": "security", "order": 50 } },
+      { "instance_id": "lcd", "capability_id": "character_display_4x20", "capability_revision": 1, "availability": "active", "semantic_role": "entrance_display", "presentation": { "display_name": "LCD 4x20", "description": "Xem nội dung thực tế và đặt thông báo có thời hạn.", "icon": "developer_board", "section": "controls", "order": 60 } },
+      { "instance_id": "system", "capability_id": "system_diagnostics", "capability_revision": 1, "availability": "active", "semantic_role": "system_diagnostics", "presentation": { "display_name": "Chẩn đoán", "description": "Kết nối và tình trạng firmware.", "icon": "monitor_heart", "section": "diagnostics", "order": 1000 } }
+    ],
+    "local_policies": [
+      { "id": "offline_authentication", "priority": 50, "enforced_locally": true, "description": "PIN và nhận diện cục bộ tiếp tục hoạt động khi backend hoặc Internet mất kết nối." },
+      { "id": "credential_commit", "priority": 40, "enforced_locally": true, "description": "Thay đổi credential chỉ thành công sau khi verifier hoặc template được lưu an toàn trên thiết bị." },
+      { "id": "auto_relock", "priority": 30, "enforced_locally": true, "description": "Tự khóa lại sau thời gian cấu hình khi cửa đã được mở khóa." },
+      { "id": "failed_pin_lockout", "priority": 20, "enforced_locally": true, "description": "Khóa thử PIN tạm thời sau số lần nhập sai cho phép mà không cần backend." },
+      { "id": "display_priority", "priority": 10, "enforced_locally": true, "description": "Thông báo an toàn và xác thực luôn có ưu tiên cao hơn thông báo tùy chỉnh từ app." }
+    ],
+    "presentation": { "display_name": "Bộ Kiểm Soát Cửa Chính", "description": "Điều khiển và giám sát cửa ra vào.", "icon": "door_front", "order": 10 }
+  },
+  {
+    "product_id": "prod_roof_controller",
+    "ui_profile": "roof_controller",
+    "ui_profile_version": 1,
+    "catalog_revision": 1,
+    "lifecycle": "draft",
+    "contract_maturity": "edge_reviewed",
+    "manufacturer": "SmartHome XuanLam Ltd.",
+    "model_name": "Automated Roof and Climate Controller",
+    "category": "environment",
+    "description": "Điều khiển mái che dựa trên thao tác trực tiếp, điều kiện mưa và dữ liệu môi trường.",
+    "firmware_compatibility": { "family": "roof_controller", "minimum_version": "2.0.0" },
+    "connectivity_profiles": ["wifi", "hub_node"],
+    "behavior_profile": "roof_controller_v2",
+    "capability_instances": [
+      { "instance_id": "roof_motor", "capability_id": "cover_controller", "capability_revision": 1, "availability": "active", "semantic_role": "roof_actuator", "presentation": { "display_name": "Mái che", "description": "Mở, đóng và dừng motor; chưa hiển thị phần trăm vị trí khi chưa có phản hồi hành trình.", "icon": "roofing", "section": "controls", "order": 10 } },
+      { "instance_id": "rain_sensor", "capability_id": "rain_detection", "capability_revision": 1, "availability": "active", "semantic_role": "rain_detector", "presentation": { "display_name": "Cảm biến mưa", "description": "Phát hiện bắt đầu và kết thúc mưa.", "icon": "rainy", "section": "safety", "order": 20 } },
+      { "instance_id": "solar_sensor", "capability_id": "illuminance_measurement", "capability_revision": 1, "availability": "active", "semantic_role": "sunlight_detector", "presentation": { "display_name": "Ánh sáng ngoài trời", "description": "Cường độ ánh sáng theo lux.", "icon": "light_mode", "section": "measurements", "order": 30 } },
+      { "instance_id": "outdoor_temperature", "capability_id": "temperature_measurement", "capability_revision": 1, "availability": "active", "semantic_role": "outdoor_temperature", "presentation": { "display_name": "Nhiệt độ ngoài trời", "description": "Nhiệt độ môi trường bên ngoài.", "icon": "thermostat", "section": "measurements", "order": 40 } },
+      { "instance_id": "outdoor_humidity", "capability_id": "humidity_measurement", "capability_revision": 1, "availability": "active", "semantic_role": "outdoor_humidity", "presentation": { "display_name": "Độ ẩm ngoài trời", "description": "Độ ẩm tương đối ngoài trời.", "icon": "humidity_percentage", "section": "measurements", "order": 50 } },
+      { "instance_id": "open_button", "capability_id": "local_button", "capability_revision": 1, "availability": "active", "semantic_role": "local_open_input", "presentation": { "display_name": "Nút mở tại chỗ", "description": "Sự kiện thao tác tại thiết bị.", "icon": "arrow_upward", "section": "diagnostics", "order": 60 } },
+      { "instance_id": "close_button", "capability_id": "local_button", "capability_revision": 1, "availability": "active", "semantic_role": "local_close_input", "presentation": { "display_name": "Nút đóng tại chỗ", "description": "Sự kiện thao tác tại thiết bị.", "icon": "arrow_downward", "section": "diagnostics", "order": 70 } },
+      { "instance_id": "roof_automation", "capability_id": "roof_policy", "capability_revision": 1, "availability": "active", "semantic_role": "roof_safety_policy", "presentation": { "display_name": "Tự động hóa mái", "description": "Chế độ vận hành và bảo vệ khi mưa.", "icon": "automation", "section": "controls", "order": 80 } },
+      { "instance_id": "system", "capability_id": "system_diagnostics", "capability_revision": 1, "availability": "active", "semantic_role": "system_diagnostics", "presentation": { "display_name": "Chẩn đoán", "description": "Kết nối và tình trạng firmware.", "icon": "monitor_heart", "section": "diagnostics", "order": 1000 } }
+    ],
+    "local_policies": [
+      { "id": "boot_motor_off", "priority": 40, "enforced_locally": true, "description": "Sau boot hoặc reset, firmware giữ motor dừng cho đến khi local policy quyết định hành động an toàn." },
+      { "id": "motion_safety", "priority": 10, "enforced_locally": true, "description": "Mọi lần chạy motor phải tự dừng khi đạt thời gian chạy tối đa đã lưu trên thiết bị." },
+      { "id": "rain_protection", "priority": 20, "enforced_locally": true, "description": "Bảo vệ mái theo trạng thái mưa hoạt động độc lập với backend." },
+      { "id": "manual_override", "priority": 30, "enforced_locally": true, "description": "Nút tại chỗ và thao tác thủ công được xử lý trước automation thông thường nhưng sau bảo vệ an toàn." }
+    ],
+    "presentation": { "display_name": "Bộ Kiểm Soát Mái Che", "description": "Điều khiển mái che và theo dõi môi trường.", "icon": "roofing", "order": 20 }
+  },
+  {
+    "product_id": "prod_hazard_mitigation",
+    "ui_profile": "hazard_monitor",
+    "ui_profile_version": 1,
+    "catalog_revision": 1,
+    "lifecycle": "draft",
+    "contract_maturity": "edge_reviewed",
+    "manufacturer": "SmartHome XuanLam Ltd.",
+    "model_name": "Safety and Hazard Mitigation System",
+    "category": "safety",
+    "description": "Giám sát khí gas, khói, lửa và điện; điều phối cảnh báo và thông gió cục bộ.",
+    "firmware_compatibility": { "family": "hazard_controller", "minimum_version": "2.0.0" },
+    "connectivity_profiles": ["wifi", "hub_node"],
+    "behavior_profile": "hazard_mitigation_v2",
+    "capability_instances": [
+      { "instance_id": "kitchen_gas", "capability_id": "gas_measurement", "capability_revision": 1, "availability": "active", "semantic_role": "lpg_gas_sensor", "presentation": { "display_name": "Khí gas", "description": "Giá trị normalized cho đến khi phần cứng được hiệu chuẩn.", "icon": "gas_meter", "section": "measurements", "order": 10 } },
+      { "instance_id": "kitchen_smoke", "capability_id": "smoke_measurement", "capability_revision": 1, "availability": "active", "semantic_role": "smoke_sensor", "presentation": { "display_name": "Khói", "description": "Giá trị normalized cho đến khi phần cứng được hiệu chuẩn.", "icon": "smoke_free", "section": "measurements", "order": 20 } },
+      { "instance_id": "kitchen_flame", "capability_id": "flame_detection", "capability_revision": 1, "availability": "active", "semantic_role": "flame_sensor", "presentation": { "display_name": "Ngọn lửa", "description": "Phát hiện ngọn lửa trực tiếp.", "icon": "local_fire_department", "section": "measurements", "order": 30 } },
+      { "instance_id": "hazard", "capability_id": "hazard_controller", "capability_revision": 1, "availability": "active", "semantic_role": "hazard_coordinator", "presentation": { "display_name": "Trạng thái an toàn", "description": "Mức nguy hiểm và vòng đời sự cố.", "icon": "health_and_safety", "section": "safety", "order": 40 } },
+      { "instance_id": "alarm_siren", "capability_id": "alarm_siren", "capability_revision": 1, "availability": "active", "semantic_role": "alarm_buzzer", "presentation": { "display_name": "Còi báo động", "description": "Tắt âm không đồng nghĩa kết thúc sự cố.", "icon": "volume_up", "section": "safety", "order": 50 } },
+      { "instance_id": "exhaust_fan", "capability_id": "ventilation_controller", "capability_revision": 1, "availability": "active", "semantic_role": "safety_ventilation", "presentation": { "display_name": "Quạt thông gió", "description": "Không thể tắt từ xa trong sự cố đang hoạt động.", "icon": "mode_fan", "section": "controls", "order": 60 } },
+      { "instance_id": "mute_button", "capability_id": "local_button", "capability_revision": 1, "availability": "active", "semantic_role": "local_mute_input", "presentation": { "display_name": "Nút tắt âm tại chỗ", "description": "Sự kiện tắt âm vật lý.", "icon": "volume_mute", "section": "diagnostics", "order": 70 } },
+      { "instance_id": "kitchen_power", "capability_id": "power_monitor", "capability_revision": 1, "availability": "active", "semantic_role": "appliances_meter", "presentation": { "display_name": "Nguồn điện", "description": "Điện áp, dòng điện, công suất và điện năng.", "icon": "electric_bolt", "section": "measurements", "order": 80 } },
+      { "instance_id": "load_cutoff", "capability_id": "power_cutoff", "capability_revision": 1, "availability": "planned", "semantic_role": "safety_power_cutoff", "presentation": { "display_name": "Ngắt nguồn tải", "description": "Chỉ kích hoạt sau khi xác nhận có relay ngắt tải và phản hồi phần cứng.", "icon": "power_off", "section": "safety", "order": 90 } },
+      { "instance_id": "system", "capability_id": "system_diagnostics", "capability_revision": 1, "availability": "active", "semantic_role": "system_diagnostics", "presentation": { "display_name": "Chẩn đoán", "description": "Kết nối và tình trạng firmware.", "icon": "monitor_heart", "section": "diagnostics", "order": 1000 } }
+    ],
+    "local_policies": [
+      { "id": "hazard_protection", "priority": 10, "enforced_locally": true, "description": "Phát hiện nguy hiểm phải kích hoạt phản ứng cục bộ mà không chờ backend." },
+      { "id": "mute_is_not_reset", "priority": 20, "enforced_locally": true, "description": "Tắt âm còi không xóa incident và không dừng biện pháp giảm thiểu." },
+      { "id": "ventilation_safety_override", "priority": 30, "enforced_locally": true, "description": "Hazard đang hoạt động có quyền cưỡng bức quạt chạy và từ chối lệnh tắt thủ công." },
+      { "id": "fail_safe_sensor_state", "priority": 40, "enforced_locally": true, "description": "Khi khởi động, cảm biến chưa sẵn sàng hoặc bị lỗi thì thiết bị không được báo trạng thái normal." }
+    ],
+    "presentation": { "display_name": "Hệ Thống Cảnh Báo An Toàn Bếp", "description": "Phát hiện và giảm thiểu nguy cơ trong bếp.", "icon": "health_and_safety", "order": 30 }
+  },
+  {
+    "product_id": "prod_irrigation_manager",
+    "ui_profile": "irrigation_manager",
+    "ui_profile_version": 1,
+    "catalog_revision": 1,
+    "lifecycle": "draft",
+    "contract_maturity": "edge_reviewed",
+    "manufacturer": "SmartHome XuanLam Ltd.",
+    "model_name": "Smart Garden Irrigation and Water Manager",
+    "category": "agriculture",
+    "description": "Theo dõi đất và bể nước, điều khiển một chu kỳ tưới có thời lượng và bảo vệ bơm.",
+    "firmware_compatibility": { "family": "irrigation_controller", "minimum_version": "2.0.0" },
+    "connectivity_profiles": ["wifi", "hub_node"],
+    "behavior_profile": "irrigation_manager_v2",
+    "capability_instances": [
+      { "instance_id": "main_garden", "capability_id": "soil_moisture_measurement", "capability_revision": 1, "availability": "active", "semantic_role": "soil_sensor", "presentation": { "display_name": "Độ ẩm đất vườn", "description": "Giá trị tương đối cho đến khi model cảm biến và quy trình hiệu chuẩn được xác nhận.", "icon": "grass", "section": "measurements", "order": 10 } },
+      { "instance_id": "reservoir", "capability_id": "water_level_measurement", "capability_revision": 1, "availability": "active", "semantic_role": "water_reservoir", "presentation": { "display_name": "Bể chứa nước", "description": "Khả dụng nguồn nước; giá trị normalized có thể để trống tùy loại cảm biến.", "icon": "water", "section": "measurements", "order": 20 } },
+      { "instance_id": "irrigation_pump", "capability_id": "irrigation_pump", "capability_revision": 1, "availability": "active", "semantic_role": "water_pump", "presentation": { "display_name": "Bơm tưới", "description": "Đầu ra bơm theo chu kỳ hữu hạn; chưa khẳng định bơm vật lý đang chạy nếu chưa có feedback.", "icon": "water_pump", "section": "controls", "order": 30 } },
+      { "instance_id": "irrigation_automation", "capability_id": "irrigation_policy", "capability_revision": 1, "availability": "active", "semantic_role": "irrigation_policy", "presentation": { "display_name": "Tự động tưới", "description": "Chế độ và độ ẩm mục tiêu.", "icon": "automation", "section": "controls", "order": 40 } },
+      { "instance_id": "manual_button", "capability_id": "local_button", "capability_revision": 1, "availability": "active", "semantic_role": "local_watering_input", "presentation": { "display_name": "Nút tưới tại chỗ", "description": "Khởi động chu kỳ tưới cục bộ có thời lượng giới hạn.", "icon": "play_arrow", "section": "diagnostics", "order": 50 } },
+      { "instance_id": "system", "capability_id": "system_diagnostics", "capability_revision": 1, "availability": "active", "semantic_role": "system_diagnostics", "presentation": { "display_name": "Chẩn đoán", "description": "Kết nối và tình trạng firmware.", "icon": "monitor_heart", "section": "diagnostics", "order": 1000 } }
+    ],
+    "local_policies": [
+      { "id": "dry_run_protection", "priority": 10, "enforced_locally": true, "description": "Không chạy bơm khi hết nước hoặc trạng thái bể không đáng tin cậy." },
+      { "id": "maximum_runtime", "priority": 20, "enforced_locally": true, "description": "Mọi chu kỳ tưới phải tự dừng khi đạt thời gian tối đa." },
+      { "id": "pump_cooldown", "priority": 30, "enforced_locally": true, "description": "Giới hạn khởi động liên tiếp để bảo vệ bơm." },
+      { "id": "sensor_fault_fallback", "priority": 40, "enforced_locally": true, "description": "Không tự tưới khi cảm biến đất lỗi hoặc trạng thái nguồn nước không đáng tin cậy." },
+      { "id": "bounded_local_cycle", "priority": 50, "enforced_locally": true, "description": "Nút tại chỗ chỉ được khởi động một chu kỳ dùng thời lượng mặc định và vẫn chịu mọi interlock an toàn." },
+      { "id": "safe_boot_output", "priority": 60, "enforced_locally": true, "description": "Khi boot hoặc reset, đầu ra bơm phải tắt; firmware không tự tiếp tục chu kỳ cũ." }
+    ],
+    "presentation": { "display_name": "Bộ Quản Lý Nước & Tưới Tiêu", "description": "Giám sát nước và điều khiển tưới an toàn.", "icon": "water_drop", "order": 40 }
+  }
+]

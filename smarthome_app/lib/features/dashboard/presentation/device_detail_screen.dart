@@ -5,12 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/core.dart';
 import '../../../core/widgets/widgets.dart';
+import '../../products/product_ui_registry.dart';
 import '../providers/devices_provider.dart';
-import '../models/capability_model.dart';
-import '../widgets/capabilities/capability_section_panel.dart';
-import '../widgets/device_hero_card.dart';
 import '../../../domain/models/device_model.dart';
-import '../widgets/device_topology_panel.dart';
 
 class DeviceDetailScreen extends ConsumerWidget {
   const DeviceDetailScreen({
@@ -66,20 +63,6 @@ class DeviceDetailScreen extends ConsumerWidget {
         }
 
         final device = devices[deviceIndex];
-        final primaryPower = _primaryPower(device.capabilities);
-        final controls = device.capabilities
-            .where((capability) =>
-                capability.section == CapabilitySection.control &&
-                capability != primaryPower)
-            .toList();
-        final sensors = device.capabilities
-            .where(
-                (capability) => capability.section == CapabilitySection.sensor)
-            .toList();
-        final diagnostics = device.capabilities
-            .where((capability) =>
-                capability.section == CapabilitySection.diagnostic)
-            .toList();
 
         return PageScaffold(
           appBar: AppBar(
@@ -127,113 +110,20 @@ class DeviceDetailScreen extends ConsumerWidget {
           ),
           scrollable: false,
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-          child: ListView(
-            padding: const EdgeInsets.only(
-              top: AppSpacing.md,
-              bottom: 100,
-            ),
-            children: [
-              DeviceHeroCard(
-                device: device,
-                primaryPower: primaryPower,
-                onPowerChanged: primaryPower == null
-                    ? null
-                    : (value) =>
-                        ref.read(devicesProvider.notifier).updateCapability(
-                              deviceMac,
-                              primaryPower.id,
-                              value,
-                            ),
-              ),
-              if (device.topology != null) ...[
-                const SizedBox(height: AppSpacing.xl),
-                DeviceTopologyPanel(topology: device.topology!),
-              ],
-              if (controls.isNotEmpty) ...[
-                const SizedBox(height: AppSpacing.xl),
-                CapabilitySectionPanel(
-                  title: 'Điều khiển',
-                  description: 'Các chức năng có thể thay đổi trực tiếp',
-                  icon: Icons.tune_rounded,
-                  capabilities: controls,
-                  onCapabilityChanged: (capId, value) {
-                    ref.read(devicesProvider.notifier).updateCapability(
-                          deviceMac,
-                          capId,
-                          value,
-                        );
-                  },
-                ),
-              ],
-              if (sensors.isNotEmpty) ...[
-                const SizedBox(height: AppSpacing.xl),
-                CapabilitySectionPanel(
-                  title: 'Cảm biến',
-                  description: 'Trạng thái mới nhất từ thiết bị',
-                  icon: Icons.sensors_rounded,
-                  capabilities: sensors,
-                  useGrid: true,
-                  onCapabilityChanged: (capId, value) {
-                    ref.read(devicesProvider.notifier).updateCapability(
-                          deviceMac,
-                          capId,
-                          value,
-                        );
-                  },
-                ),
-              ],
-              if (diagnostics.isNotEmpty) ...[
-                const SizedBox(height: AppSpacing.xl),
-                CapabilitySectionPanel(
-                  title: 'Chẩn đoán',
-                  description: 'Thông tin kỹ thuật và chất lượng kết nối',
-                  icon: Icons.monitor_heart_rounded,
-                  capabilities: diagnostics,
-                  useGrid: true,
-                  collapsible: true,
-                  initiallyExpanded: false,
-                  onCapabilityChanged: (capId, value) {
-                    ref.read(devicesProvider.notifier).updateCapability(
-                          deviceMac,
-                          capId,
-                          value,
-                        );
-                  },
-                ),
-              ],
-              if (device.capabilities.isEmpty) ...[
-                const SizedBox(height: AppSpacing.xl),
-                const EmptyState(
-                  icon: Icons.widgets_outlined,
-                  title: 'Chưa có chức năng',
-                  description:
-                      'Thiết bị chưa công bố capability trong Product Catalog.',
-                ),
-              ],
-              const SizedBox(height: AppSpacing.xl),
-            ],
+          child: productUiRegistry.buildDetail(
+            context,
+            device: device,
+            onCapabilityChanged: (capId, value) {
+              ref.read(devicesProvider.notifier).updateCapability(
+                    deviceMac,
+                    capId,
+                    value,
+                  );
+            },
           ),
         );
       },
     );
-  }
-
-  CapabilityModel? _primaryPower(List<CapabilityModel> capabilities) {
-    CapabilityModel? fallback;
-    for (final capability in capabilities) {
-      if (capability.section != CapabilitySection.control ||
-          capability.type != 'on_off') {
-        continue;
-      }
-      fallback ??= capability;
-      final hint = '${capability.semanticRole} ${capability.id}'.toLowerCase();
-      if (hint.contains('power') ||
-          hint.contains('switch') ||
-          hint.contains('light')) {
-        return capability;
-      }
-    }
-    return fallback;
   }
 
   void _showRenameDialog(

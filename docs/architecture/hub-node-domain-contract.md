@@ -1,5 +1,9 @@
 # Hub–Node Domain Contract
 
+> Tài liệu này là phần chuyên sâu của `v2-core-architecture.md`. Backend là
+> control plane quyết định topology; ESP32 là data plane thực thi assignment và
+> tự fallback. Logic Product và trạng thái vật lý vẫn thuộc ESP32.
+
 ## 1. Mục tiêu
 
 Tài liệu này khóa các quy tắc nghiệp vụ và ranh giới dữ liệu trước khi thay đổi
@@ -8,6 +12,8 @@ PostgreSQL, MQTT Worker, Device Simulator hoặc Flutter.
 Kiến trúc phải hỗ trợ:
 
 - Một tài khoản có thể sở hữu thiết bị trên nhiều mạng Wi-Fi khác nhau.
+- Network là thực thể hạ tầng độc lập với danh tính account; owner chỉ là người
+  quản trị ban đầu trong mô hình hiện tại.
 - Mỗi mạng có đúng một Hub đang hoạt động khi mạng có thiết bị khả dụng.
 - Mọi thiết bị đều có khả năng trở thành Hub.
 - Thiết bị tham gia mạng đầu tiên được ưu tiên làm Hub đầu tiên.
@@ -21,32 +27,38 @@ Kiến trúc phải hỗ trợ:
 
 ## 2. Hiện trạng đã xác minh
 
-Hệ thống hiện chưa có Hub–Node hoàn chỉnh:
+Nền tảng Hub-Node đã được triển khai qua migration V6 và các service runtime:
 
-- `device_metadata.gateway_id` tồn tại nhưng luôn được ghi `NULL`.
-- Không có thực thể mạng, thứ tự tham gia mạng, topology epoch hoặc thuật toán
-  bầu Hub.
-- API claim chỉ nhận `mac`, `secret_key` và `name`.
-- API unpair chỉ xóa quyền sở hữu của một thiết bị, chưa xử lý topology.
-- MQTT Worker gửi command thẳng đến topic của MAC đích.
-- MQTT Worker chấp nhận telemetry dựa trên `device_id` trong payload và chưa
-  kiểm tra đường truyền direct/relay.
-- Device Simulator tạo một MQTT client riêng cho từng thiết bị; mọi thiết bị
-  ảo đang kết nối trực tiếp với broker.
-- MongoDB device shadow và Simulator Registry chưa có topology metadata.
+- Có `device_networks`, `network_id`, `join_rank`, `topology_epoch` và
+  `topology_outbox` trong PostgreSQL.
+- Claim/unpair cập nhật ownership và topology trong cùng transaction.
+- Topology Coordinator bầu Hub dựa trên lease, online evidence và join rank.
+- MQTT Worker validate relay/direct fallback, route command và kiểm tra ACK.
+- Device Simulator mô phỏng Hub relay, Node fallback và topology ACK.
+- Flutter/Dashboard đã có read model topology phục vụ diagnostics.
+
+Các điểm chuyển tiếp còn phải sửa trước V2 cutover:
+
+- Network identity vẫn bị scope bởi `owner_id`.
+- Direct fallback override hiện được lưu theo cả network thay vì từng Node.
+- Node direct fallback có thể bị từ chối khi Hub lease backend vẫn còn sống.
+- Simulator chưa có behavior profile đầy đủ cho từng Product.
+- MQTT identity hiện chưa đủ an toàn cho relay trên phần cứng thật.
 
 Cột `gateway_id` cũ không được dùng làm nền tảng mới vì tên và ý nghĩa không đủ
-rõ. Cột này sẽ được giữ tạm để tương thích migration rồi loại bỏ sau khi toàn bộ
-consumer đã chuyển sang contract mới.
+rõ. Cột này chỉ được giữ tạm cho compatibility rồi loại bỏ khi consumer cũ đã
+được chuyển đổi.
 
 ## 3. Thuật ngữ
 
 ### Device Network
 
-Một nhóm thiết bị của cùng một owner, cùng thuộc một mạng vật lý đã được xác
-định trong quá trình provisioning.
+Một nhóm thiết bị cùng thuộc một mạng vật lý đã được xác định trong quá trình
+provisioning.
 
-Network không đồng nghĩa với account. Một account có thể có nhiều network.
+Network không đồng nghĩa với account. Một account có thể quản lý nhiều network
+và kiến trúc tương lai có thể cho nhiều account truy cập cùng một network mà
+không tạo topology trùng lặp.
 
 ### Network Fingerprint
 
@@ -93,6 +105,16 @@ Không dùng trạng thái user-facing `unreachable`. Việc mất riêng đư�
 
 ## 4. Nguồn sự thật
 
+### ESP32
+
+Là source of truth cho:
+
+- Trạng thái vật lý và kết quả actuator.
+- Khả năng liên lạc cục bộ từ chính Node tới Hub.
+- Logic Product, local automation và safety interlock.
+
+Backend không được suy ra reported state chỉ từ command hoặc topology.
+
 ### PostgreSQL
 
 Là source of truth cho:
@@ -104,6 +126,9 @@ Là source of truth cho:
 - Topology epoch.
 - Transactional topology outbox.
 
+`owner_id` trong `device_networks` hiện là ràng buộc chuyển tiếp, không phải
+định nghĩa danh tính network của V2.
+
 ### Redis
 
 Là runtime/cache cho:
@@ -114,10 +139,12 @@ Là runtime/cache cho:
 - Election lock và topology invalidation.
 
 Redis không được là nguồn duy nhất quyết định quyền sở hữu hoặc Hub lâu dài.
+Route fallback phải có key theo device; một Node fallback không được ép toàn bộ
+network chuyển route.
 
 ### MongoDB chính
 
-Lưu device shadow và bản sao topology phục vụ đọc nhanh:
+Lưu device shadow và bản sao topology/route phục vụ đọc nhanh:
 
 - `network_id`
 - `active_hub_mac`
@@ -125,8 +152,9 @@ Lưu device shadow và bản sao topology phục vụ đọc nhanh:
 - `transport_mode`
 - `last_transport_change`
 
-Các trường này được đồng bộ từ PostgreSQL/Redis và không được dùng để tự ý thay
-đổi quyền sở hữu.
+Các trường topology được đồng bộ từ PostgreSQL/Redis. Reported state chỉ được
+cập nhật từ telemetry/event của ESP32; tất cả đều là read model và không được
+dùng để tự ý thay đổi ownership hoặc trạng thái vật lý.
 
 ### Device Simulator Registry
 
@@ -141,7 +169,11 @@ Lưu thông tin mô phỏng riêng:
 
 Registry không thay thế topology source of truth của hệ thống chính.
 
-## 5. Mô hình PostgreSQL mục tiêu
+## 5. Mô hình PostgreSQL chuyển tiếp hiện tại
+
+Mô hình dưới đây đã tồn tại trong V1 migration V6. Nó được giữ để runtime hiện
+tại hoạt động, không được coi là ERD V2 cuối cùng. ERD V2 sẽ được thiết kế sau
+khi Product contract được duyệt, đặc biệt để tách network identity khỏi account.
 
 ### `device_networks`
 
@@ -243,6 +275,8 @@ publish telemetry cho owner cũ.
 - Node đồng thời theo dõi heartbeat cục bộ của Hub.
 - Khi mất heartbeat Hub, Node chuyển sang `direct_fallback` trước khi device
   presence lease hết hạn.
+- Node không chờ backend cho phép fallback và fallback của một Node không tự
+  kết luận Active Hub đã hỏng.
 
 ### Bầu Hub
 
@@ -286,7 +320,8 @@ Payload luôn giữ MAC của thiết bị nguồn, kể cả khi Hub relay:
 }
 ```
 
-Direct fallback dùng `mode = direct_fallback` và không khai báo `hub_mac`.
+Direct fallback dùng `mode = direct_fallback`; `hub_mac` có thể chứa Hub được
+assignment gần nhất để chẩn đoán nhưng không được coi là origin.
 
 MQTT Worker phải đối chiếu:
 
@@ -295,6 +330,10 @@ MQTT Worker phải đối chiếu:
 - Relay Hub là Active Hub của network.
 - Epoch bằng epoch hiện tại.
 - Topic origin khớp `device_id`.
+
+Direct fallback hợp lệ không bị từ chối chỉ vì Hub lease còn sống. Worker ghi
+route observation theo device; Topology Coordinator vẫn dùng Hub lease/presence
+để quyết định có bầu Hub mới hay không.
 
 ### Command
 
@@ -337,16 +376,16 @@ Flutter mặc định chỉ cần biết:
 cho người dùng. Có thể lưu trong diagnostics cho quản trị và Simulator
 Dashboard.
 
-## 12. Thứ tự triển khai
+## 12. Thứ tự hiệu chỉnh tiếp theo
 
-1. Migration và repository cho network/topology.
-2. Claim/unpair transaction cùng topology outbox.
-3. Topology cache và coordinator.
-4. MQTT transport envelope, validation và route-aware command.
-5. Simulator network model, Hub runtime, Node relay và direct fallback.
-6. API read model và Flutter diagnostics.
-7. Fault tests: Hub crash, Hub unpair, split-brain, restart, stale epoch, command
-   during failover và network có một/nhiều thiết bị.
+1. Khóa kiến trúc cốt lõi và Product contract edge-first.
+2. Thiết kế lại network identity trong ERD V2, không migration ngay.
+3. Chuyển route observation/fallback override từ network sang device.
+4. Cho phép Node fallback độc lập trong inbound validation.
+5. Bổ sung behavior profile và local-link fault cho Simulator.
+6. Bổ sung device identity/signature contract cho relay.
+7. Chạy fault tests: lỗi riêng đường Node-Hub, Hub crash, Hub unpair,
+   split-brain, restart, stale epoch và command trong lúc failover.
 
-Mỗi bước phải giữ được test cũ và bổ sung test cho invariant mới trước khi sang
-bước tiếp theo.
+Mỗi thay đổi phải giữ compatibility cho runtime hiện tại cho đến clean cutover,
+trừ khi kế hoạch migration đã được duyệt rõ ràng.

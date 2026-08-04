@@ -165,6 +165,8 @@ class CapabilityAssembler {
           ? deviceDto.name
           : 'Thiết bị ${deviceDto.mac}',
       productId: deviceDto.productId,
+      uiProfile: product?.uiProfile ?? 'generic',
+      uiProfileVersion: product?.uiProfileVersion ?? 1,
       icon: icon,
       status: deviceDto.isOnline ? DeviceStatus.online : DeviceStatus.offline,
       rawState: deviceDto.state,

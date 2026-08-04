@@ -12,19 +12,24 @@ class DeviceHeroCard extends StatelessWidget {
     required this.device,
     this.primaryPower,
     this.onPowerChanged,
+    this.identityIcon,
+    this.identityAccent,
   });
 
   final DeviceModel device;
   final CapabilityModel? primaryPower;
   final ValueChanged<bool>? onPowerChanged;
+  final IconData? identityIcon;
+  final Color? identityAccent;
 
   @override
   Widget build(BuildContext context) {
     final isOnline = device.status == DeviceStatus.online;
     final isOn = primaryPower?.value as bool? ?? device.isPrimaryOn;
-    final accent = primaryPower == null
-        ? context.colorScheme.primary
-        : CapabilityVisuals.accentFor(context, primaryPower!);
+    final accent = identityAccent ??
+        (primaryPower == null
+            ? context.colorScheme.primary
+            : CapabilityVisuals.accentFor(context, primaryPower!));
 
     final glowColor = AppPalette.colorForCategory(
       device.productId.contains('light')
@@ -56,9 +61,10 @@ class DeviceHeroCard extends StatelessWidget {
             isOnline: isOnline,
             isOn: isOn,
             accent: accent,
-            icon: primaryPower == null
-                ? Icons.devices_other_rounded
-                : CapabilityVisuals.iconFor(primaryPower!),
+            icon: identityIcon ??
+                (primaryPower == null
+                    ? Icons.devices_other_rounded
+                    : CapabilityVisuals.iconFor(primaryPower!)),
           );
           final power = primaryPower == null
               ? null

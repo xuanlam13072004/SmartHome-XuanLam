@@ -1,0 +1,421 @@
+[
+  {
+    "capability_id": "door_lock",
+    "revision": 1,
+    "kind": "actuator",
+    "runtime": { "execution_authority": "device_firmware", "reported_state_authority": "device_firmware", "offline_behavior": "full_local", "configuration_persistence": "device_nvs" },
+    "properties": [
+      { "id": "lock_state", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": false, "enum": ["unknown", "locked", "unlocked", "locking", "unlocking"], "default": "unknown", "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "lock_state", "label": "Vị trí chốt do thiết bị điều khiển" } },
+      { "id": "target_lock_state", "channel": "desired", "state_authority": "backend_intent", "persistence": "volatile", "type": "string", "nullable": false, "enum": ["locked", "unlocked"], "default": "locked", "required": true, "history": "none", "automation": { "trigger": false, "condition": false }, "presentation": { "ui_hint": "hidden", "label": "Trạng thái yêu cầu" } }
+    ],
+    "operations": [
+      { "id": "lock", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": true }, "ack_policy": { "success_condition": "effect_applied", "completion_signal": "reported_state", "reference": "lock_state" }, "permission": "door.control", "risk": "normal", "confirmation": "none", "timeout_ms": 10000, "idempotent": true, "input": {}, "effects": [{ "type": "set_desired", "property": "target_lock_state", "value": "locked" }], "safety_constraints": ["servo_available"], "presentation": { "label": "Khóa cửa", "ui_hint": "primary_action" } },
+      { "id": "unlock", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": true }, "ack_policy": { "success_condition": "effect_applied", "completion_signal": "reported_state", "reference": "lock_state" }, "permission": "door.control", "risk": "sensitive", "confirmation": "confirm", "timeout_ms": 10000, "idempotent": true, "input": {}, "effects": [{ "type": "set_desired", "property": "target_lock_state", "value": "unlocked" }], "safety_constraints": ["servo_available"], "presentation": { "label": "Mở khóa", "ui_hint": "primary_action" } }
+    ],
+    "events": [
+      { "id": "lock_changed", "producer": "device_firmware", "severity": "info", "retention": "timeline", "data": { "state": { "type": "string", "enum": ["locked", "unlocked"] }, "source": { "type": "string" } } }
+    ],
+    "resources": [],
+    "credentials": []
+  },
+  {
+    "capability_id": "character_display_4x20",
+    "revision": 1,
+    "kind": "actuator",
+    "runtime": { "execution_authority": "device_firmware", "reported_state_authority": "device_firmware", "offline_behavior": "full_local", "configuration_persistence": "device_runtime" },
+    "properties": [
+      { "id": "displayed_lines", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "array", "nullable": false, "min_items": 4, "max_items": 4, "items": { "type": "string", "max_length": 20 }, "default": ["", "", "", ""], "required": true, "history": "latest", "automation": { "trigger": false, "condition": false }, "presentation": { "ui_hint": "lcd_4x20", "label": "Nội dung LCD" } },
+      { "id": "display_source", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": false, "enum": ["firmware", "authentication", "safety", "custom"], "default": "firmware", "required": true, "history": "latest", "automation": { "trigger": false, "condition": false }, "presentation": { "ui_hint": "status", "label": "Nguồn hiển thị" } }
+    ],
+    "operations": [
+      { "id": "set_custom_message", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": false }, "ack_policy": { "success_condition": "effect_applied", "completion_signal": "reported_state", "reference": "displayed_lines" }, "permission": "display.write", "risk": "normal", "confirmation": "none", "timeout_ms": 5000, "idempotent": true, "input": { "lines": { "type": "array", "min_items": 4, "max_items": 4, "items": { "type": "string", "max_length": 20 } }, "duration_seconds": { "type": "integer", "minimum": 1, "maximum": 86400 } }, "effects": [{ "type": "expect_reported", "property": "displayed_lines", "value_from": "input.lines" }], "safety_constraints": ["system_messages_have_priority"], "presentation": { "label": "Đổi nội dung LCD", "ui_hint": "lcd_editor" } },
+      { "id": "clear_custom_message", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": false }, "ack_policy": { "success_condition": "effect_applied", "completion_signal": "reported_state", "reference": "display_source" }, "permission": "display.write", "risk": "normal", "confirmation": "none", "timeout_ms": 5000, "idempotent": true, "input": {}, "effects": [{ "type": "expect_reported", "property": "display_source", "value": "firmware" }], "safety_constraints": [], "presentation": { "label": "Xóa thông báo tùy chỉnh", "ui_hint": "secondary_action" } }
+    ],
+    "events": [],
+    "resources": [],
+    "credentials": []
+  },
+  {
+    "capability_id": "camera_stream",
+    "revision": 1,
+    "kind": "resource",
+    "runtime": { "execution_authority": "hybrid_session", "reported_state_authority": "device_firmware", "offline_behavior": "local_core_only", "configuration_persistence": "none" },
+    "properties": [
+      { "id": "camera_state", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": false, "enum": ["offline", "idle", "streaming", "fault"], "default": "offline", "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "camera_status", "label": "Trạng thái camera" } }
+    ],
+    "operations": [
+      { "id": "create_stream_session", "execution_authority": "hybrid_session", "offline_behavior": { "remote_available": false, "local_equivalent": false }, "ack_policy": { "success_condition": "resource_ready", "completion_signal": "resource", "reference": "live_stream" }, "permission": "camera.view", "risk": "sensitive", "confirmation": "none", "timeout_ms": 10000, "idempotent": false, "input": {}, "effects": [{ "type": "create_resource_session", "property": "resources.live_stream" }], "safety_constraints": ["camera_available"], "presentation": { "label": "Xem trực tiếp", "ui_hint": "open_resource" } },
+      { "id": "capture_snapshot", "execution_authority": "hybrid_session", "offline_behavior": { "remote_available": false, "local_equivalent": false }, "ack_policy": { "success_condition": "resource_ready", "completion_signal": "resource", "reference": "snapshot" }, "permission": "camera.view", "risk": "sensitive", "confirmation": "none", "timeout_ms": 10000, "idempotent": false, "input": {}, "effects": [{ "type": "create_resource_session", "property": "resources.snapshot" }], "safety_constraints": ["camera_available"], "presentation": { "label": "Chụp ảnh", "ui_hint": "secondary_action" } }
+    ],
+    "events": [],
+    "resources": [
+      { "id": "live_stream", "producer": "device_firmware", "authorization_authority": "backend", "kind": "video_stream", "permission": "camera.view", "session_ttl_seconds": 300 },
+      { "id": "snapshot", "producer": "device_firmware", "authorization_authority": "backend", "kind": "snapshot", "permission": "camera.view", "session_ttl_seconds": 60 }
+    ],
+    "credentials": []
+  },
+  {
+    "capability_id": "face_authentication",
+    "revision": 1,
+    "kind": "credential",
+    "runtime": { "execution_authority": "device_firmware", "reported_state_authority": "device_firmware", "offline_behavior": "full_local", "configuration_persistence": "device_secure_storage" },
+    "properties": [
+      { "id": "recognition_enabled", "channel": "reported", "state_authority": "device_firmware", "persistence": "device_nvs", "type": "boolean", "nullable": false, "default": true, "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "status", "label": "Nhận diện khuôn mặt" } }
+    ],
+    "operations": [],
+    "events": [
+      { "id": "face_access_granted", "producer": "device_firmware", "severity": "info", "retention": "timeline", "data": { "credential_id": { "type": "string" }, "confidence": { "type": "number", "minimum": 0, "maximum": 1 } } },
+      { "id": "face_access_denied", "producer": "device_firmware", "severity": "warning", "retention": "timeline", "data": { "reason": { "type": "string" } } }
+    ],
+    "resources": [],
+    "credentials": [
+      { "id": "face", "verification_authority": "device_firmware", "storage": "device_secure_storage", "offline_usable": true, "management_success_condition": "persisted_on_device", "kind": "face", "permission": "credential.manage", "delegable": false, "write_only": true }
+    ]
+  },
+  {
+    "capability_id": "pin_authentication",
+    "revision": 1,
+    "kind": "credential",
+    "runtime": { "execution_authority": "device_firmware", "reported_state_authority": "device_firmware", "offline_behavior": "full_local", "configuration_persistence": "device_secure_storage" },
+    "properties": [
+      { "id": "pin_configured", "channel": "reported", "state_authority": "device_firmware", "persistence": "device_secure_storage", "type": "boolean", "nullable": false, "default": false, "required": true, "history": "latest", "automation": { "trigger": false, "condition": true }, "presentation": { "ui_hint": "credential_status", "label": "Mã PIN" } }
+    ],
+    "operations": [],
+    "events": [
+      { "id": "pin_access_granted", "producer": "device_firmware", "severity": "info", "retention": "timeline", "data": { "credential_id": { "type": "string" } } },
+      { "id": "pin_access_denied", "producer": "device_firmware", "severity": "warning", "retention": "timeline", "data": { "attempts_remaining": { "type": "integer", "minimum": 0 } } },
+      { "id": "pin_locked_out", "producer": "device_firmware", "severity": "critical", "retention": "incident", "data": { "locked_until": { "type": "string", "format": "date-time" } } }
+    ],
+    "resources": [],
+    "credentials": [
+      { "id": "pin", "verification_authority": "device_firmware", "storage": "device_secure_storage", "offline_usable": true, "management_success_condition": "persisted_on_device", "kind": "pin", "permission": "credential.manage", "delegable": false, "write_only": true, "constraints": { "type": "string", "format": "numeric_secret", "min_length": 4, "max_length": 12 } }
+    ]
+  },
+  {
+    "capability_id": "keypad_input",
+    "revision": 1,
+    "kind": "event_source",
+    "runtime": { "execution_authority": "device_firmware", "reported_state_authority": "device_firmware", "offline_behavior": "full_local", "configuration_persistence": "none" },
+    "properties": [],
+    "operations": [],
+    "events": [
+      { "id": "keypad_action", "producer": "device_firmware", "severity": "info", "retention": "timeline", "data": { "action": { "type": "string" } } }
+    ],
+    "resources": [],
+    "credentials": []
+  },
+  {
+    "capability_id": "cover_controller",
+    "revision": 1,
+    "kind": "actuator",
+    "runtime": { "execution_authority": "device_firmware", "reported_state_authority": "device_firmware", "offline_behavior": "full_local", "configuration_persistence": "device_nvs" },
+    "properties": [
+      { "id": "movement", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": false, "enum": ["unknown", "opening", "closing", "stopped"], "default": "unknown", "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "movement", "label": "Lệnh chuyển động đang áp dụng" } },
+      { "id": "max_run_seconds", "channel": "reported", "state_authority": "device_firmware", "persistence": "device_nvs", "type": "integer", "nullable": false, "unit": "second", "minimum": 1, "maximum": 300, "default": 30, "required": true, "history": "latest", "automation": { "trigger": false, "condition": true }, "presentation": { "ui_hint": "duration", "label": "Thời gian chạy tối đa" } },
+      { "id": "last_command_source", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": true, "default": null, "required": true, "history": "latest", "automation": { "trigger": false, "condition": false }, "presentation": { "ui_hint": "status", "label": "Nguồn lệnh gần nhất" } }
+    ],
+    "operations": [
+      { "id": "open", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": true }, "ack_policy": { "success_condition": "effect_applied", "completion_signal": "reported_state", "reference": "movement" }, "permission": "cover.control", "risk": "normal", "confirmation": "none", "timeout_ms": 5000, "idempotent": true, "input": {}, "effects": [{ "type": "expect_reported", "property": "movement", "value": "opening" }], "safety_constraints": ["max_runtime_configured", "rain_policy_allows_open"], "presentation": { "label": "Mở", "ui_hint": "primary_action" } },
+      { "id": "close", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": true }, "ack_policy": { "success_condition": "effect_applied", "completion_signal": "reported_state", "reference": "movement" }, "permission": "cover.control", "risk": "normal", "confirmation": "none", "timeout_ms": 5000, "idempotent": true, "input": {}, "effects": [{ "type": "expect_reported", "property": "movement", "value": "closing" }], "safety_constraints": ["max_runtime_configured"], "presentation": { "label": "Đóng", "ui_hint": "primary_action" } },
+      { "id": "stop", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": true }, "ack_policy": { "success_condition": "effect_applied", "completion_signal": "reported_state", "reference": "movement" }, "permission": "cover.control", "risk": "normal", "confirmation": "none", "timeout_ms": 5000, "idempotent": true, "input": {}, "effects": [{ "type": "expect_reported", "property": "movement", "value": "stopped" }], "safety_constraints": [], "presentation": { "label": "Dừng", "ui_hint": "stop_action" } },
+      { "id": "set_max_run_seconds", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": false }, "ack_policy": { "success_condition": "persisted", "completion_signal": "reported_state", "reference": "max_run_seconds" }, "permission": "safety.configure", "risk": "dangerous", "confirmation": "reauthenticate", "timeout_ms": 5000, "idempotent": true, "input": { "seconds": { "type": "integer", "unit": "second", "minimum": 1, "maximum": 300 } }, "effects": [{ "type": "expect_reported", "property": "max_run_seconds", "value_from": "input.seconds" }], "safety_constraints": ["motor_stopped"], "presentation": { "label": "Đặt thời gian chạy tối đa", "ui_hint": "duration_setting" } }
+    ],
+    "events": [
+      { "id": "motion_started", "producer": "device_firmware", "severity": "info", "retention": "timeline", "data": { "direction": { "type": "string", "enum": ["opening", "closing"] }, "source": { "type": "string" } } },
+      { "id": "motion_stopped", "producer": "device_firmware", "severity": "info", "retention": "timeline", "data": { "reason": { "type": "string", "enum": ["remote_stop", "max_runtime", "reversed", "boot_safe"] }, "source": { "type": "string" } } }
+    ],
+    "resources": [],
+    "credentials": []
+  },
+  {
+    "capability_id": "rain_detection",
+    "revision": 1,
+    "kind": "measurement",
+    "runtime": { "execution_authority": "device_firmware", "reported_state_authority": "device_firmware", "offline_behavior": "full_local", "configuration_persistence": "none" },
+    "properties": [
+      { "id": "rain_detected", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "boolean", "nullable": false, "default": false, "required": true, "history": "sampled", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "rain_status", "label": "Trạng thái mưa" } }
+    ],
+    "operations": [],
+    "events": [
+      { "id": "rain_started", "producer": "device_firmware", "severity": "warning", "retention": "timeline", "data": {} },
+      { "id": "rain_stopped", "producer": "device_firmware", "severity": "info", "retention": "timeline", "data": {} }
+    ],
+    "resources": [],
+    "credentials": []
+  },
+  {
+    "capability_id": "illuminance_measurement",
+    "revision": 1,
+    "kind": "measurement",
+    "runtime": { "execution_authority": "device_firmware", "reported_state_authority": "device_firmware", "offline_behavior": "full_local", "configuration_persistence": "none" },
+    "properties": [
+      { "id": "illuminance", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "number", "nullable": true, "unit": "lux", "minimum": 0, "precision": 0, "default": null, "required": true, "history": "sampled", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "illuminance", "label": "Cường độ ánh sáng" } }
+    ],
+    "operations": [], "events": [], "resources": [], "credentials": []
+  },
+  {
+    "capability_id": "temperature_measurement",
+    "revision": 1,
+    "kind": "measurement",
+    "runtime": { "execution_authority": "device_firmware", "reported_state_authority": "device_firmware", "offline_behavior": "full_local", "configuration_persistence": "none" },
+    "properties": [
+      { "id": "temperature", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "number", "nullable": true, "unit": "celsius", "minimum": -40, "maximum": 125, "precision": 1, "default": null, "required": true, "history": "sampled", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "temperature", "label": "Nhiệt độ" } }
+    ],
+    "operations": [], "events": [], "resources": [], "credentials": []
+  },
+  {
+    "capability_id": "humidity_measurement",
+    "revision": 1,
+    "kind": "measurement",
+    "runtime": { "execution_authority": "device_firmware", "reported_state_authority": "device_firmware", "offline_behavior": "full_local", "configuration_persistence": "none" },
+    "properties": [
+      { "id": "humidity", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "number", "nullable": true, "unit": "percent", "minimum": 0, "maximum": 100, "precision": 1, "default": null, "required": true, "history": "sampled", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "humidity", "label": "Độ ẩm không khí" } }
+    ],
+    "operations": [], "events": [], "resources": [], "credentials": []
+  },
+  {
+    "capability_id": "local_button",
+    "revision": 1,
+    "kind": "event_source",
+    "runtime": { "execution_authority": "device_firmware", "reported_state_authority": "device_firmware", "offline_behavior": "full_local", "configuration_persistence": "none" },
+    "properties": [],
+    "operations": [],
+    "events": [
+      { "id": "button_pressed", "producer": "device_firmware", "severity": "info", "retention": "timeline", "data": { "gesture": { "type": "string", "enum": ["press", "long_press", "double_press"] } } }
+    ],
+    "resources": [],
+    "credentials": []
+  },
+  {
+    "capability_id": "gas_measurement",
+    "revision": 1,
+    "kind": "measurement",
+    "runtime": { "execution_authority": "device_firmware", "reported_state_authority": "device_firmware", "offline_behavior": "full_local", "configuration_persistence": "none" },
+    "properties": [
+      { "id": "gas_level", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "number", "nullable": true, "unit": "normalized", "minimum": 0, "maximum": 100, "precision": 1, "default": null, "required": true, "history": "sampled", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "hazard_level", "label": "Mức khí gas" } },
+      { "id": "calibration_state", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": false, "enum": ["unknown", "warming_up", "ready", "fault"], "default": "unknown", "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "sensor_status", "label": "Hiệu chuẩn cảm biến gas" } }
+    ],
+    "operations": [],
+    "events": [
+      { "id": "gas_threshold_crossed", "producer": "device_firmware", "severity": "critical", "retention": "incident", "data": { "level": { "type": "number", "unit": "normalized", "minimum": 0, "maximum": 100 } } }
+    ],
+    "resources": [], "credentials": []
+  },
+  {
+    "capability_id": "smoke_measurement",
+    "revision": 1,
+    "kind": "measurement",
+    "runtime": { "execution_authority": "device_firmware", "reported_state_authority": "device_firmware", "offline_behavior": "full_local", "configuration_persistence": "none" },
+    "properties": [
+      { "id": "smoke_level", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "number", "nullable": true, "unit": "normalized", "minimum": 0, "maximum": 100, "precision": 1, "default": null, "required": true, "history": "sampled", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "hazard_level", "label": "Mức khói" } },
+      { "id": "calibration_state", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": false, "enum": ["unknown", "warming_up", "ready", "fault"], "default": "unknown", "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "sensor_status", "label": "Hiệu chuẩn cảm biến khói" } }
+    ],
+    "operations": [],
+    "events": [
+      { "id": "smoke_threshold_crossed", "producer": "device_firmware", "severity": "critical", "retention": "incident", "data": { "level": { "type": "number", "unit": "normalized", "minimum": 0, "maximum": 100 } } }
+    ],
+    "resources": [], "credentials": []
+  },
+  {
+    "capability_id": "flame_detection",
+    "revision": 1,
+    "kind": "measurement",
+    "runtime": { "execution_authority": "device_firmware", "reported_state_authority": "device_firmware", "offline_behavior": "full_local", "configuration_persistence": "none" },
+    "properties": [
+      { "id": "flame_detected", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "boolean", "nullable": false, "default": false, "required": true, "history": "sampled", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "flame_status", "label": "Phát hiện ngọn lửa" } }
+    ],
+    "operations": [],
+    "events": [
+      { "id": "flame_detected", "producer": "device_firmware", "severity": "critical", "retention": "incident", "data": {} }
+    ],
+    "resources": [], "credentials": []
+  },
+  {
+    "capability_id": "hazard_controller",
+    "revision": 1,
+    "kind": "composite",
+    "runtime": { "execution_authority": "device_firmware", "reported_state_authority": "device_firmware", "offline_behavior": "full_local", "configuration_persistence": "device_nvs" },
+    "properties": [
+      { "id": "risk_level", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": false, "enum": ["normal", "warning", "alarm", "emergency", "sensor_fault"], "default": "sensor_fault", "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "risk_banner", "label": "Mức nguy hiểm" } },
+      { "id": "incident_state", "channel": "reported", "state_authority": "device_firmware", "persistence": "device_nvs", "type": "string", "nullable": false, "enum": ["idle", "active", "acknowledged"], "default": "idle", "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "incident_status", "label": "Vòng đời sự cố" } },
+      { "id": "active_incident_id", "channel": "reported", "state_authority": "device_firmware", "persistence": "device_nvs", "type": "string", "nullable": true, "default": null, "required": true, "history": "latest", "automation": { "trigger": false, "condition": false }, "presentation": { "ui_hint": "hidden", "label": "Sự cố đang hoạt động" } }
+    ],
+    "operations": [
+      { "id": "acknowledge_incident", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": false }, "ack_policy": { "success_condition": "persisted", "completion_signal": "reported_state", "reference": "incident_state" }, "permission": "alarm.acknowledge", "risk": "sensitive", "confirmation": "confirm", "timeout_ms": 5000, "idempotent": true, "input": { "incident_id": { "type": "string", "min_length": 1, "max_length": 64 } }, "effects": [{ "type": "expect_reported", "property": "incident_state", "value": "acknowledged" }], "safety_constraints": ["incident_exists", "incident_id_matches"], "presentation": { "label": "Xác nhận đã thấy cảnh báo", "ui_hint": "acknowledge_action" } },
+      { "id": "reset_incident", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": false }, "ack_policy": { "success_condition": "persisted", "completion_signal": "reported_state", "reference": "incident_state" }, "permission": "safety.configure", "risk": "dangerous", "confirmation": "reauthenticate", "timeout_ms": 10000, "idempotent": true, "input": { "incident_id": { "type": "string", "min_length": 1, "max_length": 64 } }, "effects": [{ "type": "expect_reported", "property": "incident_state", "value": "idle" }], "safety_constraints": ["incident_id_matches", "hazard_cleared", "sensors_healthy"], "presentation": { "label": "Kết thúc sự cố", "ui_hint": "danger_action" } }
+    ],
+    "events": [
+      { "id": "incident_started", "producer": "device_firmware", "severity": "critical", "retention": "incident", "data": { "incident_id": { "type": "string" }, "cause": { "type": "string", "enum": ["gas", "smoke", "flame", "sensor_fault", "multiple"] } } },
+      { "id": "incident_acknowledged", "producer": "device_firmware", "severity": "info", "retention": "incident", "data": { "incident_id": { "type": "string" }, "source": { "type": "string", "enum": ["local", "remote"] } } },
+      { "id": "incident_resolved", "producer": "device_firmware", "severity": "info", "retention": "incident", "data": { "incident_id": { "type": "string" } } }
+    ],
+    "resources": [], "credentials": []
+  },
+  {
+    "capability_id": "alarm_siren",
+    "revision": 1,
+    "kind": "actuator",
+    "runtime": { "execution_authority": "device_firmware", "reported_state_authority": "device_firmware", "offline_behavior": "full_local", "configuration_persistence": "none" },
+    "properties": [
+      { "id": "audible_state", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": false, "enum": ["silent", "sounding", "muted"], "default": "silent", "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "siren_status", "label": "Lệnh đầu ra còi" } }
+    ],
+    "operations": [
+      { "id": "mute_siren", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": true }, "ack_policy": { "success_condition": "effect_applied", "completion_signal": "reported_state", "reference": "audible_state" }, "permission": "alarm.acknowledge", "risk": "sensitive", "confirmation": "confirm", "timeout_ms": 5000, "idempotent": true, "input": {}, "effects": [{ "type": "expect_reported", "property": "audible_state", "value": "muted" }], "safety_constraints": ["mute_does_not_resolve_incident", "mitigation_continues"], "presentation": { "label": "Tắt âm còi", "ui_hint": "mute_action" } },
+      { "id": "test_siren", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": false }, "ack_policy": { "success_condition": "effect_applied", "completion_signal": "event", "reference": "siren_tested" }, "permission": "safety.configure", "risk": "sensitive", "confirmation": "confirm", "timeout_ms": 40000, "idempotent": false, "input": { "duration_seconds": { "type": "integer", "minimum": 1, "maximum": 30 } }, "effects": [{ "type": "create_event", "property": "events.siren_tested" }], "safety_constraints": ["no_active_incident"], "presentation": { "label": "Kiểm tra còi", "ui_hint": "secondary_action" } }
+    ],
+    "events": [
+      { "id": "siren_muted", "producer": "device_firmware", "severity": "warning", "retention": "incident", "data": { "incident_id": { "type": "string" }, "source": { "type": "string", "enum": ["local", "remote"] } } },
+      { "id": "siren_tested", "producer": "device_firmware", "severity": "info", "retention": "timeline", "data": { "duration_seconds": { "type": "integer", "minimum": 1, "maximum": 30 } } }
+    ],
+    "resources": [], "credentials": []
+  },
+  {
+    "capability_id": "ventilation_controller",
+    "revision": 1,
+    "kind": "actuator",
+    "runtime": { "execution_authority": "device_firmware", "reported_state_authority": "device_firmware", "offline_behavior": "full_local", "configuration_persistence": "none" },
+    "properties": [
+      { "id": "fan_state", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": false, "enum": ["off", "running"], "default": "off", "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "fan_status", "label": "Lệnh đầu ra quạt" } },
+      { "id": "control_source", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": false, "enum": ["idle", "manual", "safety_policy"], "default": "idle", "required": true, "history": "latest", "automation": { "trigger": false, "condition": true }, "presentation": { "ui_hint": "status", "label": "Nguồn điều khiển" } }
+    ],
+    "operations": [
+      { "id": "start_manual_ventilation", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": false }, "ack_policy": { "success_condition": "effect_applied", "completion_signal": "reported_state", "reference": "fan_state" }, "permission": "safety.configure", "risk": "normal", "confirmation": "none", "timeout_ms": 5000, "idempotent": true, "input": {}, "effects": [{ "type": "expect_reported", "property": "fan_state", "value": "running" }], "safety_constraints": [], "presentation": { "label": "Bật quạt", "ui_hint": "primary_action" } },
+      { "id": "stop_manual_ventilation", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": false }, "ack_policy": { "success_condition": "effect_applied", "completion_signal": "reported_state", "reference": "fan_state" }, "permission": "safety.configure", "risk": "sensitive", "confirmation": "confirm", "timeout_ms": 5000, "idempotent": true, "input": {}, "effects": [{ "type": "expect_reported", "property": "fan_state", "value": "off" }], "safety_constraints": ["no_active_hazard", "safety_policy_not_requesting_fan"], "presentation": { "label": "Tắt quạt", "ui_hint": "secondary_action" } }
+    ],
+    "events": [
+      { "id": "ventilation_command_rejected", "producer": "device_firmware", "severity": "warning", "retention": "incident", "data": { "reason": { "type": "string", "enum": ["active_hazard", "safety_policy_override"] } } }
+    ],
+    "resources": [], "credentials": []
+  },
+  {
+    "capability_id": "power_monitor",
+    "revision": 1,
+    "kind": "measurement",
+    "runtime": { "execution_authority": "device_firmware", "reported_state_authority": "device_firmware", "offline_behavior": "full_local", "configuration_persistence": "device_nvs" },
+    "properties": [
+      { "id": "voltage", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "number", "nullable": true, "unit": "volt", "minimum": 0, "precision": 1, "default": null, "required": true, "history": "sampled", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "voltage", "label": "Điện áp" } },
+      { "id": "current", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "number", "nullable": true, "unit": "ampere", "minimum": 0, "precision": 2, "default": null, "required": true, "history": "sampled", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "current", "label": "Dòng điện" } },
+      { "id": "active_power", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "number", "nullable": true, "unit": "watt", "minimum": 0, "precision": 1, "default": null, "required": true, "history": "sampled", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "power", "label": "Công suất" } },
+      { "id": "accumulated_energy", "channel": "reported", "state_authority": "device_firmware", "persistence": "device_nvs", "type": "number", "nullable": true, "unit": "kilowatt_hour", "minimum": 0, "precision": 3, "default": null, "required": true, "history": "sampled", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "energy", "label": "Điện năng" } }
+    ],
+    "operations": [], "events": [], "resources": [], "credentials": []
+  },
+  {
+    "capability_id": "power_cutoff",
+    "revision": 1,
+    "kind": "actuator",
+    "properties": [
+      { "id": "load_state", "channel": "reported", "type": "string", "nullable": false, "enum": ["connected", "cut_off", "fault"], "default": "connected", "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "power_cutoff", "label": "Nguồn tải" } },
+      { "id": "cutoff_reason", "channel": "reported", "type": "string", "nullable": true, "default": null, "required": true, "history": "latest", "automation": { "trigger": false, "condition": true }, "presentation": { "ui_hint": "status", "label": "Lý do ngắt" } }
+    ],
+    "operations": [
+      { "id": "restore_power", "permission": "safety.configure", "risk": "dangerous", "confirmation": "reauthenticate", "timeout_ms": 10000, "idempotent": true, "input": {}, "effects": [{ "type": "expect_reported", "property": "load_state", "value": "connected" }], "safety_constraints": ["hazard_cleared", "sensors_healthy", "cutoff_hardware_healthy"], "presentation": { "label": "Khôi phục nguồn", "ui_hint": "danger_action" } }
+    ],
+    "events": [
+      { "id": "power_cut_off", "severity": "critical", "retention": "incident", "data": { "reason": { "type": "string" }, "incident_id": { "type": "string" } } },
+      { "id": "power_restored", "severity": "warning", "retention": "incident", "data": { "actor_id": { "type": "string" } } }
+    ],
+    "resources": [], "credentials": []
+  },
+  {
+    "capability_id": "soil_moisture_measurement",
+    "revision": 1,
+    "kind": "measurement",
+    "runtime": { "execution_authority": "device_firmware", "reported_state_authority": "device_firmware", "offline_behavior": "full_local", "configuration_persistence": "none" },
+    "properties": [
+      { "id": "moisture_level", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "number", "nullable": true, "unit": "normalized", "minimum": 0, "maximum": 100, "precision": 1, "default": null, "required": true, "history": "sampled", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "soil_moisture", "label": "Độ ẩm đất" } },
+      { "id": "sensor_state", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": false, "enum": ["unknown", "ready", "fault"], "default": "unknown", "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "sensor_status", "label": "Trạng thái cảm biến đất" } }
+    ],
+    "operations": [], "events": [], "resources": [], "credentials": []
+  },
+  {
+    "capability_id": "roof_policy",
+    "revision": 1,
+    "kind": "policy",
+    "runtime": { "execution_authority": "device_firmware", "reported_state_authority": "device_firmware", "offline_behavior": "full_local", "configuration_persistence": "device_nvs" },
+    "properties": [
+      { "id": "control_mode", "channel": "reported", "state_authority": "device_firmware", "persistence": "device_nvs", "type": "string", "nullable": false, "enum": ["manual", "automatic"], "default": "manual", "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "mode", "label": "Chế độ mái che" } },
+      { "id": "rain_protection_enabled", "channel": "reported", "state_authority": "device_firmware", "persistence": "device_nvs", "type": "boolean", "nullable": false, "default": true, "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "safety_policy", "label": "Bảo vệ khi mưa" } },
+      { "id": "last_action_reason", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": true, "default": null, "required": true, "history": "latest", "automation": { "trigger": false, "condition": false }, "presentation": { "ui_hint": "status", "label": "Lý do hoạt động gần nhất" } }
+    ],
+    "operations": [
+      { "id": "set_control_mode", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": false }, "ack_policy": { "success_condition": "persisted", "completion_signal": "reported_state", "reference": "control_mode" }, "permission": "automation.manage", "risk": "sensitive", "confirmation": "confirm", "timeout_ms": 5000, "idempotent": true, "input": { "mode": { "type": "string", "enum": ["manual", "automatic"] } }, "effects": [{ "type": "expect_reported", "property": "control_mode", "value_from": "input.mode" }], "safety_constraints": [], "presentation": { "label": "Đổi chế độ", "ui_hint": "mode_selector" } },
+      { "id": "set_rain_protection", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": false }, "ack_policy": { "success_condition": "persisted", "completion_signal": "reported_state", "reference": "rain_protection_enabled" }, "permission": "safety.configure", "risk": "dangerous", "confirmation": "reauthenticate", "timeout_ms": 5000, "idempotent": true, "input": { "enabled": { "type": "boolean" } }, "effects": [{ "type": "expect_reported", "property": "rain_protection_enabled", "value_from": "input.enabled" }], "safety_constraints": [], "presentation": { "label": "Cấu hình bảo vệ mưa", "ui_hint": "safety_toggle" } }
+    ],
+    "events": [], "resources": [], "credentials": []
+  },
+  {
+    "capability_id": "water_level_measurement",
+    "revision": 1,
+    "kind": "measurement",
+    "runtime": { "execution_authority": "device_firmware", "reported_state_authority": "device_firmware", "offline_behavior": "full_local", "configuration_persistence": "none" },
+    "properties": [
+      { "id": "level_normalized", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "number", "nullable": true, "unit": "normalized", "minimum": 0, "maximum": 100, "precision": 1, "default": null, "required": true, "history": "sampled", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "water_level", "label": "Mực nước tương đối" } },
+      { "id": "water_availability", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": false, "enum": ["unknown", "available", "low", "empty"], "default": "unknown", "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "water_availability", "label": "Khả dụng nguồn nước" } },
+      { "id": "sensor_state", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": false, "enum": ["unknown", "ready", "fault"], "default": "unknown", "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "sensor_status", "label": "Trạng thái cảm biến nước" } }
+    ],
+    "operations": [],
+    "events": [
+      { "id": "water_availability_changed", "producer": "device_firmware", "severity": "warning", "retention": "timeline", "data": { "from": { "type": "string", "enum": ["unknown", "available", "low", "empty"] }, "to": { "type": "string", "enum": ["unknown", "available", "low", "empty"] } } }
+    ],
+    "resources": [], "credentials": []
+  },
+  {
+    "capability_id": "irrigation_pump",
+    "revision": 1,
+    "kind": "actuator",
+    "runtime": { "execution_authority": "device_firmware", "reported_state_authority": "device_firmware", "offline_behavior": "full_local", "configuration_persistence": "none" },
+    "properties": [
+      { "id": "pump_output_state", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": false, "enum": ["stopped", "running"], "default": "stopped", "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "pump_status", "label": "Lệnh đầu ra bơm" } },
+      { "id": "active_cycle_id", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": true, "default": null, "required": true, "history": "latest", "automation": { "trigger": false, "condition": false }, "presentation": { "ui_hint": "hidden", "label": "Chu kỳ đang chạy" } },
+      { "id": "runtime_seconds", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "integer", "nullable": false, "unit": "second", "minimum": 0, "default": 0, "required": true, "history": "sampled", "automation": { "trigger": false, "condition": true }, "presentation": { "ui_hint": "duration", "label": "Thời gian chu kỳ hiện tại" } },
+      { "id": "stop_reason", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": true, "enum": ["completed", "user_request", "low_water", "reservoir_sensor_fault", "maximum_runtime", "controller_restart"], "default": null, "required": true, "history": "latest", "automation": { "trigger": false, "condition": true }, "presentation": { "ui_hint": "status", "label": "Lý do dừng" } }
+    ],
+    "operations": [
+      { "id": "water_for_duration", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": true }, "ack_policy": { "success_condition": "effect_applied", "completion_signal": "reported_state", "reference": "pump_output_state" }, "permission": "irrigation.control", "risk": "normal", "confirmation": "none", "timeout_ms": 10000, "idempotent": false, "input": { "duration_seconds": { "type": "integer", "unit": "second", "minimum": 30, "maximum": 3600 } }, "effects": [{ "type": "expect_reported", "property": "pump_output_state", "value": "running" }], "safety_constraints": ["reservoir_sensor_ready", "water_available", "within_configured_runtime", "cooldown_satisfied"], "presentation": { "label": "Bắt đầu tưới", "ui_hint": "duration_action" } },
+      { "id": "stop", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": false }, "ack_policy": { "success_condition": "effect_applied", "completion_signal": "reported_state", "reference": "pump_output_state" }, "permission": "irrigation.control", "risk": "normal", "confirmation": "none", "timeout_ms": 5000, "idempotent": true, "input": {}, "effects": [{ "type": "expect_reported", "property": "pump_output_state", "value": "stopped" }], "safety_constraints": [], "presentation": { "label": "Dừng tưới", "ui_hint": "stop_action" } }
+    ],
+    "events": [
+      { "id": "watering_started", "producer": "device_firmware", "severity": "info", "retention": "timeline", "data": { "cycle_id": { "type": "string" }, "duration_seconds": { "type": "integer", "unit": "second", "minimum": 30, "maximum": 3600 }, "source": { "type": "string", "enum": ["remote", "local_button", "automatic"] } } },
+      { "id": "watering_stopped", "producer": "device_firmware", "severity": "info", "retention": "timeline", "data": { "cycle_id": { "type": "string" }, "runtime_seconds": { "type": "integer", "unit": "second", "minimum": 0 }, "reason": { "type": "string", "enum": ["completed", "user_request", "low_water", "reservoir_sensor_fault", "maximum_runtime", "controller_restart"] } } },
+      { "id": "watering_rejected", "producer": "device_firmware", "severity": "warning", "retention": "timeline", "data": { "source": { "type": "string", "enum": ["remote", "local_button", "automatic"] }, "reason": { "type": "string", "enum": ["reservoir_unknown", "low_water", "cooldown", "invalid_duration", "cycle_active"] } } }
+    ],
+    "resources": [], "credentials": []
+  },
+  {
+    "capability_id": "irrigation_policy",
+    "revision": 1,
+    "kind": "policy",
+    "runtime": { "execution_authority": "device_firmware", "reported_state_authority": "device_firmware", "offline_behavior": "full_local", "configuration_persistence": "device_nvs" },
+    "properties": [
+      { "id": "control_mode", "channel": "reported", "state_authority": "device_firmware", "persistence": "device_nvs", "type": "string", "nullable": false, "enum": ["manual", "automatic"], "default": "manual", "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "mode", "label": "Chế độ tưới" } },
+      { "id": "target_moisture", "channel": "reported", "state_authority": "device_firmware", "persistence": "device_nvs", "type": "number", "nullable": false, "unit": "normalized", "minimum": 10, "maximum": 90, "precision": 1, "default": 50, "required": true, "history": "latest", "automation": { "trigger": false, "condition": true }, "presentation": { "ui_hint": "target", "label": "Độ ẩm mục tiêu" } },
+      { "id": "moisture_hysteresis", "channel": "reported", "state_authority": "device_firmware", "persistence": "device_nvs", "type": "number", "nullable": false, "unit": "normalized", "minimum": 1, "maximum": 20, "precision": 1, "default": 5, "required": true, "history": "latest", "automation": { "trigger": false, "condition": true }, "presentation": { "ui_hint": "range", "label": "Độ trễ độ ẩm" } },
+      { "id": "default_cycle_duration_seconds", "channel": "reported", "state_authority": "device_firmware", "persistence": "device_nvs", "type": "integer", "nullable": false, "unit": "second", "minimum": 30, "maximum": 3600, "default": 300, "required": true, "history": "latest", "automation": { "trigger": false, "condition": true }, "presentation": { "ui_hint": "duration", "label": "Thời lượng chu kỳ mặc định" } },
+      { "id": "maximum_runtime_seconds", "channel": "reported", "state_authority": "device_firmware", "persistence": "device_nvs", "type": "integer", "nullable": false, "unit": "second", "minimum": 30, "maximum": 3600, "default": 900, "required": true, "history": "latest", "automation": { "trigger": false, "condition": true }, "presentation": { "ui_hint": "duration", "label": "Thời gian chạy tối đa" } },
+      { "id": "cooldown_seconds", "channel": "reported", "state_authority": "device_firmware", "persistence": "device_nvs", "type": "integer", "nullable": false, "unit": "second", "minimum": 0, "maximum": 3600, "default": 60, "required": true, "history": "latest", "automation": { "trigger": false, "condition": true }, "presentation": { "ui_hint": "duration", "label": "Thời gian nghỉ của bơm" } }
+    ],
+    "operations": [
+      { "id": "set_control_mode", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": false }, "ack_policy": { "success_condition": "persisted", "completion_signal": "reported_state", "reference": "control_mode" }, "permission": "automation.manage", "risk": "sensitive", "confirmation": "confirm", "timeout_ms": 5000, "idempotent": true, "input": { "mode": { "type": "string", "enum": ["manual", "automatic"] } }, "effects": [{ "type": "expect_reported", "property": "control_mode", "value_from": "input.mode" }], "safety_constraints": ["automatic_mode_requires_healthy_sensors_and_known_water"], "presentation": { "label": "Đổi chế độ", "ui_hint": "mode_selector" } },
+      { "id": "set_moisture_policy", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": false }, "ack_policy": { "success_condition": "persisted", "completion_signal": "reported_state", "reference": "target_moisture" }, "permission": "automation.manage", "risk": "normal", "confirmation": "none", "timeout_ms": 5000, "idempotent": true, "input": { "target_moisture": { "type": "number", "unit": "normalized", "minimum": 10, "maximum": 90 }, "hysteresis": { "type": "number", "unit": "normalized", "minimum": 1, "maximum": 20 } }, "effects": [{ "type": "expect_reported", "property": "target_moisture", "value_from": "input.target_moisture" }, { "type": "expect_reported", "property": "moisture_hysteresis", "value_from": "input.hysteresis" }], "safety_constraints": [], "presentation": { "label": "Cấu hình ngưỡng độ ẩm", "ui_hint": "moisture_policy" } },
+      { "id": "set_cycle_configuration", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": false }, "ack_policy": { "success_condition": "persisted", "completion_signal": "reported_state", "reference": "default_cycle_duration_seconds" }, "permission": "automation.manage", "risk": "sensitive", "confirmation": "confirm", "timeout_ms": 5000, "idempotent": true, "input": { "default_duration_seconds": { "type": "integer", "unit": "second", "minimum": 30, "maximum": 3600 }, "maximum_runtime_seconds": { "type": "integer", "unit": "second", "minimum": 30, "maximum": 3600 }, "cooldown_seconds": { "type": "integer", "unit": "second", "minimum": 0, "maximum": 3600 } }, "effects": [{ "type": "expect_reported", "property": "default_cycle_duration_seconds", "value_from": "input.default_duration_seconds" }, { "type": "expect_reported", "property": "maximum_runtime_seconds", "value_from": "input.maximum_runtime_seconds" }, { "type": "expect_reported", "property": "cooldown_seconds", "value_from": "input.cooldown_seconds" }], "safety_constraints": ["default_duration_not_greater_than_maximum_runtime"], "presentation": { "label": "Cấu hình chu kỳ tưới", "ui_hint": "cycle_configuration" } }
+    ],
+    "events": [
+      { "id": "automatic_watering_suppressed", "producer": "device_firmware", "severity": "warning", "retention": "timeline", "data": { "reason": { "type": "string", "enum": ["soil_sensor_fault", "reservoir_unknown", "low_water", "cooldown"] } } }
+    ],
+    "resources": [], "credentials": []
+  },
+  {
+    "capability_id": "system_diagnostics",
+    "revision": 1,
+    "kind": "diagnostic",
+    "runtime": { "execution_authority": "device_firmware", "reported_state_authority": "device_firmware", "offline_behavior": "full_local", "configuration_persistence": "none" },
+    "properties": [
+      { "id": "online", "channel": "diagnostic", "state_authority": "device_firmware", "persistence": "volatile", "type": "boolean", "nullable": false, "default": false, "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "connectivity", "label": "Kết nối" } },
+      { "id": "wifi_rssi", "channel": "diagnostic", "state_authority": "device_firmware", "persistence": "volatile", "type": "number", "nullable": true, "unit": "dbm", "minimum": -120, "maximum": 0, "precision": 0, "default": null, "required": true, "history": "sampled", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "signal_strength", "label": "Tín hiệu Wi-Fi" } },
+      { "id": "uptime", "channel": "diagnostic", "state_authority": "device_firmware", "persistence": "volatile", "type": "integer", "nullable": false, "unit": "second", "minimum": 0, "default": 0, "required": true, "history": "sampled", "automation": { "trigger": false, "condition": true }, "presentation": { "ui_hint": "duration", "label": "Thời gian hoạt động" } },
+      { "id": "firmware_version", "channel": "diagnostic", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": true, "default": null, "required": true, "history": "latest", "automation": { "trigger": false, "condition": false }, "presentation": { "ui_hint": "version", "label": "Phiên bản firmware" } }
+    ],
+    "operations": [], "events": [], "resources": [], "credentials": []
+  }
+]

@@ -1,6 +1,8 @@
 [
   {
     "_id": "prod_entrance_controller_v1",
+    "ui_profile": "entrance_controller",
+    "ui_profile_version": 1,
     "manufacturer": "SmartHome XuanLam Ltd.",
     "model_name": "Smart Entrance Controller V1",
     "display_name": "Bộ Kiểm Soát Cửa Chính",
@@ -107,6 +109,8 @@
   },
   {
     "_id": "prod_roof_controller_v1",
+    "ui_profile": "roof_controller",
+    "ui_profile_version": 1,
     "manufacturer": "SmartHome XuanLam Ltd.",
     "model_name": "Automated Roof & Climate Controller V1",
     "display_name": "Bộ Kiểm Soát Mái Che",
@@ -187,6 +191,8 @@
   },
   {
     "_id": "prod_hazard_mitigation_v1",
+    "ui_profile": "hazard_monitor",
+    "ui_profile_version": 1,
     "manufacturer": "SmartHome XuanLam Ltd.",
     "model_name": "Safety & Hazard Mitigation System V1",
     "display_name": "Hệ Thống Cảnh Báo An Toàn Bếp",
@@ -270,6 +276,8 @@
   },
   {
     "_id": "prod_irrigation_manager_v1",
+    "ui_profile": "irrigation_manager",
+    "ui_profile_version": 1,
     "manufacturer": "SmartHome XuanLam Ltd.",
     "model_name": "Smart Garden Irrigation & Water Manager V1",
     "display_name": "Bộ Quản Lý Nước & Tưới Tiêu",

@@ -8,6 +8,8 @@ class DeviceModel {
   final String ownerId;
   final String name;
   final String productId;
+  final String uiProfile;
+  final int uiProfileVersion;
   final IconData icon;
   final DeviceStatus status; // online, offline
   final Map<String, dynamic> rawState;
@@ -25,6 +27,8 @@ class DeviceModel {
     required this.ownerId,
     required this.name,
     required this.productId,
+    this.uiProfile = 'generic',
+    this.uiProfileVersion = 1,
     required this.icon,
     required this.status,
     required this.rawState,
@@ -41,6 +45,8 @@ class DeviceModel {
     String? ownerId,
     String? name,
     String? productId,
+    String? uiProfile,
+    int? uiProfileVersion,
     IconData? icon,
     DeviceStatus? status,
     Map<String, dynamic>? rawState,
@@ -57,6 +63,8 @@ class DeviceModel {
       ownerId: ownerId ?? this.ownerId,
       name: name ?? this.name,
       productId: productId ?? this.productId,
+      uiProfile: uiProfile ?? this.uiProfile,
+      uiProfileVersion: uiProfileVersion ?? this.uiProfileVersion,
       icon: icon ?? this.icon,
       status: status ?? this.status,
       rawState: rawState ?? this.rawState,

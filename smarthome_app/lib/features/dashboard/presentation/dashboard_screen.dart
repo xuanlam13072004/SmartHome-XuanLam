@@ -7,6 +7,7 @@ import '../../../core/widgets/widgets.dart';
 import '../providers/devices_provider.dart';
 import '../providers/realtime_provider.dart';
 import '../../../core/network/websocket_client.dart';
+import '../../products/product_ui_registry.dart';
 import 'qr_scanner_screen.dart';
 
 class DashboardScreen extends ConsumerWidget {
@@ -210,79 +211,25 @@ class DashboardScreen extends ConsumerWidget {
                   sliver: SliverGrid(
                     gridDelegate:
                         const SliverGridDelegateWithMaxCrossAxisExtent(
-                      maxCrossAxisExtent: 220,
+                      maxCrossAxisExtent: 288,
                       mainAxisSpacing: AppSpacing.md,
                       crossAxisSpacing: AppSpacing.md,
-                      childAspectRatio: 0.9,
+                      mainAxisExtent: 230,
                     ),
                     delegate: SliverChildBuilderDelegate(
                       (context, index) {
                         final device = devices[index];
 
-                        // Lấy primary capability (on_off) nếu có
-                        Widget? actionWidget;
-                        final onOffCap = device.capabilities
-                            .where((c) => c.type == 'on_off')
-                            .firstOrNull;
-
-                        if (onOffCap != null &&
-                            device.status == DeviceStatus.online) {
-                          actionWidget = NeuToggle(
-                            value: onOffCap.value as bool? ?? false,
-                            onChanged: (val) {
-                              ref
-                                  .read(devicesProvider.notifier)
-                                  .updateCapability(
-                                    device.mac,
-                                    onOffCap.id,
-                                    val,
-                                  );
-                            },
-                            width: 44,
-                            height: 24,
-                          );
-                        }
-
-                        // Hallmark: Solid color theo category
-                        final glowColor = AppPalette.colorForCategory(
-                          device.productId.contains('light')
-                              ? 'light'
-                              : device.productId.contains('security')
-                                  ? 'security'
-                                  : device.productId.contains('roof')
-                                      ? 'environment'
-                                      : 'sensor',
-                        );
-
-                        return DeviceCard(
-                          title: device.name,
-                          icon: device.icon,
-                          status: device.status,
-                          iconColor: device.isPrimaryOn
-                              ? context.colorScheme.primary
-                              : null,
-                          actionWidget: actionWidget,
-                          capabilities: device.capabilities,
-                          isPrimaryOn: device.isPrimaryOn,
-                          glowColor: glowColor,
-                          connectionIcon: device.topology == null
-                              ? null
-                              : device.topology!.isHub
-                                  ? Icons.hub_rounded
-                                  : device.topology!.usesDirectFallback
-                                      ? Icons.cloud_done_rounded
-                                      : Icons.device_hub_rounded,
-                          connectionLabel: device.topology?.connectionLabel,
-                          connectionColor: device.topology == null
-                              ? null
-                              : device.topology!.isOptimizing ||
-                                      device.topology!.usesDirectFallback
-                                  ? context.colorScheme.secondary
-                                  : device.topology!.isHub
-                                      ? context.colorScheme.primary
-                                      : context.neu.deviceOnline,
-                          onTap: () {
-                            context.push('/device/${device.mac}');
+                        return productUiRegistry.buildMiniCard(
+                          context,
+                          device: device,
+                          onTap: () => context.push('/device/${device.mac}'),
+                          onCapabilityChanged: (capabilityId, value) {
+                            ref.read(devicesProvider.notifier).updateCapability(
+                                  device.mac,
+                                  capabilityId,
+                                  value,
+                                );
                           },
                         );
                       },

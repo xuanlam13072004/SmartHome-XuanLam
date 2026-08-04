@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "purpose": "Design-time hardware facts and open questions. This file is not served at runtime.",
+  "products": [
+    {
+      "product_id": "prod_entrance_controller",
+      "status": "partially_confirmed",
+      "confirmed": [
+        "LCD character display with 4 rows and 20 columns",
+        "SG90 servo drives the door lock mechanism",
+        "ESP32-CAM captures faces and provides video",
+        "4x4 keypad accepts PIN and local actions"
+      ],
+      "open_questions": [
+        "Servo angles and whether physical lock feedback exists",
+        "Auto-relock delay and jam detection strategy",
+        "Camera transport, local recognition algorithm and enrollment format suitable for ESP32-CAM",
+        "LCD character encoding",
+        "PIN length, retry limit and lockout duration"
+      ]
+    },
+    {
+      "product_id": "prod_roof_controller",
+      "status": "needs_confirmation",
+      "confirmed": [
+        "Motorized roof cover",
+        "Rain, illuminance, temperature and humidity sensing",
+        "Local open and close inputs"
+      ],
+      "open_questions": [
+        "Motor and driver model",
+        "Open/close limit switches",
+        "Real position feedback versus time estimation",
+        "Obstacle or over-current detection",
+        "Sensor models, calibrated ranges and whether light level is true lux or normalized",
+        "Post-rain reopening policy"
+      ]
+    },
+    {
+      "product_id": "prod_hazard_mitigation",
+      "status": "needs_confirmation",
+      "confirmed": [
+        "Gas, flame and smoke sensing",
+        "Siren and ventilation fan",
+        "Local mute input",
+        "Electrical measurements"
+      ],
+      "open_questions": [
+        "Sensor models and calibrated measurement units",
+        "Whether the siren and ventilation fan have physical output or tachometer feedback; the current contract reports commanded output only",
+        "Persistence and flash-wear policy for accumulated energy",
+        "Presence of a physical load-cutoff relay",
+        "Load-cutoff feedback",
+        "Safe conditions for restoring power"
+      ]
+    },
+    {
+      "product_id": "prod_irrigation_manager",
+      "status": "needs_confirmation",
+      "confirmed": [
+        "Soil-moisture sensing",
+        "Reservoir-level sensing",
+        "Irrigation pump",
+        "Local pump input"
+      ],
+      "open_questions": [
+        "Pump model and electrical limits",
+        "Soil-moisture sensor model, calibration range and installation-dependent wet/dry thresholds",
+        "Water-level measurement type and whether a continuous normalized value is available",
+        "Dry-run, current or flow feedback; the current pump state reports commanded output only",
+        "Number of irrigation zones",
+        "Local button gestures and the approved default watering, maximum-runtime and cooldown values"
+      ]
+    }
+  ]
+}

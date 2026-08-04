@@ -35,6 +35,8 @@ test('compiled capability instances preserve product semantic metadata', async (
         }],
         products: [{
             _id: 'product-light',
+            ui_profile: 'room_light',
+            ui_profile_version: 2,
             capabilities: [{
                 capability_id: 'light_controller',
                 instance: 'main_light',
@@ -49,7 +51,10 @@ test('compiled capability instances preserve product semantic metadata', async (
 
     await cache.reload();
 
-    const [instance] = cache.getProduct('product-light').capabilityInstances;
+    const product = cache.getProduct('product-light');
+    assert.equal(product.ui_profile, 'room_light');
+    assert.equal(product.ui_profile_version, 2);
+    const [instance] = product.capabilityInstances;
     assert.deepEqual(
         {
             semantic_role: instance.semantic_role,
