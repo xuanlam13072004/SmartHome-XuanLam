@@ -3,124 +3,85 @@ import { getDb } from '../loaders/mongo.js';
 import { env } from '../config/env.js';
 import { safeSend } from '../utils/safeSend.js';
 
-// Map structure: owner_id -> Set of active WebSocket connections
 const activeConnections = new Map<string, Set<WebSocket>>();
 
-export function addConnection(ownerId: string, socket: WebSocket): boolean {
-    let sockets = activeConnections.get(ownerId);
-    if (!sockets) {
-        sockets = new Set<WebSocket>();
-        activeConnections.set(ownerId, sockets);
-    }
-    if (sockets.size >= env.WS_MAX_CONNECTIONS_PER_USER) {
-        console.warn(`Connection limit reached for user: ${ownerId}`);
-        return false;
-    }
+export function addConnection(accountId: string, socket: WebSocket): boolean {
+    const sockets = activeConnections.get(accountId) || new Set<WebSocket>();
+    if (sockets.size >= env.WS_MAX_CONNECTIONS_PER_USER) return false;
     sockets.add(socket);
-    console.log(`🔌 Registered socket for user: ${ownerId}. Total sockets: ${sockets.size}`);
+    activeConnections.set(accountId, sockets);
     return true;
 }
 
-export function removeConnection(ownerId: string, socket: WebSocket): void {
-    const sockets = activeConnections.get(ownerId);
-    if (sockets) {
-        sockets.delete(socket);
-        if (sockets.size === 0) {
-            activeConnections.delete(ownerId);
-        }
-        console.log(`🔌 Unregistered socket for user: ${ownerId}. Remaining: ${sockets.size}`);
-    }
+export function removeConnection(accountId: string, socket: WebSocket): void {
+    const sockets = activeConnections.get(accountId);
+    if (!sockets) return;
+    sockets.delete(socket);
+    if (sockets.size === 0) activeConnections.delete(accountId);
 }
 
-export function getConnections(ownerId: string): Set<WebSocket> | undefined {
-    return activeConnections.get(ownerId);
+export function getConnections(accountId: string): Set<WebSocket> | undefined {
+    return activeConnections.get(accountId);
 }
 
-export function sendToUser(ownerId: string, data: any): void {
-    const sockets = activeConnections.get(ownerId);
-    if (!sockets || sockets.size === 0) {
-        return;
-    }
-
+export function sendToUser(accountId: string, data: any): void {
     const payload = JSON.stringify(data);
-    for (const socket of sockets) {
-        safeSend(socket, payload);
-    }
+    for (const socket of activeConnections.get(accountId) || []) safeSend(socket, payload);
 }
 
-export async function sendInitialState(ownerId: string, socket: WebSocket): Promise<void> {
+export async function sendInitialState(accountId: string, socket: WebSocket): Promise<void> {
     try {
         const db = getDb();
-        const collection = db.collection(env.MONGO_DEVICES_COLLECTION);
-        
-        // Find all devices owned by this user
-        const cursor = collection.find({ owner_id: ownerId });
-        const devices = await cursor.toArray();
-
-        const mappedDevices = devices.map(doc => ({
-            mac: doc._id.toString(),
-            name: doc.name || null,
-            product_id: doc.product_id || null,
-            is_online: doc.is_online ?? false,
-            state: doc.state || {},
-            diagnostics: doc.diagnostics || {},
-            rssi: doc.diagnostics?.rssi ?? doc.rssi ?? null,
-            battery: doc.diagnostics?.battery ?? doc.battery ?? null,
-            last_seen: doc.last_seen instanceof Date ? doc.last_seen.toISOString() : (doc.last_seen || null),
-            network_id: doc.network_id || null,
-            join_rank: doc.join_rank ?? null,
-            topology_role: doc.topology_role || null,
-            topology_epoch: doc.topology_epoch ?? null,
-            topology_state: doc.topology_state || null,
-            active_hub_mac: doc.active_hub_mac || null,
-            transport_mode: doc.transport_mode || null,
-            last_transport_change: doc.last_transport_change instanceof Date
-                ? doc.last_transport_change.toISOString()
-                : (doc.last_transport_change || null),
+        const shadows = await db
+            .collection(env.MONGO_DEVICE_SHADOWS_COLLECTION)
+            .find({ access_account_ids: accountId })
+            .toArray();
+        const devices = shadows.map(shadow => ({
+            mac: shadow._id.toString(),
+            name: shadow.name || null,
+            product_id: shadow.product_id,
+            catalog_revision: shadow.catalog_revision,
+            shadow: {
+                schema: 'device.state.v2',
+                state_version: Number(shadow.state_version || 0),
+                instances: shadow.instances || {},
+                diagnostics: shadow.diagnostics || {},
+                is_online: Boolean(shadow.is_online),
+                last_seen: shadow.last_seen instanceof Date
+                    ? shadow.last_seen.toISOString()
+                    : shadow.last_seen || null,
+                updated_at: shadow.updated_at instanceof Date
+                    ? shadow.updated_at.toISOString()
+                    : shadow.updated_at || null,
+            },
+            network_id: shadow.network_id || null,
+            join_rank: shadow.join_rank ?? null,
+            topology_role: shadow.topology_role || null,
+            topology_epoch: shadow.topology_epoch ?? null,
+            topology_state: shadow.topology_state || null,
+            active_hub_mac: shadow.active_hub_mac || null,
+            transport_mode: shadow.transport_mode || null,
         }));
+        safeSend(socket, JSON.stringify({ event: 'initial_state', devices }));
 
-        const response = {
-            event: 'initial_state',
-            devices: mappedDevices,
-        };
-
-        safeSend(socket, JSON.stringify(response));
-        console.log(`📤 Sent initial_state containing ${mappedDevices.length} devices to user ${ownerId}`);
-
-        // Command State Recovery: retrieve and send active commands for the user
-        try {
-            const activeCommandsCol = db.collection('active_commands');
-            const activeCmds = await activeCommandsCol.find({ owner_id: ownerId }).toArray();
-            
-            const mappedCmds = activeCmds.map(cmd => {
-                let parsedCommand = {};
-                try {
-                    parsedCommand = typeof cmd.command === 'string' ? JSON.parse(cmd.command) : (cmd.command || {});
-                } catch (err) {
-                    console.error(`Failed to parse command payload for command ${cmd._id}:`, err);
-                }
-                return {
-                    command_id: cmd._id.toString(),
-                    mac: cmd.mac,
-                    command: parsedCommand,
-                    status: cmd.status,
-                    event_version: cmd.event_version || 1,
-                    created_at: cmd.created_at instanceof Date ? cmd.created_at.toISOString() : (cmd.created_at || null),
-                };
-            });
-
-            const commandsResponse = {
-                event: 'active_commands',
-                commands: mappedCmds,
-            };
-
-            safeSend(socket, JSON.stringify(commandsResponse));
-            console.log(`📤 Sent active_commands containing ${mappedCmds.length} commands to user ${ownerId}`);
-        } catch (cmdErr) {
-            console.error(`❌ Failed to retrieve and send active commands for user ${ownerId}:`, cmdErr);
-        }
-    } catch (err) {
-        console.error(`❌ Failed to retrieve and send initial state for user ${ownerId}:`, err);
+        const activeOperations = await db
+            .collection(env.MONGO_ACTIVE_OPERATIONS_COLLECTION)
+            .find({ 'operation.actor_account_id': accountId })
+            .toArray();
+        safeSend(socket, JSON.stringify({
+            event: 'active_operations',
+            operations: activeOperations.map(item => ({
+                operation_id: item._id.toString(),
+                device_id: item.device_id,
+                status: item.status,
+                operation: item.operation,
+                expires_at: item.expires_at instanceof Date
+                    ? item.expires_at.toISOString()
+                    : item.expires_at,
+            })),
+        }));
+    } catch (error) {
+        console.error('Failed to load realtime initial state:', error);
         safeSend(socket, JSON.stringify({
             event: 'error',
             message: 'Failed to retrieve initial device state',

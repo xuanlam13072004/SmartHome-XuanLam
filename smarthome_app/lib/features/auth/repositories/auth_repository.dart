@@ -4,8 +4,8 @@ import '../../../core/network/token_refresh_mutex.dart';
 
 abstract class IAuthRepository {
   Future<void> login(String email, String password);
-  Future<void> register(
-      String username, String email, String password, String fullName);
+  Future<void> register(String email, String password, String fullName);
+  Future<String> reauthenticate(String password);
   Future<void> logout();
   Future<String?> getToken();
 
@@ -44,11 +44,9 @@ class ApiAuthRepository implements IAuthRepository {
         // Store user profile info for display in Profile screen
         final fullName = user['full_name'] as String? ?? '';
         final email = user['email'] as String? ?? '';
-        final username = user['username'] as String? ?? '';
         await tokenStorage.saveUserProfile(
           fullName: fullName,
           email: email,
-          username: username,
         );
       }
     } else {
@@ -57,9 +55,13 @@ class ApiAuthRepository implements IAuthRepository {
   }
 
   @override
-  Future<void> register(
-      String username, String email, String password, String fullName) async {
-    await remoteDataSource.register(username, email, password, fullName);
+  Future<void> register(String email, String password, String fullName) async {
+    await remoteDataSource.register(email, password, fullName);
+  }
+
+  @override
+  Future<String> reauthenticate(String password) {
+    return remoteDataSource.reauthenticate(password);
   }
 
   @override

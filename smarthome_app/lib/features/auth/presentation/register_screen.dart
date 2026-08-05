@@ -13,7 +13,6 @@ class RegisterScreen extends ConsumerStatefulWidget {
 }
 
 class _RegisterScreenState extends ConsumerState<RegisterScreen> {
-  final _usernameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _fullNameController = TextEditingController();
@@ -21,7 +20,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
   @override
   void dispose() {
-    _usernameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     _fullNameController.dispose();
@@ -29,12 +27,10 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   }
 
   Future<void> _register() async {
-    final username = _usernameController.text.trim();
     final email = _emailController.text.trim();
     final password = _passwordController.text;
     final fullName = _fullNameController.text.trim();
-    if (username.isEmpty ||
-        email.isEmpty ||
+    if (email.isEmpty ||
         password.isEmpty ||
         fullName.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -47,7 +43,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     try {
       await ref
           .read(authControllerProvider.notifier)
-          .register(username, email, password, fullName);
+          .register(email, password, fullName);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Đăng ký thành công! Vui lòng đăng nhập')),
@@ -83,18 +79,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 controller: _fullNameController,
                 decoration: InputDecoration(
                   labelText: 'Họ và tên',
-                  filled: true,
-                  fillColor: context.colorScheme.surface,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-              const SizedBox(height: AppSpacing.md),
-              TextField(
-                controller: _usernameController,
-                decoration: InputDecoration(
-                  labelText: 'Username',
                   filled: true,
                   fillColor: context.colorScheme.surface,
                   border: OutlineInputBorder(

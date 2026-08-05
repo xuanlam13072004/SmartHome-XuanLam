@@ -9,12 +9,13 @@ import type {
 } from '../domain/registry';
 import { recordSimulatorEvent } from '../events/service';
 import {
-    type DeviceCommand,
-    parseDeviceCommand,
-} from '../generation/command-validation';
+    type DeviceOperation,
+    parseDeviceOperation,
+} from '../generation/operation-validation';
 import {
-    applyCommandToState,
+    applyOperationToState,
     type DeviceState,
+    type DeviceStatePatch,
     evolveState,
     generateInitialState,
     patchDeviceState,
@@ -25,16 +26,17 @@ import {
     resolveMqttTopic,
 } from '../infrastructure/mqtt/client';
 import { getRunMetricsService } from '../metrics/service';
+import { decrypt } from '../security/crypto';
 import { startupDelayMs } from './scheduling';
 import { getTelemetryScheduler } from './telemetry-scheduler';
 import {
-    commandRouteMatchesAssignment,
+    operationRouteMatchesAssignment,
     shouldApplyAssignment,
-    type CommandRoute,
+    type OperationRoute,
     type TopologyAssignment,
 } from './topology';
 
-export type BrokerMessageKind = 'telemetry' | 'ack' | 'status';
+export type BrokerMessageKind = 'telemetry' | 'operation_ack' | 'presence';
 
 export interface RuntimeTransportCoordinator {
     isRelayAvailable(device: DeviceRuntime): boolean;
@@ -42,16 +44,17 @@ export interface RuntimeTransportCoordinator {
         device: DeviceRuntime,
         kind: BrokerMessageKind,
         payload: Record<string, unknown>,
-        commandRoute?: CommandRoute,
+        operationRoute?: OperationRoute,
     ): Promise<void>;
-    deliverRelayedCommand(hubMac: string, rawPayload: Buffer): Promise<void>;
+    deliverRelayedOperation(hubMac: string, rawPayload: Buffer): Promise<void>;
     onBrokerAvailable(device: DeviceRuntime): void;
     onBrokerUnavailable(device: DeviceRuntime): void;
 }
 
-interface CommandResult {
-    status: 'success' | 'error';
-    errorMessage?: string;
+interface OperationResult {
+    status: 'succeeded' | 'rejected';
+    reasonCode?: string;
+    details?: Record<string, unknown>;
     expiresAt: number;
 }
 
@@ -68,7 +71,7 @@ export class DeviceRuntime {
     private assignment?: TopologyAssignment;
     private directFallbackOverride = false;
     private lastTopologyAckKey: string | null = null;
-    private readonly commandResults = new Map<string, CommandResult>();
+    private readonly operationResults = new Map<string, OperationResult>();
     private readonly logger: FastifyBaseLogger;
 
     constructor(
@@ -141,7 +144,7 @@ export class DeviceRuntime {
         this.desiredOnline = false;
         this.stopTelemetry();
         if (wasOperational) {
-            await this.publishStatus('offline').catch((error) => {
+            await this.publishPresence('offline').catch((error) => {
                 this.logger.warn({ err: error }, 'Could not publish virtual device offline status');
             });
         }
@@ -170,13 +173,15 @@ export class DeviceRuntime {
     }
 
     async resetState(): Promise<DeviceState> {
-        this.state = generateInitialState(getProduct(this.productId));
+        const next = generateInitialState(getProduct(this.productId));
+        next.state_version = this.state.state_version + 1;
+        this.state = next;
         await this.persistRegistryState(new Date(), true);
         if (this.connected) await this.publishTelemetry(false);
         return this.state;
     }
 
-    async patchState(patch: Partial<DeviceState>): Promise<DeviceState> {
+    async patchState(patch: DeviceStatePatch): Promise<DeviceState> {
         this.state = patchDeviceState(this.state, getProduct(this.productId), patch);
         await this.persistRegistryState(new Date(), true);
         if (this.connected) await this.publishTelemetry(false);
@@ -252,8 +257,8 @@ export class DeviceRuntime {
         }).catch(() => undefined);
     }
 
-    async receiveCommand(rawPayload: Buffer, originMac: string): Promise<void> {
-        await this.handleCommand(rawPayload, originMac.trim().toUpperCase());
+    async receiveOperation(rawPayload: Buffer, originMac: string): Promise<void> {
+        await this.handleControlMessage(rawPayload, originMac.trim().toUpperCase());
     }
 
     async publishBrokerMessage(
@@ -265,9 +270,9 @@ export class DeviceRuntime {
         }
         const topicTemplate = kind === 'telemetry'
             ? env.MQTT_TELEMETRY_TOPIC
-            : kind === 'ack'
+            : kind === 'operation_ack'
                 ? env.MQTT_ACK_TOPIC
-                : kind === 'status'
+                : kind === 'presence'
                     ? env.MQTT_STATUS_TOPIC
                     : env.MQTT_TOPOLOGY_ACK_TOPIC;
         const topic = resolveMqttTopic(topicTemplate, this.mac);
@@ -305,7 +310,7 @@ export class DeviceRuntime {
         if (this.connected) {
             await this.updateRuntimeState(this.isPaused ? 'paused' : 'online');
             if (!this.isPaused) this.startTelemetry();
-            await this.publishStatus('online').catch((error) => {
+            await this.publishPresence('online').catch((error) => {
                 this.logger.warn({ err: error }, 'Could not publish virtual device online status');
             });
             await this.publishTopologyReadyAck();
@@ -358,13 +363,13 @@ export class DeviceRuntime {
 
             client.on('message', (topic, payload) => {
                 if (topic === this.controlTopic()) {
-                    void this.handleCommand(payload, this.mac);
+                    void this.handleControlMessage(payload, this.mac);
                 } else if (topic === this.hubControlTopic()) {
                     void this.transportCoordinator
-                        .deliverRelayedCommand(this.mac, payload)
+                        .deliverRelayedOperation(this.mac, payload)
                         .catch((error) => this.logger.warn(
                             { err: error },
-                            'Hub rejected a relayed command',
+                            'Hub rejected a relayed operation',
                         ));
                 }
             });
@@ -457,14 +462,23 @@ export class DeviceRuntime {
             if (evolve) this.state = evolveState(this.state, product);
             const nextSeq = await this.reserveNextSequence();
             const timestamp = new Date();
+            const instances = Object.fromEntries(
+                Object.entries(this.state.instances).map(([instanceId, envelope]) => [
+                    instanceId,
+                    { reported: envelope.reported },
+                ]),
+            );
             const payload = {
+                schema: 'device.telemetry.v2',
+                event_id: `${this.mac}:${nextSeq}`,
                 device_id: this.mac,
-                timestamp: timestamp.toISOString(),
+                product_id: product.product_id,
+                catalog_revision: product.catalog_revision,
+                state_version: this.state.state_version,
                 seq: nextSeq,
-                metrics: {
-                    ...this.state.metrics,
-                    ...this.state.diagnostics,
-                },
+                observed_at: timestamp.toISOString(),
+                instances,
+                diagnostics: this.state.diagnostics,
                 trace_id: crypto.randomUUID(),
             };
             const serializedPayload = JSON.stringify(payload);
@@ -486,156 +500,335 @@ export class DeviceRuntime {
         }
     }
 
-    private async handleCommand(rawPayload: Buffer, originMac: string): Promise<void> {
-        let command: DeviceCommand | null = null;
+    private async handleOperation(rawPayload: Buffer, originMac: string): Promise<void> {
+        let operation: DeviceOperation | null = null;
         let routeValidated = false;
-        let commandApplied = false;
+        let operationApplied = false;
         getRunMetricsService(this.logger).record(this.simulationRunId, {
-            commands_received: 1,
+            operations_received: 1,
         });
         try {
-            const parsed = JSON.parse(rawPayload.toString()) as unknown;
-            command = parseDeviceCommand(parsed);
-            if (command.target_device_id && command.target_device_id !== this.mac) {
-                throw new Error('Command target does not match this virtual device');
+            operation = parseDeviceOperation(JSON.parse(rawPayload.toString()) as unknown);
+            const product = getProduct(this.productId);
+            if (operation.target_device_id !== this.mac) {
+                throw new Error('Operation target does not match this virtual device');
             }
             if (
-                command.route
-                && !commandRouteMatchesAssignment(
-                    command.route,
-                    this.assignment,
-                    this.mac,
-                    this.effectiveTransportMode === 'direct'
-                        ? undefined
-                        : this.effectiveTransportMode,
-                )
+                operation.product_id !== product.product_id
+                || operation.catalog_revision !== product.catalog_revision
             ) {
-                throw new Error('Command route does not match the current topology assignment');
+                throw new Error('Operation Product contract does not match device firmware');
             }
-            if (
-                command.route?.mode === 'relay'
-                && originMac !== this.assignment?.active_hub_mac
-            ) {
-                throw new Error('Relayed command did not originate from the active Hub');
+            if (!operationRouteMatchesAssignment(
+                operation.route,
+                this.assignment,
+                this.mac,
+                this.effectiveTransportMode === 'direct'
+                    ? undefined
+                    : this.effectiveTransportMode,
+            )) {
+                throw new Error('Operation route does not match the current topology assignment');
             }
-            if (
-                command.route
-                && command.route.mode !== 'relay'
-                && originMac !== this.mac
-            ) {
-                throw new Error('Direct command origin does not match this device');
+            if (operation.route.mode === 'relay' && originMac !== this.assignment?.active_hub_mac) {
+                throw new Error('Relayed operation did not originate from the active Hub');
+            }
+            if (operation.route.mode !== 'relay' && originMac !== this.mac) {
+                throw new Error('Direct operation origin does not match this device');
             }
             routeValidated = true;
 
-            const previous = this.getCommandResult(command.command_id);
+            const previous = this.getOperationResult(operation.operation_id);
             if (previous) {
-                await this.publishAck(
-                    command.command_id,
+                await this.publishOperationAck(
+                    operation.operation_id,
                     previous.status,
-                    command.route,
-                    previous.errorMessage,
+                    operation.route,
+                    previous.reasonCode,
+                    previous.details,
                 );
                 return;
             }
 
-            this.state = applyCommandToState(this.state, getProduct(this.productId), command);
-            this.storeCommandResult(command.command_id, { status: 'success' });
-            commandApplied = true;
+            this.state = applyOperationToState(this.state, product, operation);
+            await this.persistRegistryState(new Date(), true);
+            const resourceId = typeof operation.context.resource_id === 'string'
+                ? operation.context.resource_id
+                : null;
+            const resourceSessionId = typeof operation.context.resource_session_id === 'string'
+                ? operation.context.resource_session_id
+                : null;
+            const details = resourceId && resourceSessionId
+                ? {
+                    resource_locator: `simulator://device/${this.mac}/resource/${resourceId}/${resourceSessionId}`,
+                }
+                : undefined;
+            this.storeOperationResult(operation.operation_id, { status: 'succeeded', details });
+            operationApplied = true;
             getRunMetricsService(this.logger).record(this.simulationRunId, {
-                commands_applied: 1,
+                operations_applied: 1,
             });
-            await this.publishAck(command.command_id, 'success', command.route);
+            await this.publishOperationAck(
+                operation.operation_id,
+                'succeeded',
+                operation.route,
+                undefined,
+                details,
+            );
             await recordSimulatorEvent({
-                type: 'device.command',
+                type: 'device.operation_applied',
                 severity: 'info',
                 run_id: this.simulationRunId,
                 mac: this.mac,
-                message: `Applied command ${command.action}`,
+                message: `Applied operation ${operation.operation_name}`,
                 data: {
-                    command_id: command.command_id,
-                    capability_id: command.capability_id,
-                    instance: command.instance,
-                    action: command.action,
-                    payload: command.payload,
-                    route: command.route,
+                    operation_id: operation.operation_id,
+                    instance_id: operation.instance_id,
+                    operation_name: operation.operation_name,
+                    input: operation.input,
+                    route: operation.route,
                 },
             });
             await this.publishTelemetry(false);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            if (commandApplied && command?.command_id) {
+            if (operationApplied && operation) {
                 this.logger.warn(
-                    { err: error, commandId: command.command_id },
-                    'Command was applied but its success ACK could not be published',
+                    { err: error, operationId: operation.operation_id },
+                    'Operation was applied but its success ACK could not be published',
                 );
                 await recordSimulatorEvent({
-                    type: 'device.command_ack_failed',
+                    type: 'device.operation_ack_failed',
                     severity: 'warning',
                     run_id: this.simulationRunId,
                     mac: this.mac,
-                    message: 'Command was applied but its success ACK could not be published',
+                    message: 'Operation was applied but its success ACK could not be published',
                     data: {
-                        command_id: command.command_id,
-                        action: command.action,
+                        operation_id: operation.operation_id,
+                        operation_name: operation.operation_name,
                         error: message,
                     },
                 }).catch(() => undefined);
                 return;
             }
-            this.logger.warn({ err: error }, 'Rejected virtual device command');
+
+            this.logger.warn({ err: error }, 'Rejected virtual device operation');
             getRunMetricsService(this.logger).record(this.simulationRunId, {
-                commands_rejected: 1,
+                operations_rejected: 1,
             });
-            if (command?.command_id && routeValidated) {
-                this.storeCommandResult(command.command_id, {
-                    status: 'error',
-                    errorMessage: message,
+            if (operation && routeValidated) {
+                const reasonCode = 'DEVICE_OPERATION_REJECTED';
+                const details = { message: message.slice(0, 500) };
+                this.storeOperationResult(operation.operation_id, {
+                    status: 'rejected',
+                    reasonCode,
+                    details,
                 });
                 try {
-                    await this.publishAck(
-                        command.command_id,
-                        'error',
-                        command.route,
-                        message,
+                    await this.publishOperationAck(
+                        operation.operation_id,
+                        'rejected',
+                        operation.route,
+                        reasonCode,
+                        details,
                     );
                 } catch (ackError) {
                     this.logger.warn(
-                        { err: ackError, commandId: command.command_id },
-                        'Could not publish rejection ACK',
+                        { err: ackError, operationId: operation.operation_id },
+                        'Could not publish operation rejection ACK',
                     );
                 }
             }
             await recordSimulatorEvent({
-                type: 'device.command_failed',
+                type: 'device.operation_rejected',
                 severity: 'warning',
                 run_id: this.simulationRunId,
                 mac: this.mac,
-                message: 'Virtual device rejected a command',
+                message: 'Virtual device rejected an operation',
                 data: {
-                    command_id: command?.command_id,
-                    action: command?.action,
+                    operation_id: operation?.operation_id,
+                    operation_name: operation?.operation_name,
                     error: message,
                 },
             }).catch(() => undefined);
         }
     }
 
-    private async publishAck(
-        commandId: string,
-        status: 'success' | 'error',
-        route?: CommandRoute,
-        errorMessage?: string,
+    private async handleControlMessage(rawPayload: Buffer, originMac: string): Promise<void> {
+        let message: unknown;
+        try {
+            message = JSON.parse(rawPayload.toString());
+        } catch {
+            this.logger.warn('Rejected control payload that is not valid JSON');
+            return;
+        }
+        if (
+            message
+            && typeof message === 'object'
+            && !Array.isArray(message)
+            && (message as Record<string, unknown>).schema === 'device.credential.v2'
+        ) {
+            await this.handleCredential(message as Record<string, unknown>, originMac);
+            return;
+        }
+        await this.handleOperation(rawPayload, originMac);
+    }
+
+    private async handleCredential(
+        message: Record<string, unknown>,
+        originMac: string,
+    ): Promise<void> {
+        const jobId = String(message.job_id || '');
+        const route = message.route as OperationRoute;
+        let routeValidated = false;
+        try {
+            if (!/^[0-9a-f-]{36}$/i.test(jobId)) throw new Error('Credential job ID is invalid');
+            const target = String(message.target_device_id || '').trim().toUpperCase();
+            const instanceId = String(message.instance_id || '');
+            const credentialName = String(message.credential_name || '');
+            if (target !== this.mac) throw new Error('Credential target does not match device');
+            if (!/^[a-z][a-z0-9_]+$/.test(instanceId) || !/^[a-z][a-z0-9_]+$/.test(credentialName)) {
+                throw new Error('Credential identity is invalid');
+            }
+            if (!operationRouteMatchesAssignment(
+                route,
+                this.assignment,
+                this.mac,
+                this.effectiveTransportMode === 'direct'
+                    ? undefined
+                    : this.effectiveTransportMode,
+            )) {
+                throw new Error('Credential route does not match topology');
+            }
+            if (route.mode === 'relay' && originMac !== this.assignment?.active_hub_mac) {
+                throw new Error('Relayed credential did not originate from active Hub');
+            }
+            if (route.mode !== 'relay' && originMac !== this.mac) {
+                throw new Error('Direct credential origin does not match device');
+            }
+            routeValidated = true;
+            const envelope = message.encrypted_envelope as Record<string, unknown>;
+            if (
+                !envelope
+                || envelope.algorithm !== 'RSA-OAEP-256+A256GCM'
+                || typeof envelope.encrypted_key_base64 !== 'string'
+                || typeof envelope.iv_base64 !== 'string'
+                || typeof envelope.ciphertext_base64 !== 'string'
+                || typeof envelope.auth_tag_base64 !== 'string'
+            ) {
+                throw new Error('Credential envelope is invalid');
+            }
+            const registry = await getMongoDb().collection<SimulatedDeviceRecord>('simulated_devices')
+                .findOne({ mac: this.mac });
+            if (!registry?.credential_private_key) throw new Error('Device credential key is unavailable');
+            const privateKey = decrypt(
+                registry.credential_private_key.iv,
+                registry.credential_private_key.encrypted,
+                registry.credential_private_key.authTag,
+            );
+            const envelopeKey = crypto.privateDecrypt(
+                {
+                    key: privateKey,
+                    padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+                    oaepHash: 'sha256',
+                },
+                Buffer.from(envelope.encrypted_key_base64, 'base64'),
+            );
+            const envelopeDecipher = crypto.createDecipheriv(
+                'aes-256-gcm',
+                envelopeKey,
+                Buffer.from(envelope.iv_base64, 'base64'),
+            );
+            envelopeDecipher.setAuthTag(Buffer.from(envelope.auth_tag_base64, 'base64'));
+            const decryptedPayload = Buffer.concat([
+                envelopeDecipher.update(Buffer.from(envelope.ciphertext_base64, 'base64')),
+                envelopeDecipher.final(),
+            ]).toString('utf8');
+            const material = JSON.parse(decryptedPayload) as Record<string, unknown>;
+            if (
+                material.job_id !== jobId
+                || material.instance_id !== instanceId
+                || material.credential_name !== credentialName
+                || typeof material.material !== 'string'
+            ) {
+                throw new Error('Credential envelope content is inconsistent');
+            }
+            const digest = crypto.createHash('sha256').update(material.material).digest('hex');
+            const digestPath = `secure_credential_digests.${instanceId}.${credentialName}`;
+            await getMongoDb().collection<SimulatedDeviceRecord>('simulated_devices').updateOne(
+                { mac: this.mac },
+                { $set: { [digestPath]: digest, updated_at: new Date() } },
+            );
+            const reported = this.state.instances[instanceId]?.reported;
+            const configuredProperty = `${credentialName}_configured`;
+            if (reported && Object.prototype.hasOwnProperty.call(reported, configuredProperty)) {
+                reported[configuredProperty] = true;
+                await this.persistRegistryState(new Date(), true);
+            }
+            await this.publishCredentialAck(jobId, 'succeeded', route);
+            await this.publishTelemetry(false);
+        } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            this.logger.warn({ err: error, jobId }, 'Rejected virtual device credential');
+            if (routeValidated) {
+                await this.publishCredentialAck(
+                    jobId,
+                    'rejected',
+                    route,
+                    'DEVICE_CREDENTIAL_REJECTED',
+                ).catch(() => undefined);
+            }
+            await recordSimulatorEvent({
+                type: 'device.credential_rejected',
+                severity: 'warning',
+                run_id: this.simulationRunId,
+                mac: this.mac,
+                message: 'Virtual device rejected a credential envelope',
+                data: { job_id: jobId, error: reason.slice(0, 500) },
+            }).catch(() => undefined);
+        }
+    }
+
+    private async publishCredentialAck(
+        jobId: string,
+        status: 'succeeded' | 'rejected',
+        route: OperationRoute,
+        reasonCode?: string,
+    ): Promise<void> {
+        await this.transportCoordinator.publishDeviceMessage(
+            this,
+            'operation_ack',
+            {
+                schema: 'device.credential.ack.v2',
+                job_id: jobId,
+                device_id: this.mac,
+                status,
+                observed_at: new Date().toISOString(),
+                ...(reasonCode ? { reason_code: reasonCode } : {}),
+            },
+            route,
+        );
+    }
+
+    private async publishOperationAck(
+        operationId: string,
+        status: 'succeeded' | 'rejected',
+        route: OperationRoute,
+        reasonCode?: string,
+        details?: Record<string, unknown>,
     ): Promise<void> {
         const payload = {
-            command_id: commandId,
+            schema: 'device.operation.ack.v2',
+            operation_id: operationId,
             device_id: this.mac,
             status,
-            ...(errorMessage ? { error_msg: errorMessage.slice(0, 500) } : {}),
+            observed_at: new Date().toISOString(),
+            ...(reasonCode ? { reason_code: reasonCode } : {}),
+            ...(details ? { details } : {}),
         };
         try {
             await this.transportCoordinator.publishDeviceMessage(
                 this,
-                'ack',
+                'operation_ack',
                 payload,
                 route,
             );
@@ -650,11 +843,12 @@ export class DeviceRuntime {
         }
     }
 
-    private async publishStatus(status: 'online' | 'offline' | 'heartbeat'): Promise<void> {
-        await this.transportCoordinator.publishDeviceMessage(this, 'status', {
+    private async publishPresence(status: 'online' | 'offline' | 'heartbeat'): Promise<void> {
+        await this.transportCoordinator.publishDeviceMessage(this, 'presence', {
+            schema: 'device.presence.v2',
             device_id: this.mac,
             status,
-            timestamp: new Date().toISOString(),
+            observed_at: new Date().toISOString(),
         });
     }
 
@@ -671,41 +865,42 @@ export class DeviceRuntime {
         const ackKey = `${assignment.network_id}:${assignment.topology_epoch}`;
         if (this.lastTopologyAckKey === ackKey) return;
         await this.publishBrokerMessage('topology_ack', {
+            schema: 'device.topology.ack.v2',
             device_id: this.mac,
             network_id: assignment.network_id,
             topology_epoch: assignment.topology_epoch,
             status: 'ready',
-            timestamp: new Date().toISOString(),
+            observed_at: new Date().toISOString(),
         });
         this.lastTopologyAckKey = ackKey;
     }
 
-    private getCommandResult(commandId: string): CommandResult | undefined {
-        const result = this.commandResults.get(commandId);
+    private getOperationResult(operationId: string): OperationResult | undefined {
+        const result = this.operationResults.get(operationId);
         if (!result) return undefined;
         if (result.expiresAt <= Date.now()) {
-            this.commandResults.delete(commandId);
+            this.operationResults.delete(operationId);
             return undefined;
         }
         return result;
     }
 
-    private storeCommandResult(
-        commandId: string,
-        result: Omit<CommandResult, 'expiresAt'>,
+    private storeOperationResult(
+        operationId: string,
+        result: Omit<OperationResult, 'expiresAt'>,
     ): void {
         const now = Date.now();
-        for (const [id, existing] of this.commandResults) {
-            if (existing.expiresAt <= now) this.commandResults.delete(id);
+        for (const [id, existing] of this.operationResults) {
+            if (existing.expiresAt <= now) this.operationResults.delete(id);
         }
-        while (this.commandResults.size >= 1000) {
-            const oldest = this.commandResults.keys().next().value as string | undefined;
+        while (this.operationResults.size >= 1000) {
+            const oldest = this.operationResults.keys().next().value as string | undefined;
             if (!oldest) break;
-            this.commandResults.delete(oldest);
+            this.operationResults.delete(oldest);
         }
-        this.commandResults.set(commandId, {
+        this.operationResults.set(operationId, {
             ...result,
-            expiresAt: now + env.COMMAND_DEDUP_TTL_MS,
+            expiresAt: now + env.OPERATION_DEDUP_TTL_MS,
         });
     }
 

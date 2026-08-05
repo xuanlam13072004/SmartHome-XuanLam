@@ -1,294 +1,236 @@
 import type {
-    CapabilityCommand,
-    CapabilityInstance,
+    CapabilityOperation,
+    CapabilityProperty,
     ProductCatalog,
-    StateProperty,
+    ValueSchema,
 } from '../catalog/loader';
-import { validateCommandPayload } from './command-validation';
+import {
+    validateOperationInput,
+    validateValueAgainstSchema,
+} from './operation-validation';
 
 export interface DeviceState {
-    metrics: Record<string, unknown>;
-    diagnostics: Record<string, unknown>;
+    state_version: number;
+    instances: Record<string, {
+        reported: Record<string, unknown>;
+        desired: Record<string, unknown>;
+    }>;
+    diagnostics: Record<string, Record<string, unknown>>;
 }
 
-const randomWalk = (current: number, min: number, max: number, step: number): number => {
-    const direction = Math.random() > 0.5 ? 1 : -1;
-    let next = current + direction * step;
-    if (next < min) next = min;
-    if (next > max) next = max;
-    return step % 1 !== 0 ? Math.round(next * 10) / 10 : Math.round(next);
-};
+export interface DeviceStatePatch {
+    instances?: Record<string, {
+        reported?: Record<string, unknown>;
+        desired?: Record<string, unknown>;
+    }>;
+    diagnostics?: Record<string, Record<string, unknown>>;
+}
 
-const realisticNumberDefaults: Record<string, number> = {
+const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+
+const realisticNumbers: Record<string, number> = {
     temperature: 25,
     humidity: 58,
-    light_level: 650,
-    soil_moisture: 62,
-    water_level: 72,
-    gas_level: 120,
+    illuminance: 650,
+    moisture_level: 62,
+    level_normalized: 72,
+    gas_level: 12,
     smoke_level: 4,
     voltage: 220,
     current: 1.2,
     active_power: 264,
-    energy_accumulated: 12.5,
-    rssi: -60,
-    uptime_seconds: 0,
-    free_heap: 180000,
-    min_free_heap: 150000,
-    memory_fragmentation: 4,
-    flash_usage_bytes: 420000,
-    cpu_temperature: 42,
-    mqtt_latency_ms: 18,
-    boot_count: 1,
-    watchdog_resets: 0,
-    last_ota_timestamp: 0,
+    accumulated_energy: 12.5,
+    wifi_rssi: -60,
+    uptime: 0,
 };
 
-const defaultValueForProperty = (key: string, property: StateProperty): unknown => {
-    if (property.validation?.enum?.length) return property.validation.enum[0];
-    if (property.value_type === 'boolean') return false;
-    if (property.value_type === 'string') {
-        if (key === 'firmware_version') return 'sim-1.0.0';
-        if (key === 'restart_reason') return 'simulator_start';
-        return '';
+const seedValue = (property: CapabilityProperty): unknown => {
+    if (property.default !== null && property.default !== undefined) return clone(property.default);
+    if (realisticNumbers[property.id] !== undefined) return realisticNumbers[property.id];
+    if (property.type === 'number' || property.type === 'integer') {
+        const minimum = property.minimum ?? 0;
+        const maximum = property.maximum ?? minimum + 100;
+        return property.type === 'integer'
+            ? Math.round((minimum + maximum) / 2)
+            : Math.round(((minimum + maximum) / 2) * 10) / 10;
     }
-    if (property.value_type === 'number') {
-        const configured = realisticNumberDefaults[key];
-        if (configured !== undefined) return configured;
-        const min = property.validation?.min ?? 0;
-        const max = property.validation?.max ?? min + 100;
-        return Math.round(((min + max) / 2) * 10) / 10;
-    }
+    if (property.type === 'boolean') return false;
+    if (property.type === 'string') return property.enum?.[0] ?? '';
+    if (property.type === 'array') return [];
     return null;
 };
 
-const getInstances = (product: ProductCatalog): CapabilityInstance[] =>
-    Array.isArray(product.capabilityInstances) ? product.capabilityInstances : [];
-
 export const generateInitialState = (product: ProductCatalog): DeviceState => {
+    const source = clone(product.firmware_default_state);
     const state: DeviceState = {
-        metrics: { ...(product.default_state || {}) },
-        diagnostics: {},
+        state_version: 0,
+        instances: source.instances || {},
+        diagnostics: source.diagnostics || {},
     };
-
-    for (const instance of getInstances(product)) {
-        for (const [key, property] of Object.entries(instance.state_properties || {})) {
-            if (state.metrics[key] === undefined || state.metrics[key] === null) {
-                state.metrics[key] = defaultValueForProperty(key, property);
+    for (const instance of product.capability_instances) {
+        state.instances[instance.instance_id] ||= { reported: {}, desired: {} };
+        for (const property of instance.properties) {
+            if (property.channel === 'diagnostic') {
+                state.diagnostics[instance.instance_id] ||= {};
+                if (state.diagnostics[instance.instance_id][property.id] == null) {
+                    state.diagnostics[instance.instance_id][property.id] = seedValue(property);
+                }
+            } else if (state.instances[instance.instance_id][property.channel][property.id] == null) {
+                state.instances[instance.instance_id][property.channel][property.id] = seedValue(property);
             }
-        }
-        for (const [key, property] of Object.entries(instance.diagnostic_properties || {})) {
-            state.diagnostics[key] = defaultValueForProperty(key, property);
         }
     }
     return state;
 };
 
-const commandControlledKeys = (product: ProductCatalog): Set<string> => {
-    const keys = new Set<string>();
-    for (const instance of getInstances(product)) {
-        if (!instance.commands?.length) continue;
-        for (const stateKey of Object.keys(instance.state_properties || {})) {
-            keys.add(stateKey);
-        }
-    }
-    return keys;
+const randomWalk = (value: number, schema: ValueSchema): number => {
+    const minimum = schema.minimum ?? value - 10;
+    const maximum = schema.maximum ?? value + 10;
+    const step = Math.max((maximum - minimum) / 100, schema.type === 'integer' ? 1 : 0.1);
+    const next = Math.min(maximum, Math.max(minimum, value + (Math.random() > 0.5 ? step : -step)));
+    return schema.type === 'integer' ? Math.round(next) : Math.round(next * 10) / 10;
 };
 
-export const evolveState = (currentState: DeviceState, product: ProductCatalog): DeviceState => {
-    const nextState: DeviceState = {
-        metrics: { ...currentState.metrics },
-        diagnostics: { ...currentState.diagnostics },
-    };
-    const controlledKeys = commandControlledKeys(product);
-
-    for (const instance of getInstances(product)) {
-        for (const [key, property] of Object.entries(instance.state_properties || {})) {
-            const current = nextState.metrics[key];
-            if (controlledKeys.has(key) || typeof current !== 'number') continue;
-            const min = property.validation?.min ?? current - 100;
-            const max = property.validation?.max ?? current + 100;
-            const step = Math.max((max - min) / 100, 0.1);
-            nextState.metrics[key] = randomWalk(current, min, max, step);
+const controlledPaths = (product: ProductCatalog): Set<string> => {
+    const paths = new Set<string>();
+    for (const operation of Object.values(product.operations)) {
+        for (const effect of operation.effects || []) {
+            if (effect.property) paths.add(`${operation.instance_id}.${effect.property}`);
         }
     }
+    return paths;
+};
 
-    for (const instance of getInstances(product)) {
-        for (const [key, property] of Object.entries(instance.diagnostic_properties || {})) {
-            const current = nextState.diagnostics[key];
-            if (key === 'uptime_seconds' && typeof current === 'number') {
-                nextState.diagnostics[key] = current + 1;
-                continue;
+export const evolveState = (current: DeviceState, product: ProductCatalog): DeviceState => {
+    const next = clone(current);
+    const controlled = controlledPaths(product);
+    let changed = false;
+    for (const instance of product.capability_instances) {
+        for (const property of instance.properties) {
+            if (!['number', 'integer'].includes(property.type)) continue;
+            if (property.channel === 'reported') {
+                if (controlled.has(`${instance.instance_id}.${property.id}`)) continue;
+                const value = next.instances[instance.instance_id]?.reported[property.id];
+                if (typeof value === 'number') {
+                    next.instances[instance.instance_id].reported[property.id] = randomWalk(value, property);
+                    changed = true;
+                }
+            } else if (property.channel === 'diagnostic') {
+                const value = next.diagnostics[instance.instance_id]?.[property.id];
+                if (typeof value !== 'number') continue;
+                next.diagnostics[instance.instance_id][property.id] = property.id === 'uptime'
+                    ? value + 1
+                    : randomWalk(value, property);
+                changed = true;
             }
-            if (typeof current !== 'number') continue;
-            const min = property.validation?.min ?? realisticNumberDefaults[key] ?? current - 10;
-            const max = property.validation?.max ?? current + 10;
-            const step = key === 'rssi' ? 2 : Math.max((max - min) / 200, 0.1);
-            nextState.diagnostics[key] = randomWalk(current, min, max, step);
         }
     }
-
-    return nextState;
+    if (changed) next.state_version += 1;
+    return next;
 };
 
-export const applyCommandToState = (
+function effectValue(effect: { value?: unknown; value_from?: string }, input: Record<string, unknown>) {
+    if (effect.value_from?.startsWith('input.')) return input[effect.value_from.slice(6)];
+    return effect.value;
+}
+
+function inferredReportedValue(operationName: string, schema?: CapabilityProperty): unknown {
+    const candidates: Record<string, unknown> = {
+        lock: 'locked',
+        unlock: 'unlocked',
+        open: 'open',
+        close: 'closed',
+        stop: schema?.enum?.includes('stopped') ? 'stopped' : 'idle',
+        turn_on: 'on',
+        turn_off: 'off',
+        start: 'running',
+    };
+    const candidate = candidates[operationName];
+    return schema?.enum?.includes(candidate) ? candidate : undefined;
+}
+
+export const applyOperationToState = (
     state: DeviceState,
     product: ProductCatalog,
-    input: {
-        capability_id?: string;
-        instance?: string;
-        action: string;
-        payload?: Record<string, unknown>;
-    },
+    input: { instance_id: string; operation_name: string; input: Record<string, unknown> },
 ): DeviceState => {
-    const candidates = getInstances(product).filter((instance) =>
-        (!input.capability_id || instance.capability_id === input.capability_id)
-        && (!input.instance || instance.instance === input.instance)
-        && instance.commands?.some((command) => command.action === input.action),
-    );
-    if (candidates.length !== 1) {
-        throw new Error(candidates.length === 0
-            ? `Unsupported command action ${input.action}`
-            : `Command action ${input.action} is ambiguous without capability instance`);
-    }
-
-    const instance = candidates[0];
-    const command = instance.commands.find((item) => item.action === input.action) as CapabilityCommand;
-    const payload = input.payload || {};
-    validateCommandPayload(command, payload);
-
-    const next: DeviceState = {
-        metrics: { ...state.metrics },
-        diagnostics: { ...state.diagnostics },
-    };
-    const stateKeys = Object.keys(instance.state_properties || {});
-
-    for (const argument of command.arguments || []) {
-        const value = payload[argument.name];
-        let stateKey = argument.name;
-        if (!(stateKey in instance.state_properties) && argument.name === 'value' && stateKeys.length === 1) {
-            stateKey = stateKeys[0];
-        }
-        if (input.action === 'SET_POSITION' && argument.name === 'position') stateKey = 'target_position';
-        if (input.action === 'SET_RECOGNITION_MODE' && argument.name === 'enabled') stateKey = 'recognition_enabled';
-        if (input.action === 'DISPLAY_TEXT' && argument.name === 'text') stateKey = 'displayed_text';
-        if (stateKey in next.metrics || stateKey in instance.state_properties) {
-            next.metrics[stateKey] = value;
+    const operation = product.operations[`${input.instance_id}.${input.operation_name}`];
+    if (!operation) throw new Error('Operation is not supported by this Product');
+    validateOperationInput(operation, input.input);
+    const instance = product.capability_instances.find(item => item.instance_id === input.instance_id);
+    if (!instance) throw new Error('Operation capability instance is unavailable');
+    const next = clone(state);
+    next.instances[input.instance_id] ||= { reported: {}, desired: {} };
+    for (const effect of operation.effects || []) {
+        if (!effect.property) continue;
+        const value = effectValue(effect, input.input);
+        if (effect.type === 'set_desired') {
+            next.instances[input.instance_id].desired[effect.property] = value;
+            const reportedProperty = effect.property.startsWith('target_')
+                ? effect.property.slice('target_'.length)
+                : null;
+            if (reportedProperty && instance.properties.some(
+                property => property.id === reportedProperty && property.channel === 'reported',
+            )) {
+                next.instances[input.instance_id].reported[reportedProperty] = value;
+            }
+        } else if (effect.type === 'expect_reported') {
+            next.instances[input.instance_id].reported[effect.property] = value;
         }
     }
-
-    switch (input.action) {
-        case 'LOCK':
-            next.metrics.lock_state = 'locked';
-            break;
-        case 'UNLOCK':
-            next.metrics.lock_state = 'unlocked';
-            break;
-        case 'OPEN':
-            next.metrics.target_position = 100;
-            next.metrics.current_position = 100;
-            next.metrics.movement_status = 'stopped';
-            break;
-        case 'CLOSE':
-            next.metrics.target_position = 0;
-            next.metrics.current_position = 0;
-            next.metrics.movement_status = 'stopped';
-            break;
-        case 'STOP':
-            next.metrics.movement_status = 'stopped';
-            break;
-        case 'SET_POSITION':
-            next.metrics.current_position = next.metrics.target_position;
-            next.metrics.movement_status = 'stopped';
-            break;
-        case 'START_STREAM':
-            next.metrics.is_streaming = true;
-            break;
-        case 'STOP_STREAM':
-            next.metrics.is_streaming = false;
-            break;
-        case 'TAKE_SNAPSHOT':
-            next.metrics.snapshot_taken_at = new Date().toISOString();
-            break;
-        case 'CLEAR_DISPLAY':
-            next.metrics.displayed_text = '';
-            break;
-        case 'RESET_ENERGY':
-            next.metrics.energy_accumulated = 0;
-            break;
+    const ack = (operation as CapabilityOperation & {
+        ack_policy?: { completion_signal?: string; reference?: string };
+    }).ack_policy;
+    if (ack?.completion_signal === 'reported_state' && ack.reference) {
+        const property = instance.properties.find(item => item.id === ack.reference);
+        if (next.instances[input.instance_id].reported[ack.reference] === undefined) {
+            const inferred = inferredReportedValue(input.operation_name, property);
+            if (inferred !== undefined) {
+                next.instances[input.instance_id].reported[ack.reference] = inferred;
+            }
+        }
     }
-
+    next.state_version += 1;
     return next;
 };
 
 export const patchDeviceState = (
     state: DeviceState,
     product: ProductCatalog,
-    patch: Partial<DeviceState>,
+    patch: DeviceStatePatch,
 ): DeviceState => {
-    const stateProperties = new Map<string, StateProperty>();
-    const diagnosticProperties = new Map<string, StateProperty>();
-    for (const instance of getInstances(product)) {
-        for (const [key, property] of Object.entries(instance.state_properties || {})) {
-            stateProperties.set(key, property);
-        }
-        for (const [key, property] of Object.entries(instance.diagnostic_properties || {})) {
-            diagnosticProperties.set(key, property);
-        }
-    }
-
-    validateStateSection('metrics', patch.metrics, stateProperties);
-    validateStateSection('diagnostics', patch.diagnostics, diagnosticProperties);
-    return {
-        metrics: { ...state.metrics, ...(patch.metrics || {}) },
-        diagnostics: { ...state.diagnostics, ...(patch.diagnostics || {}) },
-    };
-};
-
-const validateStateSection = (
-    section: string,
-    values: Record<string, unknown> | undefined,
-    properties: Map<string, StateProperty>,
-): void => {
-    if (!values) return;
-    for (const [key, value] of Object.entries(values)) {
-        const property = properties.get(key);
-        if (!property) throw new Error(`Unknown ${section} state key ${key}`);
-        if (property.value_type === 'number' && (typeof value !== 'number' || !Number.isFinite(value))) {
-            throw new Error(`${section}.${key} must be a finite number`);
-        }
-        if (property.value_type === 'boolean' && typeof value !== 'boolean') {
-            throw new Error(`${section}.${key} must be a boolean`);
-        }
-        if (property.value_type === 'string' && typeof value !== 'string') {
-            throw new Error(`${section}.${key} must be a string`);
-        }
-        if (
-            typeof value === 'number'
-            && property.validation?.min !== undefined
-            && value < property.validation.min
-        ) {
-            throw new Error(`${section}.${key} must be at least ${property.validation.min}`);
-        }
-        if (
-            typeof value === 'number'
-            && property.validation?.max !== undefined
-            && value > property.validation.max
-        ) {
-            throw new Error(`${section}.${key} must be at most ${property.validation.max}`);
-        }
-        if (
-            typeof value === 'string'
-            && property.validation?.max_length !== undefined
-            && value.length > property.validation.max_length
-        ) {
-            throw new Error(`${section}.${key} exceeds ${property.validation.max_length} characters`);
-        }
-        if (
-            property.validation?.enum
-            && !property.validation.enum.some((item) => Object.is(item, value))
-        ) {
-            throw new Error(`${section}.${key} is not an allowed enum value`);
+    const next = clone(state);
+    for (const [instanceId, envelope] of Object.entries(patch.instances || {})) {
+        const definition = product.capability_instances.find(item => item.instance_id === instanceId);
+        if (!definition) throw new Error(`Unknown capability instance ${instanceId}`);
+        next.instances[instanceId] ||= { reported: {}, desired: {} };
+        for (const channel of ['reported', 'desired'] as const) {
+            for (const [propertyId, value] of Object.entries(envelope[channel] || {})) {
+                const property = definition.properties.find(item => (
+                    item.id === propertyId && item.channel === channel
+                ));
+                if (!property) throw new Error(
+                    `Unknown ${channel} property ${instanceId}.${propertyId}`,
+                );
+                validateValueAgainstSchema(value, property, `${instanceId}.${channel}.${propertyId}`);
+                next.instances[instanceId][channel][propertyId] = value;
+            }
         }
     }
+    for (const [instanceId, values] of Object.entries(patch.diagnostics || {})) {
+        if (!product.capability_instances.some(item => item.instance_id === instanceId)) {
+            throw new Error(`Unknown diagnostic instance ${instanceId}`);
+        }
+        next.diagnostics[instanceId] ||= {};
+        for (const [propertyId, value] of Object.entries(values)) {
+            const property = product.capability_instances
+                .find(item => item.instance_id === instanceId)
+                ?.properties.find(item => item.id === propertyId && item.channel === 'diagnostic');
+            if (!property) throw new Error(`Unknown diagnostic property ${instanceId}.${propertyId}`);
+            validateValueAgainstSchema(value, property, `${instanceId}.diagnostic.${propertyId}`);
+            next.diagnostics[instanceId][propertyId] = value;
+        }
+    }
+    next.state_version += 1;
+    return next;
 };

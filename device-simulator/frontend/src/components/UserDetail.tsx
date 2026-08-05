@@ -6,7 +6,7 @@ import {
   userAction,
 } from '../api'
 import type {
-  DeviceCommand,
+  DeviceOperation,
   SimulatedDevice,
   SimulatedUser,
 } from '../types'
@@ -26,8 +26,8 @@ export function UserDetail({
   const [user, setUser] = useState<SimulatedUser | null>(null)
   const [devices, setDevices] = useState<SimulatedDevice[]>([])
   const [telemetry, setTelemetry] = useState<Record<string, unknown>[]>([])
-  const [commands, setCommands] = useState<DeviceCommand[]>([])
-  const [credential, setCredential] = useState<{ email: string; username: string; password: string } | null>(null)
+  const [operations, setOperations] = useState<DeviceOperation[]>([])
+  const [credential, setCredential] = useState<{ email: string; password: string } | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [acting, setActing] = useState('')
@@ -38,7 +38,7 @@ export function UserDetail({
       setUser(result.user)
       setDevices(result.devices)
       setTelemetry(result.telemetry)
-      setCommands(result.commands)
+      setOperations(result.operations)
       setError('')
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not load simulated user')
@@ -119,7 +119,6 @@ export function UserDetail({
           <dl className="detail-spec">
             <Spec label="Account ID" value={user.account_id || 'Registration pending'} mono />
             <Spec label="Email" value={user.email} />
-            <Spec label="Username" value={user.username} />
             <Spec label="Generation" value={user.generation_state} />
             <Spec
               label="Account ownership"
@@ -164,7 +163,7 @@ export function UserDetail({
 
           <div className="device-data-grid">
             <HistoryPanel title="Recent telemetry" count={telemetry.length} value={telemetry[0]} />
-            <HistoryPanel title="Recent commands" count={commands.length} value={commands[0]} />
+            <HistoryPanel title="Recent operations" count={operations.length} value={operations[0]} />
           </div>
         </>
       )}
@@ -179,7 +178,7 @@ function HistoryPanel({
 }: {
   title: string
   count: number
-  value?: Record<string, unknown> | DeviceCommand
+  value?: Record<string, unknown> | DeviceOperation
 }) {
   return (
     <section className="data-panel">
@@ -223,6 +222,5 @@ const formatDate = (value?: string) => value
 
 const formatProvenance = (value?: SimulatedUser['account_provenance']) => {
   if (value === 'recovered_after_register') return 'recovered registration'
-  if (value === 'verified_legacy') return 'verified legacy record'
   return 'registered by simulator'
 }

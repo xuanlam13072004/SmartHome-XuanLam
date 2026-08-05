@@ -7,7 +7,7 @@ import {
   setDeviceConnection,
   updateDeviceState,
 } from '../api'
-import type { DeviceCommand, SimulatedDevice, SimulatorEvent } from '../types'
+import type { DeviceOperation, SimulatedDevice, SimulatorEvent } from '../types'
 import { CopyButton } from './CopyButton'
 import { DetailHeading } from './UserDetail'
 import { StatusBadge } from './RunsList'
@@ -21,7 +21,7 @@ export function DeviceDetail({
 }) {
   const [device, setDevice] = useState<SimulatedDevice | null>(null)
   const [telemetry, setTelemetry] = useState<Record<string, unknown>[]>([])
-  const [commands, setCommands] = useState<DeviceCommand[]>([])
+  const [operations, setOperations] = useState<DeviceOperation[]>([])
   const [backendShadow, setBackendShadow] = useState<Record<string, unknown> | null>(null)
   const [events, setEvents] = useState<SimulatorEvent[]>([])
   const [stateDraft, setStateDraft] = useState('')
@@ -34,10 +34,13 @@ export function DeviceDetail({
       const result = await fetchDevice(mac)
       setDevice(result.device)
       setTelemetry(result.telemetry)
-      setCommands(result.commands)
+      setOperations(result.operations)
       setBackendShadow(result.backend_shadow)
       setEvents(result.events)
-      setStateDraft(JSON.stringify(result.device.state_snapshot || { metrics: {}, diagnostics: {} }, null, 2))
+      const state = result.device.state_snapshot
+      setStateDraft(JSON.stringify(state
+        ? { instances: state.instances, diagnostics: state.diagnostics }
+        : { instances: {}, diagnostics: {} }, null, 2))
       setError('')
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not load virtual device')
@@ -99,8 +102,11 @@ export function DeviceDetail({
     setActing('state')
     try {
       const parsed = JSON.parse(stateDraft) as {
-        metrics?: Record<string, unknown>
-        diagnostics?: Record<string, unknown>
+        instances?: Record<string, {
+          reported?: Record<string, unknown>
+          desired?: Record<string, unknown>
+        }>
+        diagnostics?: Record<string, Record<string, unknown>>
       }
       await updateDeviceState(mac, parsed)
       await load()
@@ -176,13 +182,13 @@ export function DeviceDetail({
                 : <p className="empty-inline">No telemetry has reached SmartHomeDB yet.</p>}
             </section>
             <section className="data-panel">
-              <div className="section-heading section-heading--compact"><div><h3>Command history</h3><p>{commands.length} backend commands loaded.</p></div></div>
-              {commands[0]
-                ? <pre>{JSON.stringify(commands[0], null, 2)}</pre>
-                : <p className="empty-inline">No command has been sent to this device.</p>}
+              <div className="section-heading section-heading--compact"><div><h3>Operation history</h3><p>{operations.length} backend operations loaded.</p></div></div>
+              {operations[0]
+                ? <pre>{JSON.stringify(operations[0], null, 2)}</pre>
+                : <p className="empty-inline">No operation has been sent to this device.</p>}
             </section>
             <section className="data-panel">
-              <div className="section-heading section-heading--compact"><div><h3>Recent events</h3><p>Command, runtime and security events.</p></div></div>
+              <div className="section-heading section-heading--compact"><div><h3>Recent events</h3><p>Operation, runtime and security events.</p></div></div>
               <EventRows events={events} />
             </section>
           </div>

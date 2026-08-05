@@ -55,8 +55,8 @@ class AuthController extends _$AuthController {
     }
   }
 
-  Future<void> register(String username, String email, String password, String fullName) async {
-    await ref.read(authRepositoryProvider).register(username, email, password, fullName);
+  Future<void> register(String email, String password, String fullName) async {
+    await ref.read(authRepositoryProvider).register(email, password, fullName);
   }
 
   Future<void> logout() async {

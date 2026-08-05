@@ -9,6 +9,7 @@ RUN npm ci --omit=dev
 
 WORKDIR /app
 COPY shared ./shared
+COPY database ./database
 COPY mqtt-worker-service ./mqtt-worker-service
 
 WORKDIR /app/mqtt-worker-service

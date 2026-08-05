@@ -1,6 +1,6 @@
 import type {
   CatalogProduct,
-  DeviceCommand,
+  DeviceOperation,
   Preflight,
   RunMetrics,
   RunConfig,
@@ -85,13 +85,13 @@ export const fetchUser = async (accountId: string) =>
     user: SimulatedUser
     devices: SimulatedDevice[]
     telemetry: Record<string, unknown>[]
-    commands: DeviceCommand[]
+    operations: DeviceOperation[]
   }>(
     `/users/${encodeURIComponent(accountId)}`,
   )
 
 export const revealUserCredential = async (accountId: string) =>
-  request<{ credential: { email: string; username: string; password: string } }>(
+  request<{ credential: { email: string; password: string } }>(
     `/users/${encodeURIComponent(accountId)}/reveal-credential`,
     { method: 'POST' },
   )
@@ -122,7 +122,7 @@ export const fetchDevice = async (mac: string) =>
     device: SimulatedDevice
     backend_shadow: Record<string, unknown> | null
     telemetry: Record<string, unknown>[]
-    commands: DeviceCommand[]
+    operations: DeviceOperation[]
     events: SimulatorEvent[]
   }>(`/devices/${encodeURIComponent(mac)}`)
 
@@ -141,7 +141,13 @@ export const deviceAction = (
 
 export const updateDeviceState = (
   mac: string,
-  state: { metrics?: Record<string, unknown>; diagnostics?: Record<string, unknown> },
+  state: {
+    instances?: Record<string, {
+      reported?: Record<string, unknown>
+      desired?: Record<string, unknown>
+    }>
+    diagnostics?: Record<string, Record<string, unknown>>
+  },
 ) => request(`/devices/${encodeURIComponent(mac)}/state`, {
   method: 'PATCH',
   body: JSON.stringify(state),

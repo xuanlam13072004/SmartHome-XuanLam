@@ -72,7 +72,8 @@ class CapabilityRegistry {
   List<Widget> buildWidgets(
     BuildContext context,
     List<CapabilityModel> capabilities,
-    void Function(String id, dynamic value) onCapabilityChanged,
+    void Function(CapabilityModel capability, dynamic value)
+        onCapabilityChanged,
   ) {
     return capabilities.map((cap) {
       return Padding(
@@ -80,7 +81,7 @@ class CapabilityRegistry {
         child: buildWidget(
           context,
           cap,
-          (val) => onCapabilityChanged(cap.id, val),
+          (val) => onCapabilityChanged(cap, val),
         ),
       );
     }).toList();

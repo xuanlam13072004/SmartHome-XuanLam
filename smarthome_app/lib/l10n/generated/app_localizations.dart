@@ -361,7 +361,6 @@ abstract class AppL10n {
   ///
   /// In vi, this message translates to:
   /// **'Lệnh đã được gửi'**
-  String get commandSent;
 
   /// Thông báo thiết bị xác nhận lệnh
   ///

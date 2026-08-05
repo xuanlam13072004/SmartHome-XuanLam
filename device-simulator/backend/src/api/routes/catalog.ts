@@ -5,10 +5,10 @@ const catalogRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
     app.get('/api/catalog/products', async () => ({
         success: true,
         products: getCachedCatalog().map((product) => ({
-            id: product.id,
-            display_name: product.display_name,
+            id: product.product_id,
+            display_name: product.model_name,
             category: product.category,
-            capability_count: product.capabilityInstances.length,
+            capability_count: product.capability_instances.length,
         })),
     }));
 };

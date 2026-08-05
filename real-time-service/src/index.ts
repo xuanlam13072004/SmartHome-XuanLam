@@ -1,13 +1,3 @@
-import dns from 'dns';
-
-// Fix Node.js SRV lookup issues by using Google's public DNS servers
-try {
-    dns.setServers(['8.8.8.8', '8.8.4.4']);
-    console.log('📡 DNS servers set to Google Public DNS.');
-} catch (dnsErr) {
-    console.warn('⚠️ Failed to set custom DNS servers:', dnsErr);
-}
-
 import { connectMongo, closeMongo } from './loaders/mongo.js';
 import { initRedis, closeRedis } from './loaders/redis.js';
 import { startRedisPubSubListener } from './services/redisPubSub.js';

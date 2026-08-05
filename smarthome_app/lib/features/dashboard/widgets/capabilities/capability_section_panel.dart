@@ -21,7 +21,8 @@ class CapabilitySectionPanel extends StatefulWidget {
   final String description;
   final IconData icon;
   final List<CapabilityModel> capabilities;
-  final void Function(String id, dynamic value) onCapabilityChanged;
+  final void Function(CapabilityModel capability, dynamic value)
+      onCapabilityChanged;
   final bool useGrid;
   final bool collapsible;
   final bool initiallyExpanded;
@@ -69,10 +70,8 @@ class _CapabilitySectionPanelState extends State<CapabilitySectionPanel> {
                     child: capabilityRegistry.buildWidget(
                       context,
                       capability,
-                      (value) => widget.onCapabilityChanged(
-                        capability.id,
-                        value,
-                      ),
+                      (value) =>
+                          widget.onCapabilityChanged(capability, value),
                     ),
                   );
                 }).toList(),

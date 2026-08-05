@@ -13,20 +13,13 @@ void main() {
       );
     });
 
-    test('infers profiles for legacy catalog responses', () {
+    test('does not infer a UI contract from a product identifier', () {
       expect(
         ProductUiProfile.resolve(
           explicitProfile: ProductUiProfile.generic,
           productId: 'prod_entrance_controller_v1',
         ),
-        ProductUiProfile.entranceController,
-      );
-      expect(
-        ProductUiProfile.resolve(
-          explicitProfile: '',
-          productId: 'prod_irrigation_manager_v1',
-        ),
-        ProductUiProfile.irrigationManager,
+        ProductUiProfile.generic,
       );
     });
 

@@ -23,8 +23,8 @@ function digestCatalog(catalog) {
 
 async function seedCatalogV2(db, catalog = loadCatalogV2(CATALOG_SOURCE_DIR)) {
     assertCatalogValid(catalog);
-    if (catalog.lifecycle !== 'draft' && process.env.ALLOW_CATALOG_PUBLISH !== 'true') {
-        throw new Error('Only draft catalogs may be seeded without ALLOW_CATALOG_PUBLISH=true.');
+    if (catalog.lifecycle === 'published' && process.env.ALLOW_CATALOG_PUBLISH !== 'true') {
+        throw new Error('ALLOW_CATALOG_PUBLISH=true is required to seed a published catalog.');
     }
 
     const capabilityOperations = catalog.capabilities.map(capability => ({
@@ -85,7 +85,7 @@ async function main() {
     await client.connect();
     try {
         await seedCatalogV2(client.db(dbName));
-        process.stdout.write(`Product Catalog V2 seeded as draft in ${dbName}.\n`);
+        process.stdout.write(`Published Product Catalog seeded in ${dbName}.\n`);
     } finally {
         await client.close();
     }

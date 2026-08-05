@@ -21,10 +21,16 @@ import { assignmentFromClaim } from '../../runtime/topology';
 
 const deviceProjection = { secret: 0 } as const;
 const statePatchSchema = z.object({
-    metrics: z.record(z.string(), z.unknown()).optional(),
-    diagnostics: z.record(z.string(), z.unknown()).optional(),
+    instances: z.record(z.string(), z.object({
+        reported: z.record(z.string(), z.unknown()).optional(),
+        desired: z.record(z.string(), z.unknown()).optional(),
+    }).strict()).optional(),
+    diagnostics: z.record(
+        z.string(),
+        z.record(z.string(), z.unknown()),
+    ).optional(),
 }).strict().refine(
-    (value) => value.metrics !== undefined || value.diagnostics !== undefined,
+    (value) => value.instances !== undefined || value.diagnostics !== undefined,
     { message: 'At least one state section is required' },
 );
 
@@ -55,10 +61,10 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
             .findOne({ mac }, { projection: deviceProjection });
         if (!device) return reply.status(404).send({ success: false, error: 'Device not found' });
 
-        const [backendShadow, telemetry, commands, events] = await Promise.all([
+        const [backendShadow, telemetry, operations, events] = await Promise.all([
             loadBackendShadow(mac),
             loadTelemetry(mac, 100),
-            loadCommands(mac, 100),
+            loadOperations(mac, 100),
             loadEvents(mac, 100),
         ]);
         return {
@@ -66,7 +72,7 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
             device,
             backend_shadow: backendShadow,
             telemetry,
-            commands,
+            operations,
             events,
         };
     });
@@ -80,13 +86,13 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         return { success: true, telemetry: await loadTelemetry(mac, parseLimit(query.limit)) };
     });
 
-    app.get('/api/devices/:mac/commands', async (request, reply) => {
+    app.get('/api/devices/:mac/operations', async (request, reply) => {
         const mac = normalizeMac((request.params as { mac: string }).mac);
         if (!await deviceExists(mac)) {
             return reply.status(404).send({ success: false, error: 'Device not found' });
         }
         const query = request.query as { limit?: string };
-        return { success: true, commands: await loadCommands(mac, parseLimit(query.limit)) };
+        return { success: true, operations: await loadOperations(mac, parseLimit(query.limit)) };
     });
 
     app.get('/api/devices/:mac/events', async (request, reply) => {
@@ -217,6 +223,9 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         const state = runtime
             ? await runtime.resetState()
             : generateInitialState(getProduct(context.device.product_id));
+        if (!runtime) {
+            state.state_version = (context.device.state_snapshot?.state_version || 0) + 1;
+        }
         if (!runtime) await persistOfflineState(mac, state);
         await recordDeviceAction(context.device, 'device.state_reset', 'Virtual device state reset');
         return { success: true, state };
@@ -278,22 +287,26 @@ const deviceExists = async (mac: string): Promise<boolean> =>
     ));
 
 const loadBackendShadow = async (mac: string) =>
-    getMainMongoDb().collection(env.MAIN_MONGO_DEVICES_COLLECTION).findOne({ _id: mac } as any);
+    getMainMongoDb().collection(env.MAIN_MONGO_DEVICE_SHADOWS_COLLECTION).findOne({ _id: mac } as any);
 
 const loadTelemetry = async (mac: string, limit: number) =>
     getMainMongoDb().collection(env.MAIN_MONGO_TELEMETRY_COLLECTION)
         .find({ 'metadata.device_id': mac })
-        .sort({ timestamp: -1 })
+        .sort({ observed_at: -1 })
         .limit(limit)
         .toArray();
 
-const loadCommands = async (mac: string, limit: number) => {
+const loadOperations = async (mac: string, limit: number) => {
     const result = await getPgPool().query(
-        `SELECT id::text, status, command, error_log, retry_count, event_version,
-                created_at, updated_at
-         FROM device_commands
-         WHERE mac = $1
-         ORDER BY created_at DESC
+        `SELECT operation.id::text, operation.status, operation.instance_id,
+                operation.operation_name, operation.input, operation.risk,
+                operation.reason_code, operation.catalog_revision,
+                operation.accepted_at, operation.completed_at,
+                operation.created_at, operation.updated_at
+         FROM device_operations AS operation
+         JOIN device_metadata AS device ON device.id = operation.device_id
+         WHERE device.mac = $1
+         ORDER BY operation.created_at DESC
          LIMIT $2`,
         [mac, limit],
     );

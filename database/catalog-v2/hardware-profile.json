@@ -21,37 +21,35 @@
     },
     {
       "product_id": "prod_roof_controller",
-      "status": "needs_confirmation",
+      "status": "partially_confirmed",
       "confirmed": [
-        "Motorized roof cover",
-        "Rain, illuminance, temperature and humidity sensing",
-        "Local open and close inputs"
+        "Step motor simulates opening and closing the roof cover",
+        "Water sensor reports whether rain is present",
+        "One local button toggles roof movement"
       ],
       "open_questions": [
-        "Motor and driver model",
+        "Step motor and driver model",
         "Open/close limit switches",
         "Real position feedback versus time estimation",
         "Obstacle or over-current detection",
-        "Sensor models, calibrated ranges and whether light level is true lux or normalized",
-        "Post-rain reopening policy"
+        "Water sensor threshold and debounce strategy"
       ]
     },
     {
       "product_id": "prod_hazard_mitigation",
-      "status": "needs_confirmation",
+      "status": "partially_confirmed",
       "confirmed": [
-        "Gas, flame and smoke sensing",
-        "Siren and ventilation fan",
-        "Local mute input",
-        "Electrical measurements"
+        "MQ2 reports gas and smoke levels",
+        "Flame sensor reports flame detection",
+        "DHT11 reports temperature and humidity",
+        "Buzzer emits the local warning",
+        "One local button temporarily mutes the buzzer"
       ],
       "open_questions": [
-        "Sensor models and calibrated measurement units",
-        "Whether the siren and ventilation fan have physical output or tachometer feedback; the current contract reports commanded output only",
-        "Persistence and flash-wear policy for accumulated energy",
-        "Presence of a physical load-cutoff relay",
-        "Load-cutoff feedback",
-        "Safe conditions for restoring power"
+        "MQ2 calibration and safe warning thresholds",
+        "Flame sensor threshold and debounce strategy",
+        "Temporary mute duration before the buzzer must sound again",
+        "Whether buzzer output feedback is available; the current contract reports requested output only"
       ]
     },
     {
@@ -67,7 +65,7 @@
         "Pump model and electrical limits",
         "Soil-moisture sensor model, calibration range and installation-dependent wet/dry thresholds",
         "Water-level measurement type and whether a continuous normalized value is available",
-        "Dry-run, current or flow feedback; the current pump state reports commanded output only",
+        "Dry-run, current or flow feedback; the current pump state reports requested output only",
         "Number of irrigation zones",
         "Local button gestures and the approved default watering, maximum-runtime and cooldown values"
       ]

@@ -22,11 +22,13 @@ class _AuthenticatedAuthRepository implements IAuthRepository {
 
   @override
   Future<void> register(
-    String username,
     String email,
     String password,
     String fullName,
   ) async {}
+
+  @override
+  Future<String> reauthenticate(String password) async => 'reauth-token';
 }
 
 class _EmptyDeviceRemoteDataSource implements IDeviceRemoteDataSource {
@@ -35,10 +37,13 @@ class _EmptyDeviceRemoteDataSource implements IDeviceRemoteDataSource {
         ownerId: 'test-owner',
         name: name,
         productId: 'test-product',
+        catalogRevision: 1,
         isActive: true,
         isOnline: false,
-        state: const {},
+        stateVersion: 0,
+        instances: const {},
         diagnostics: const {},
+        permissions: const [],
       );
 
   @override
@@ -54,12 +59,33 @@ class _EmptyDeviceRemoteDataSource implements IDeviceRemoteDataSource {
   Future<List<ProductDto>> getProducts() async => [];
 
   @override
-  Future<void> sendCommand(
+  Future<Map<String, dynamic>> createOperation(
     String mac,
-    String action,
     String instance,
-    Map<String, dynamic> payload,
-  ) async {}
+    String operationName,
+    Map<String, dynamic> input, {
+    int? expectedStateVersion,
+    String? idempotencyKey,
+    String? reauthToken,
+  }) async => {'success': true};
+
+  @override
+  Future<Map<String, dynamic>> createResourceSession(
+    String mac,
+    String instanceId,
+    String resourceId, {
+    String? reauthToken,
+  }) async => {'status': 'ready'};
+
+  @override
+  Future<Map<String, dynamic>> replaceCredential(
+    String mac,
+    String instanceId,
+    String credentialName,
+    String material, {
+    String? label,
+    String? reauthToken,
+  }) async => {'status': 'queued'};
 
   @override
   Future<void> unpairDevice(String mac) async {}

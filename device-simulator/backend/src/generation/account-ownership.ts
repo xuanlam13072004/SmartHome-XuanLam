@@ -1,5 +1,4 @@
 export interface GeneratedAccountIdentity {
-    username: string;
     email: string;
     full_name: string;
     registry_created_at: Date;
@@ -7,7 +6,6 @@ export interface GeneratedAccountIdentity {
 
 export interface ExistingAccountIdentity {
     id: string;
-    username: string;
     email: string;
     full_name: string | null;
     created_at: Date;
@@ -29,8 +27,7 @@ export const verifyRecoverableGeneratedAccount = (
     existing: ExistingAccountIdentity,
     authenticated: AuthenticatedAccountIdentity,
 ): string => {
-    const identityMatches = existing.username === generated.username
-        && normalizeEmail(existing.email) === normalizeEmail(generated.email)
+    const identityMatches = normalizeEmail(existing.email) === normalizeEmail(generated.email)
         && (existing.full_name || '') === generated.full_name;
     if (!identityMatches) {
         throw new Error('ACCOUNT_IDENTITY_COLLISION: existing account does not match generated identity');

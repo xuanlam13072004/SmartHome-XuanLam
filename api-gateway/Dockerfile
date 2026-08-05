@@ -35,7 +35,7 @@ RUN npm ci --omit=dev
 # Copy compiled files and shared
 WORKDIR /app
 COPY shared ./shared
-COPY database ./api-gateway/database
+COPY database ./database
 COPY --from=builder /app/api-gateway/dist ./api-gateway/dist
 COPY api-gateway/package.json ./api-gateway/package.json
 

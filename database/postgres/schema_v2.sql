@@ -9,7 +9,7 @@ CREATE TABLE public.schema_migrations (
 );
 
 INSERT INTO public.schema_migrations (version, name)
-VALUES (200, 'schema_v2_clean_break')
+VALUES (201, 'schema_v2_resource_credential_contract')
 ON CONFLICT (version) DO NOTHING;
 
 CREATE FUNCTION public.set_updated_at() RETURNS trigger
@@ -96,6 +96,7 @@ CREATE INDEX idx_user_sessions_expiry
 CREATE TABLE public.factory_devices (
     mac varchar(17) PRIMARY KEY,
     secret_key_hash text NOT NULL,
+    credential_public_key_pem text NOT NULL,
     product_id text NOT NULL,
     catalog_revision integer NOT NULL DEFAULT 1 CHECK (catalog_revision >= 1),
     firmware_family text NOT NULL,
@@ -118,7 +119,7 @@ CREATE TABLE public.device_networks (
     topology_epoch bigint NOT NULL DEFAULT 0 CHECK (topology_epoch >= 0),
     next_join_rank bigint NOT NULL DEFAULT 1 CHECK (next_join_rank >= 1),
     topology_state text NOT NULL DEFAULT 'electing'
-        CHECK (topology_state IN ('stable', 'electing', 'degraded', 'empty')),
+        CHECK (topology_state IN ('stable', 'electing', 'degraded_direct', 'empty')),
     created_at timestamp with time zone NOT NULL DEFAULT now(),
     updated_at timestamp with time zone NOT NULL DEFAULT now(),
     UNIQUE (owner_id, network_fingerprint),
@@ -580,55 +581,115 @@ CREATE INDEX idx_operation_outbox_pending
     ON public.operation_outbox (available_at, id)
     WHERE published_at IS NULL;
 
+CREATE TABLE public.device_resource_sessions (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    device_id uuid NOT NULL REFERENCES public.device_metadata(id) ON DELETE CASCADE,
+    actor_account_id uuid NOT NULL REFERENCES public.accounts(id) ON DELETE CASCADE,
+    operation_id uuid NOT NULL UNIQUE REFERENCES public.device_operations(id) ON DELETE CASCADE,
+    instance_id text NOT NULL,
+    resource_id text NOT NULL,
+    permission_scope text NOT NULL REFERENCES public.permission_scopes(scope) ON DELETE RESTRICT,
+    resource_kind text NOT NULL,
+    status text NOT NULL DEFAULT 'requested'
+        CHECK (status IN ('requested', 'ready', 'failed', 'expired', 'revoked')),
+    access_token_hash text NOT NULL,
+    resource_locator text,
+    reason_code text,
+    expires_at timestamp with time zone NOT NULL,
+    ready_at timestamp with time zone,
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    updated_at timestamp with time zone NOT NULL DEFAULT now(),
+    CHECK (instance_id ~ '^[a-z][a-z0-9_]+$'),
+    CHECK (resource_id ~ '^[a-z][a-z0-9_]+$'),
+    CHECK (resource_kind IN ('video_stream', 'snapshot', 'audio_stream', 'document', 'binary')),
+    CHECK (expires_at > created_at),
+    CHECK ((status = 'ready' AND ready_at IS NOT NULL AND resource_locator IS NOT NULL)
+        OR (status <> 'ready'))
+);
+
+CREATE INDEX idx_device_resource_sessions_actor_expiry
+    ON public.device_resource_sessions (actor_account_id, expires_at DESC);
+CREATE INDEX idx_device_resource_sessions_device_status
+    ON public.device_resource_sessions (device_id, status, expires_at DESC);
+
 CREATE TABLE public.device_credentials (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     device_id uuid NOT NULL REFERENCES public.device_metadata(id) ON DELETE CASCADE,
-    credential_type text NOT NULL CHECK (credential_type IN ('pin', 'face', 'rfid', 'fingerprint')),
+    instance_id text NOT NULL,
+    credential_name text NOT NULL,
+    credential_kind text NOT NULL CHECK (credential_kind IN ('pin', 'face', 'rfid', 'fingerprint')),
     label text NOT NULL,
-    material_digest text,
-    material_ciphertext bytea,
-    encryption_key_version integer,
     metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
-    status text NOT NULL DEFAULT 'active'
+    status text NOT NULL DEFAULT 'pending'
         CHECK (status IN ('pending', 'active', 'revoked', 'failed')),
-    created_by uuid REFERENCES public.accounts(id) ON DELETE SET NULL,
+    created_by uuid NOT NULL REFERENCES public.accounts(id) ON DELETE CASCADE,
+    catalog_revision integer NOT NULL CHECK (catalog_revision >= 1),
     rotated_at timestamp with time zone,
     revoked_at timestamp with time zone,
     created_at timestamp with time zone NOT NULL DEFAULT now(),
     updated_at timestamp with time zone NOT NULL DEFAULT now(),
     CHECK (length(btrim(label)) BETWEEN 1 AND 120),
+    CHECK (instance_id ~ '^[a-z][a-z0-9_]+$'),
+    CHECK (credential_name ~ '^[a-z][a-z0-9_]+$'),
     CHECK (jsonb_typeof(metadata) = 'object'),
     CHECK (NOT public.operation_input_has_sensitive_key(metadata)),
-    CHECK ((material_ciphertext IS NULL AND encryption_key_version IS NULL)
-        OR (material_ciphertext IS NOT NULL AND encryption_key_version IS NOT NULL)),
-    CHECK (credential_type <> 'pin' OR material_ciphertext IS NULL),
     CHECK (status <> 'revoked' OR revoked_at IS NOT NULL)
 );
 
 CREATE INDEX idx_device_credentials_device_status
-    ON public.device_credentials (device_id, status, credential_type);
+    ON public.device_credentials (device_id, status, credential_kind);
+CREATE UNIQUE INDEX uq_device_credentials_active_label
+    ON public.device_credentials (device_id, instance_id, credential_name, label)
+    WHERE status IN ('pending', 'active');
 
 CREATE TABLE public.credential_jobs (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     device_id uuid NOT NULL REFERENCES public.device_metadata(id) ON DELETE CASCADE,
     credential_id uuid REFERENCES public.device_credentials(id) ON DELETE SET NULL,
-    actor_account_id uuid REFERENCES public.accounts(id) ON DELETE SET NULL,
+    actor_account_id uuid NOT NULL REFERENCES public.accounts(id) ON DELETE CASCADE,
+    instance_id text NOT NULL,
+    credential_name text NOT NULL,
     action text NOT NULL CHECK (action IN ('enroll', 'rotate', 'revoke')),
-    status text NOT NULL DEFAULT 'accepted'
-        CHECK (status IN ('accepted', 'dispatched', 'succeeded', 'rejected', 'failed', 'timed_out')),
+    status text NOT NULL DEFAULT 'queued'
+        CHECK (status IN ('queued', 'dispatched', 'succeeded', 'rejected', 'failed', 'timed_out')),
     reason_code text,
+    catalog_revision integer NOT NULL CHECK (catalog_revision >= 1),
+    idempotency_key text,
     timeout_at timestamp with time zone NOT NULL,
     completed_at timestamp with time zone,
     created_at timestamp with time zone NOT NULL DEFAULT now(),
     updated_at timestamp with time zone NOT NULL DEFAULT now(),
+    CHECK (instance_id ~ '^[a-z][a-z0-9_]+$'),
+    CHECK (credential_name ~ '^[a-z][a-z0-9_]+$'),
     CHECK ((status IN ('succeeded', 'rejected', 'failed', 'timed_out') AND completed_at IS NOT NULL)
-        OR (status IN ('accepted', 'dispatched') AND completed_at IS NULL)),
+        OR (status IN ('queued', 'dispatched') AND completed_at IS NULL)),
     CHECK (timeout_at > created_at)
 );
 
 CREATE INDEX idx_credential_jobs_active_timeout
     ON public.credential_jobs (timeout_at)
-    WHERE status IN ('accepted', 'dispatched');
+    WHERE status IN ('queued', 'dispatched');
+CREATE UNIQUE INDEX uq_credential_jobs_idempotency
+    ON public.credential_jobs (device_id, idempotency_key)
+    WHERE idempotency_key IS NOT NULL;
+
+CREATE TABLE public.credential_outbox (
+    id bigserial PRIMARY KEY,
+    job_id uuid NOT NULL REFERENCES public.credential_jobs(id) ON DELETE CASCADE,
+    payload jsonb NOT NULL,
+    attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+    available_at timestamp with time zone NOT NULL DEFAULT now(),
+    published_at timestamp with time zone,
+    last_error text,
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    CHECK (jsonb_typeof(payload) = 'object'),
+    CHECK (payload ? 'encrypted_envelope'),
+    CHECK (NOT public.operation_input_has_sensitive_key(payload))
+);
+
+CREATE INDEX idx_credential_outbox_pending
+    ON public.credential_outbox (available_at, id)
+    WHERE published_at IS NULL;
 
 CREATE FUNCTION public.enforce_credential_owner() RETURNS trigger
     LANGUAGE plpgsql
@@ -755,6 +816,9 @@ CREATE TRIGGER trg_device_invites_updated_at
     FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 CREATE TRIGGER trg_device_operations_updated_at
     BEFORE UPDATE ON public.device_operations
+    FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER trg_device_resource_sessions_updated_at
+    BEFORE UPDATE ON public.device_resource_sessions
     FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 CREATE TRIGGER trg_device_policies_updated_at
     BEFORE UPDATE ON public.device_policies

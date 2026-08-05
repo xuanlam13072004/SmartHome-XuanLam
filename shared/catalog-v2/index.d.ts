@@ -22,6 +22,10 @@ export interface CompiledProductV2 {
     schema: 'compiled.product.v2';
     schema_version: 2;
     product_id: string;
+    model_name: string;
+    category: string;
+    lifecycle: 'draft' | 'published' | 'deprecated';
+    presentation: Record<string, any>;
     catalog_revision: number;
     contract_maturity: ContractMaturity;
     capability_instances: Array<Record<string, unknown>>;
@@ -32,10 +36,21 @@ export interface CompiledProductV2 {
     operations: Record<string, Record<string, unknown>>;
     events: Record<string, Record<string, unknown>>;
     resources: Record<string, Record<string, unknown>>;
+    credentials: Record<string, Record<string, unknown>>;
     permissions: string[];
 }
 
 export function loadCatalogV2(baseDir?: string): CatalogV2;
+export class RuntimeCatalog {
+    constructor(options?: { baseDir?: string; log?: unknown });
+    readonly catalogVersion: number;
+    start(): Promise<this>;
+    getAllProducts(): CompiledProductV2[];
+    getProduct(productId: string): CompiledProductV2 | null;
+    getOperation(productId: string, instanceId: string, operationName: string): Record<string, unknown> | null;
+    getResource(productId: string, instanceId: string, resourceId: string): Record<string, unknown> | null;
+    getCredential(productId: string, instanceId: string, credentialId: string): Record<string, unknown> | null;
+}
 export function lintCatalog(catalog: CatalogV2): { errors: CatalogIssue[]; warnings: CatalogIssue[] };
 export function assertCatalogValid(catalog: CatalogV2): { errors: CatalogIssue[]; warnings: CatalogIssue[] };
 export function compileCatalog(catalog: CatalogV2): {

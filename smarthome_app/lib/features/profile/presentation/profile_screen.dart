@@ -15,11 +15,9 @@ Future<Map<String, String>> userProfile(Ref ref) async {
   final storage = ref.watch(tokenStorageProvider);
   final fullName = await storage.getUserFullName() ?? '';
   final email = await storage.getUserEmail() ?? '';
-  final username = await storage.getUserUsername() ?? '';
   return {
     'fullName': fullName,
     'email': email,
-    'username': username,
   };
 }
 

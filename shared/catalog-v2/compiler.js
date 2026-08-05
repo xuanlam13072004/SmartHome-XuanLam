@@ -65,6 +65,7 @@ function compileProduct(product, capabilityIndex) {
     const operations = {};
     const events = {};
     const resources = {};
+    const credentials = {};
     const permissions = new Set(['device.view']);
     const activeInstances = [];
     const plannedInstances = [];
@@ -107,7 +108,14 @@ function compileProduct(product, capabilityIndex) {
             };
             permissions.add(resource.permission);
         }
-        for (const credential of compiledInstance.credentials) permissions.add(credential.permission);
+        for (const credential of compiledInstance.credentials) {
+            credentials[`${instance.instance_id}.${credential.id}`] = {
+                ...clone(credential),
+                instance_id: instance.instance_id,
+                capability_id: instance.capability_id,
+            };
+            permissions.add(credential.permission);
+        }
     }
 
     return {
@@ -136,6 +144,7 @@ function compileProduct(product, capabilityIndex) {
         operations,
         events,
         resources,
+        credentials,
         permissions: [...permissions].sort(),
     };
 }

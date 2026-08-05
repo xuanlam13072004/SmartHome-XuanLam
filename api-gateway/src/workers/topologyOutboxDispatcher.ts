@@ -21,6 +21,7 @@ type TopologyMember = {
 
 type TopologyPayload = {
     schema_version: number;
+    reason?: string;
     network_id: string;
     owner_id: string;
     active_hub_device_id: string | null;
@@ -40,7 +41,7 @@ type TopologyEvent = {
     id: number;
     network_id: string;
     topology_epoch: number;
-    reason: string;
+    event_type: string;
     created_at: Date;
     payload: TopologyPayload;
 };
@@ -93,7 +94,7 @@ async function applyTopologyCache(
     const networkCache = {
         ...payload,
         event_id: event.id,
-        reason: event.reason,
+        reason: event.payload.reason || event.event_type,
         topology_updated_at: event.created_at.toISOString(),
     };
     await redis.del(`user_devices:${payload.owner_id}`);
@@ -189,7 +190,7 @@ async function applyMonotonicTopologyShadow(
     mac: string,
     fields: Record<string, unknown>
 ) {
-    const collection = mongoDb.collection<any>(env.MONGO_DEVICES_COLLECTION);
+    const collection = mongoDb.collection<any>(env.MONGO_DEVICE_SHADOWS_COLLECTION);
     const filter = {
         _id: mac,
         $or: [
@@ -203,11 +204,9 @@ async function applyMonotonicTopologyShadow(
             topology_outbox_event_id: eventId,
         },
     };
-    try {
-        await collection.updateOne(filter, update, { upsert: true });
-    } catch (err: any) {
-        if (err?.code !== 11000) throw err;
-        await collection.updateOne(filter, update);
+    const result = await collection.updateOne(filter, update);
+    if (result.matchedCount === 0) {
+        throw new Error(`Device shadow ${mac} is not ready for topology projection`);
     }
 }
 
@@ -235,122 +234,8 @@ async function applyTopologyShadow(
         )
     );
 
-    const changedMac = payload.change?.mac;
-    if (
-        payload.change?.type === 'unpair'
-        && changedMac
-        && !payload.members.some(member => member.mac === changedMac)
-    ) {
-        operations.push(applyMonotonicTopologyShadow(
-            mongoDb,
-            event.id,
-            changedMac,
-            {
-                network_id: null,
-                active_hub_mac: null,
-                topology_epoch: null,
-                topology_state: null,
-                topology_role: null,
-                transport_mode: 'offline',
-                last_transport_change: now,
-            }
-        ));
-    }
-
     if (operations.length > 0) {
         await Promise.all(operations);
-    }
-}
-
-async function requeueCommandsForTopologyChange(
-    pgPool: Pool,
-    redis: Redis,
-    event: TopologyEvent,
-    logger: Logger
-) {
-    if (env.TOPOLOGY_COMMAND_REROUTE_LIMIT === 0) return;
-    const result = await pgPool.query(
-        `SELECT command.id, command.mac, command.status,
-                command.retry_count
-         FROM device_commands AS command
-         JOIN device_metadata AS device
-           ON device.owner_id = command.owner_id
-          AND device.mac = command.mac
-         JOIN command_outbox AS command_outbox
-           ON command_outbox.command_id = command.id
-         WHERE device.network_id = $1
-           AND (
-               command.status IN ('sending', 'sent')
-               OR (
-                   command.status = 'pending'
-                   AND command_outbox.published_at IS NOT NULL
-               )
-           )
-           AND command.retry_count < $2`,
-        [event.network_id, env.TOPOLOGY_COMMAND_REROUTE_LIMIT]
-    );
-
-    for (const command of result.rows) {
-        const routeRaw = await redis.get(
-            `${CACHE_PREFIXES.COMMAND_ROUTE}${command.id}`
-        );
-        if (!routeRaw) continue;
-        let route: any = null;
-        try {
-            route = routeRaw ? JSON.parse(routeRaw) : null;
-        } catch {
-            route = null;
-        }
-        const routeIsCurrent = Boolean(
-            route
-            && route.network_id === event.network_id
-            && Number(route.topology_epoch) === event.topology_epoch
-        );
-        if (routeIsCurrent) continue;
-
-        const client = await pgPool.connect();
-        try {
-            await client.query('BEGIN');
-            const updateResult = await client.query(
-                `UPDATE device_commands
-                 SET status = 'pending',
-                     retry_count = retry_count + 1,
-                     event_version = event_version + 1,
-                     error_log = 'Topology changed; command queued for reroute',
-                     updated_at = NOW()
-                 WHERE id = $1
-                   AND status IN ('pending', 'sending', 'sent')
-                   AND retry_count < $2
-                 RETURNING event_version`,
-                [command.id, env.TOPOLOGY_COMMAND_REROUTE_LIMIT]
-            );
-            if (updateResult.rows.length === 1) {
-                await client.query(
-                    `UPDATE command_outbox
-                     SET published_at = NULL,
-                         last_error = NULL,
-                         updated_at = NOW()
-                     WHERE command_id = $1`,
-                    [command.id]
-                );
-            }
-            await client.query('COMMIT');
-            if (updateResult.rows.length === 1) {
-                logger.info(
-                    {
-                        commandId: command.id,
-                        mac: command.mac,
-                        topologyEpoch: event.topology_epoch,
-                    },
-                    'Command queued for topology-aware reroute'
-                );
-            }
-        } catch (err) {
-            await client.query('ROLLBACK');
-            throw err;
-        } finally {
-            client.release();
-        }
     }
 }
 
@@ -363,10 +248,11 @@ export async function dispatchTopologyOutboxEvent(
 ) {
     const result = await pgPool.query(
         `SELECT current.id, current.network_id, current.topology_epoch,
-                current.reason, current.created_at, current.payload
+                current.event_type, current.created_at, current.payload
          FROM topology_outbox AS current
          WHERE current.id = $1
            AND current.processed_at IS NULL
+           AND current.available_at <= NOW()
            AND NOT EXISTS (
                SELECT 1
                FROM topology_outbox AS earlier
@@ -383,7 +269,7 @@ export async function dispatchTopologyOutboxEvent(
         id: Number(row.id),
         network_id: row.network_id,
         topology_epoch: Number(row.topology_epoch),
-        reason: row.reason,
+        event_type: row.event_type,
         created_at: new Date(row.created_at),
         payload: row.payload,
     };
@@ -392,16 +278,10 @@ export async function dispatchTopologyOutboxEvent(
         const applied = await applyTopologyCache(redis, event);
         if (applied) {
             await applyTopologyShadow(mongoDb, event);
-            await requeueCommandsForTopologyChange(
-                pgPool,
-                redis,
-                event,
-                logger
-            );
         }
         await pgPool.query(
             `UPDATE topology_outbox
-             SET processed_at = NOW(), attempts = attempts + 1,
+             SET processed_at = NOW(), attempt_count = attempt_count + 1,
                  last_error = NULL, updated_at = NOW()
              WHERE id = $1 AND processed_at IS NULL`,
             [event.id]
@@ -413,7 +293,9 @@ export async function dispatchTopologyOutboxEvent(
     } catch (err: any) {
         await pgPool.query(
             `UPDATE topology_outbox
-             SET attempts = attempts + 1, last_error = $2, updated_at = NOW()
+             SET attempt_count = attempt_count + 1,
+                 available_at = NOW() + LEAST(60, POWER(2, LEAST(attempt_count, 6))) * INTERVAL '1 second',
+                 last_error = $2
              WHERE id = $1`,
             [event.id, String(err?.message || err).slice(0, 2000)]
         ).catch(updateErr => logger.warn(
@@ -514,7 +396,7 @@ export async function synchronizeTopologyCache(
             reason: string;
             topology_updated_at: string;
         } = {
-            schema_version: 1,
+            schema_version: 2,
             event_id: Number(network.event_id),
             reason: 'startup_sync',
             topology_updated_at: new Date(network.updated_at).toISOString(),
@@ -631,6 +513,7 @@ export class TopologyOutboxDispatcher {
             `SELECT current.id
              FROM topology_outbox AS current
              WHERE current.processed_at IS NULL
+               AND current.available_at <= NOW()
                AND NOT EXISTS (
                    SELECT 1
                    FROM topology_outbox AS earlier

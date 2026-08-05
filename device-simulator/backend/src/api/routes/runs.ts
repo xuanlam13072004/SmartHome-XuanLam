@@ -48,7 +48,7 @@ export const createRunsRoutes = (cleanupJob: CleanupCronjob): FastifyPluginAsync
             }
 
             const config = parsed.data;
-            const catalogIds = new Set(getCachedCatalog().map((product) => product.id));
+            const catalogIds = new Set(getCachedCatalog().map((product) => product.product_id));
             const unknownProducts = config.products
                 .map((product) => product.product_id)
                 .filter((productId) => !catalogIds.has(productId));

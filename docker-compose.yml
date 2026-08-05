@@ -66,19 +66,24 @@ services:
       timeout: 5s
       retries: 5
 
-  db-migrate:
+  db-initialize:
     build:
       context: .
       dockerfile: api-gateway/Dockerfile
-    container_name: db-migrate
+    container_name: db-initialize
     env_file:
       - api-gateway/.env.docker
-    # Override command to run migration and seed script
-    command: [ "node", "/app/api-gateway/database/seeds/run_migration_and_seeds.js" ]
+    environment:
+      ALLOW_V2_DATABASE_INITIALIZATION: "true"
+      ALLOW_CATALOG_PUBLISH: "true"
+      NODE_PATH: "/app/api-gateway/node_modules"
+    command: [ "node", "/app/database/initialize_v2.js" ]
     networks:
       - smarthome_net
     depends_on:
       postgres:
+        condition: service_healthy
+      mongodb:
         condition: service_healthy
     restart: "no"
 
@@ -98,7 +103,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      db-migrate:
+      db-initialize:
         condition: service_completed_successfully
 
   real-time-service:
@@ -115,6 +120,10 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      db-initialize:
+        condition: service_completed_successfully
 
   mqtt-worker-service:
     build:
@@ -130,3 +139,7 @@ services:
         condition: service_healthy
       mosquitto:
         condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      db-initialize:
+        condition: service_completed_successfully

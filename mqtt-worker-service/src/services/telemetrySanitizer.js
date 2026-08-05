@@ -1,125 +1,121 @@
-/**
- * mqtt-worker-service/src/services/telemetrySanitizer.js
- * 
- * Lớp dịch vụ lọc và chuẩn hóa dữ liệu Telemetry (Telemetry Sanitizer)
- * dựa trên định nghĩa cấu hình sản phẩm từ Catalog.
- */
+'use strict';
 
 const { validateValueAgainstSchema } = require('../../../shared/validation');
 const { recordSanitizerStats } = require('../monitoring/metrics');
-
-/**
- * @typedef {Object} ValidationSchema
- * @property {string} value_type - Kiểu dữ liệu (boolean, number, string, object)
- * @property {Object} [validation] - Các ràng buộc (min, max, max_length, enum, required)
- * @property {Object.<string, ValidationSchema>} [validation_versions] - Validation tùy chỉnh theo version
- */
-
-/**
- * @typedef {Object} CompiledCommand
- * @property {string} capability_id - Capability ID chứa command
- * @property {Array<{name: string, value_type: string, validation?: Object}>} arguments - Arguments cấu hình
- */
-
-/**
- * @typedef {Object} CompiledProduct
- * @property {string} _id - Product ID
- * @property {string} manufacturer - Nhà sản xuất
- * @property {string} model_name - Tên model
- * @property {string} display_name - Tên hiển thị
- * @property {string} connectivity - Phương thức kết nối
- * @property {string} category - Loại thiết bị
- * @property {Object} default_state - Trạng thái mặc định ban đầu
- * @property {Set<string>} allowedStateKeys - Tập hợp state keys được cho phép
- * @property {Set<string>} allowedDiagnosticKeys - Tập hợp diagnostic keys được cho phép
- * @property {Map<string, CompiledCommand>} allowedCommandActions - Map các commands được cho phép
- */
-
-/**
- * @typedef {Object} TelemetrySanitizerResult
- * @property {Object} sanitizedState - Tập hợp trạng thái state hợp lệ
- * @property {Object} sanitizedDiagnostics - Tập hợp thông số diagnostics hợp lệ
- * @property {Array<{key: string, val: any, type: string, error: string}>} warnings - Danh sách cảnh báo lỗi validation
- */
 
 class TelemetrySanitizer {
     constructor(logger) {
         this.logger = logger;
     }
 
-    /**
-     * Lọc và validate toàn bộ telemetry metrics dựa trên cấu hình template trong Catalog.
-     * 
-     * @param {Object} telemetry - Dữ liệu raw telemetry đã parse
-     * @param {CompiledProduct} product - Bản ghi sản phẩm mẫu từ Catalog Cache
-     * @param {string|null} firmwareVersion - Phiên bản firmware hiện tại của thiết bị
-     * @returns {TelemetrySanitizerResult}
-     */
-    sanitize(telemetry, product, firmwareVersion) {
-        const sanitizedState = {};
-        const sanitizedDiagnostics = {};
+    sanitize(telemetry, product) {
+        const instances = {};
+        const diagnostics = {};
         const warnings = [];
+        const stats = { unknown_keys: 0, invalid_type: 0, out_of_range: 0 };
+        const active = new Map(
+            product.capability_instances.map(instance => [instance.instance_id, instance]),
+        );
 
-        const stats = {
-            unknown_keys: 0,
-            invalid_type: 0,
-            out_of_range: 0
-        };
-
-        const allMetrics = { ...telemetry.metrics };
-        if (telemetry.rssi !== undefined) allMetrics.rssi = telemetry.rssi;
-        if (telemetry.battery !== undefined) allMetrics.battery = telemetry.battery;
-
-        const stateSchemaMap = product.stateSchemaMap;
-        const diagnosticSchemaMap = product.diagnosticSchemaMap;
-
-        for (const [key, val] of Object.entries(allMetrics)) {
-            if (stateSchemaMap && stateSchemaMap.has(key)) {
-                const schema = stateSchemaMap.get(key);
-                const res = validateValueAgainstSchema(val, schema, firmwareVersion);
-                if (res.valid) {
-                    sanitizedState[key] = val;
-                } else {
-                    this.updateStatsAndWarnings(key, val, 'state', res.error, stats, warnings);
-                }
-            } else if (diagnosticSchemaMap && diagnosticSchemaMap.has(key)) {
-                const schema = diagnosticSchemaMap.get(key);
-                const res = validateValueAgainstSchema(val, schema, firmwareVersion);
-                if (res.valid) {
-                    sanitizedDiagnostics[key] = val;
-                } else {
-                    this.updateStatsAndWarnings(key, val, 'diagnostic', res.error, stats, warnings);
-                }
-            } else {
-                stats.unknown_keys++;
-                warnings.push({
-                    key,
-                    val,
-                    type: 'unknown',
-                    error: 'Key is not defined in the catalog schema templates'
-                });
+        for (const [instanceId, envelope] of Object.entries(telemetry.instances || {})) {
+            const definition = active.get(instanceId);
+            if (!definition || !envelope || typeof envelope !== 'object') {
+                this.warn(instanceId, envelope, 'unknown', 'Unknown capability instance', stats, warnings);
+                continue;
             }
+            if (Object.prototype.hasOwnProperty.call(envelope, 'desired')) {
+                this.warn(
+                    `${instanceId}.desired`,
+                    envelope.desired,
+                    'authority',
+                    'Device telemetry cannot write backend desired state',
+                    stats,
+                    warnings,
+                );
+            }
+            const reportedSchemas = new Map(
+                definition.properties
+                    .filter(property => property.channel === 'reported')
+                    .map(property => [property.id, property]),
+            );
+            const accepted = {};
+            for (const [propertyId, value] of Object.entries(envelope.reported || {})) {
+                const schema = reportedSchemas.get(propertyId);
+                if (!schema) {
+                    this.warn(
+                        `instances.${instanceId}.reported.${propertyId}`,
+                        value,
+                        'unknown',
+                        'Unknown reported property',
+                        stats,
+                        warnings,
+                    );
+                    continue;
+                }
+                const validation = validateValueAgainstSchema(value, schema, { required: true });
+                if (validation.valid) accepted[propertyId] = value;
+                else this.warn(
+                    `instances.${instanceId}.reported.${propertyId}`,
+                    value,
+                    'invalid',
+                    validation.error,
+                    stats,
+                    warnings,
+                );
+            }
+            if (Object.keys(accepted).length > 0) instances[instanceId] = { reported: accepted };
         }
 
-        // Cập nhật thống kê vào monitoring metrics
-        recordSanitizerStats(stats);
+        for (const [instanceId, values] of Object.entries(telemetry.diagnostics || {})) {
+            const definition = active.get(instanceId);
+            if (!definition || !values || typeof values !== 'object') {
+                this.warn(instanceId, values, 'unknown', 'Unknown diagnostic instance', stats, warnings);
+                continue;
+            }
+            const diagnosticSchemas = new Map(
+                definition.properties
+                    .filter(property => property.channel === 'diagnostic')
+                    .map(property => [property.id, property]),
+            );
+            const accepted = {};
+            for (const [propertyId, value] of Object.entries(values)) {
+                const schema = diagnosticSchemas.get(propertyId);
+                if (!schema) {
+                    this.warn(
+                        `diagnostics.${instanceId}.${propertyId}`,
+                        value,
+                        'unknown',
+                        'Unknown diagnostic property',
+                        stats,
+                        warnings,
+                    );
+                    continue;
+                }
+                const validation = validateValueAgainstSchema(value, schema, { required: true });
+                if (validation.valid) accepted[propertyId] = value;
+                else this.warn(
+                    `diagnostics.${instanceId}.${propertyId}`,
+                    value,
+                    'invalid',
+                    validation.error,
+                    stats,
+                    warnings,
+                );
+            }
+            if (Object.keys(accepted).length > 0) diagnostics[instanceId] = accepted;
+        }
 
-        return { sanitizedState, sanitizedDiagnostics, warnings };
+        recordSanitizerStats(stats);
+        return { instances, diagnostics, warnings };
     }
 
-    /**
-     * @private
-     */
-    updateStatsAndWarnings(key, val, type, errorMsg, stats, warnings) {
-        if (errorMsg.includes('type')) {
-            stats.invalid_type++;
-        } else if (errorMsg.includes('minimum') || errorMsg.includes('maximum')) {
-            stats.out_of_range++;
-        }
-        warnings.push({ key, val, type, error: errorMsg });
+    warn(key, value, type, error, stats, warnings) {
+        if (type === 'unknown' || type === 'authority') stats.unknown_keys += 1;
+        else if (String(error).includes('minimum') || String(error).includes('maximum')) {
+            stats.out_of_range += 1;
+        } else stats.invalid_type += 1;
+        warnings.push({ key, value, type, error });
     }
 }
 
-module.exports = {
-    TelemetrySanitizer
-};
+module.exports = { TelemetrySanitizer };

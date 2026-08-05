@@ -1,132 +1,130 @@
 import { env } from '../config/env';
 
-export interface ValueValidation {
-    min?: number;
-    max?: number;
+export interface ValueSchema {
+    type: 'boolean' | 'number' | 'integer' | 'string' | 'array' | string;
+    nullable?: boolean;
     enum?: unknown[];
-    required?: boolean;
+    minimum?: number;
+    maximum?: number;
+    min_length?: number;
     max_length?: number;
+    min_items?: number;
+    max_items?: number;
+    items?: ValueSchema;
+    default?: unknown;
+    channel?: 'reported' | 'desired' | 'diagnostic';
+    id?: string;
+    path?: string;
 }
 
-export interface StateProperty {
-    value_type: 'number' | 'boolean' | 'string' | string;
-    validation?: ValueValidation;
+export interface OperationEffect {
+    type: string;
+    property?: string;
+    value?: unknown;
+    value_from?: string;
 }
 
-export interface CapabilityCommandArgument {
-    name: string;
-    value_type?: string;
-    validation?: ValueValidation;
+export interface CapabilityOperation {
+    id: string;
+    input: Record<string, ValueSchema>;
+    effects: OperationEffect[];
+    permission: string;
+    risk: 'normal' | 'sensitive' | 'dangerous';
+    ack_policy?: {
+        success_condition?: string;
+        completion_signal?: string;
+        reference?: string;
+    };
+    timeout_ms?: number;
+    idempotent?: boolean;
+    presentation?: Record<string, unknown>;
 }
 
-export interface CapabilityCommand {
-    action: string;
-    arguments: CapabilityCommandArgument[];
+export interface CapabilityProperty extends ValueSchema {
+    id: string;
+    channel: 'reported' | 'desired' | 'diagnostic';
+    path: string;
 }
 
 export interface CapabilityInstance {
+    instance_id: string;
     capability_id: string;
-    instance: string;
-    value_type?: string;
-    validation?: ValueValidation;
-    state_properties: Record<string, StateProperty>;
-    diagnostic_properties: Record<string, StateProperty>;
-    commands: CapabilityCommand[];
+    properties: CapabilityProperty[];
+    operations: CapabilityOperation[];
+    semantic_role?: string;
+    presentation?: Record<string, unknown>;
 }
 
 export interface ProductCatalog {
-    id: string;
-    display_name: string;
+    schema: 'compiled.product.v2';
+    product_id: string;
+    catalog_revision: number;
+    model_name: string;
     category: string;
-    capabilities: any[];
-    capabilityInstances: CapabilityInstance[];
-    default_state: Record<string, unknown>;
+    presentation: Record<string, unknown>;
+    capability_instances: CapabilityInstance[];
+    firmware_default_state: DeviceStateSeed;
+    operations: Record<string, CapabilityOperation & {
+        instance_id: string;
+        capability_id: string;
+    }>;
+}
+
+export interface DeviceStateSeed {
+    schema: 'device.state.v2';
+    state_version: number;
+    instances: Record<string, {
+        reported: Record<string, unknown>;
+        desired: Record<string, unknown>;
+    }>;
+    diagnostics: Record<string, Record<string, unknown>>;
 }
 
 let cachedProducts: ProductCatalog[] = [];
-
-interface RawCapabilityCommand extends Omit<CapabilityCommand, 'arguments'> {
-    arguments?: Array<string | CapabilityCommandArgument>;
-}
-
-interface RawCapabilityInstance extends Omit<CapabilityInstance, 'commands'> {
-    commands?: RawCapabilityCommand[];
-}
-
-interface RawProductCatalog extends Omit<ProductCatalog, 'id' | 'capabilityInstances'> {
-    id?: string;
-    _id?: string;
-    capabilityInstances?: RawCapabilityInstance[];
-}
-
-const normalizeCapabilityInstance = (
-    instance: RawCapabilityInstance,
-): CapabilityInstance => ({
-    ...instance,
-    state_properties: instance.state_properties || {},
-    diagnostic_properties: instance.diagnostic_properties || {},
-    commands: (instance.commands || []).map((command) => ({
-        action: command.action,
-        arguments: (command.arguments || []).map((argument) =>
-            typeof argument === 'string'
-                ? {
-                    name: argument,
-                    value_type: instance.value_type,
-                    validation: instance.validation,
-                }
-                : argument,
-        ),
-    })),
-});
-
-const normalizeProduct = (rawProduct: RawProductCatalog): ProductCatalog => {
-    const id = rawProduct.id || rawProduct._id;
-    if (!id) {
-        throw new Error('Product catalog entry has no id or _id');
-    }
-    if (!Array.isArray(rawProduct.capabilityInstances)) {
-        throw new Error(`Product catalog entry ${id} has no capabilityInstances`);
-    }
-    return {
-        ...rawProduct,
-        id,
-        capabilityInstances: rawProduct.capabilityInstances.map(normalizeCapabilityInstance),
-    };
-};
+let catalogRevision = 0;
 
 export const loadCatalog = async (): Promise<ProductCatalog[]> => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), env.API_REQUEST_TIMEOUT_MS);
     try {
-        const url = `${env.API_GATEWAY_URL.replace(/\/$/, '')}/products`;
-        const response = await fetch(url, { signal: controller.signal });
-        if (!response.ok) {
-            throw new Error(`Catalog request failed with HTTP ${response.status}`);
-        }
-
+        const response = await fetch(
+            `${env.API_GATEWAY_URL.replace(/\/$/, '')}/products`,
+            { signal: controller.signal },
+        );
+        if (!response.ok) throw new Error(`Catalog request failed with HTTP ${response.status}`);
         const data = await response.json() as {
             success?: boolean;
-            products?: RawProductCatalog[];
+            catalog_revision?: number;
+            products?: ProductCatalog[];
         };
         if (!data.success || !Array.isArray(data.products) || data.products.length === 0) {
-            throw new Error('API Gateway returned an empty or invalid product catalog');
+            throw new Error('API Gateway returned an empty Product Catalog');
         }
-
-        cachedProducts = data.products.map(normalizeProduct);
+        if (!Number.isInteger(data.catalog_revision) || data.catalog_revision! < 1) {
+            throw new Error('API Gateway returned an invalid Catalog revision');
+        }
+        for (const product of data.products) {
+            if (
+                product.schema !== 'compiled.product.v2'
+                || product.catalog_revision !== data.catalog_revision
+                || !Array.isArray(product.capability_instances)
+            ) {
+                throw new Error(`Product ${product.product_id || '<unknown>'} has an invalid compiled contract`);
+            }
+        }
+        catalogRevision = data.catalog_revision!;
+        cachedProducts = data.products;
         return cachedProducts;
     } finally {
         clearTimeout(timer);
     }
 };
 
-export const getCachedCatalog = (): ProductCatalog[] => {
-    return cachedProducts;
-};
+export const getCachedCatalog = (): ProductCatalog[] => cachedProducts;
+export const getCatalogRevision = (): number => catalogRevision;
 
 export const getProduct = (productId: string): ProductCatalog => {
-    const product = cachedProducts.find((item) => item.id === productId);
-    if (!product) {
-        throw new Error(`Product ${productId} is not available in the API Gateway catalog`);
-    }
+    const product = cachedProducts.find(item => item.product_id === productId);
+    if (!product) throw new Error(`Product ${productId} is unavailable in the runtime Catalog`);
     return product;
 };

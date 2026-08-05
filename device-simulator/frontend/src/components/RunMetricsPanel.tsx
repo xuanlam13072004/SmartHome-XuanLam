@@ -46,7 +46,7 @@ export function RunMetricsPanel({ runId }: { runId: string }) {
         <Metric label="Scheduler backlog" value={formatInteger(metrics.runtime.scheduler_due)} />
         <Metric label="Published" value={formatInteger(metrics.totals.telemetry_published)} />
         <Metric label="Payload sent" value={formatBytes(metrics.totals.telemetry_bytes)} />
-        <Metric label="Commands" value={formatInteger(metrics.totals.commands_received)} />
+        <Metric label="Operations" value={formatInteger(metrics.totals.operations_received)} />
       </div>
       <footer>
         <span>Process RSS {formatBytes(metrics.process.rss_bytes)}</span>

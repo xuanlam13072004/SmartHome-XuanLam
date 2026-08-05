@@ -5,7 +5,8 @@ import { REDIS_CHANNELS } from '../../../shared/constants.js';
 const CHANNELS = [
     REDIS_CHANNELS.DEVICE_TELEMETRY,
     REDIS_CHANNELS.DEVICE_STATUS,
-    REDIS_CHANNELS.DEVICE_COMMAND,
+    REDIS_CHANNELS.DEVICE_OPERATION,
+    REDIS_CHANNELS.DEVICE_CREDENTIAL,
     REDIS_CHANNELS.TOPOLOGY_UPDATED,
 ];
 
@@ -42,7 +43,7 @@ export function startRedisPubSubListener(): void {
                 return;
             }
 
-            const { owner_id, mac, payload, timestamp } = parsed;
+            const { owner_id, recipient_ids, mac, payload, timestamp } = parsed;
 
             if (!owner_id) {
                 console.warn(`⚠️ Received message on channel ${channel} without owner_id:`, message);
@@ -52,14 +53,15 @@ export function startRedisPubSubListener(): void {
             // Map the Redis channel name to the event name used by the WS client
             // channel 'device.telemetry' -> event 'telemetry'
             // channel 'device.status' -> event 'device_status'
-            // channel 'device.command' -> event 'command_status'
             let eventName = 'notification';
             if (channel === REDIS_CHANNELS.DEVICE_TELEMETRY) {
                 eventName = 'telemetry';
             } else if (channel === REDIS_CHANNELS.DEVICE_STATUS) {
                 eventName = 'device_status';
-            } else if (channel === REDIS_CHANNELS.DEVICE_COMMAND) {
-                eventName = 'command_status';
+            } else if (channel === REDIS_CHANNELS.DEVICE_OPERATION) {
+                eventName = 'operation_status';
+            } else if (channel === REDIS_CHANNELS.DEVICE_CREDENTIAL) {
+                eventName = 'credential_status';
             }
 
             const outgoingMessage = {
@@ -70,7 +72,10 @@ export function startRedisPubSubListener(): void {
             };
 
             // Route to active connections in memory
-            sendToUser(owner_id, outgoingMessage);
+            const recipients = Array.isArray(recipient_ids) && recipient_ids.length > 0
+                ? recipient_ids
+                : [owner_id];
+            for (const accountId of new Set(recipients)) sendToUser(accountId, outgoingMessage);
         } catch (err) {
             console.error(`❌ Failed to parse/route message from channel ${channel}:`, err, message);
         }

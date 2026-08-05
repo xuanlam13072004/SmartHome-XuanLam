@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../domain/models/device_model.dart';
+import '../../domain/models/product_model.dart';
 import 'product_ui_profile.dart';
 import 'widgets/product_detail_views.dart';
 import 'widgets/product_mini_cards.dart';
@@ -46,12 +47,17 @@ class ProductUiRegistry {
     BuildContext context, {
     required DeviceModel device,
     required ProductCapabilityChanged onCapabilityChanged,
+    Future<void> Function(DeviceResourceDefinition resource)? onOpenResource,
+    Future<void> Function(DeviceCredentialDefinition credential)?
+        onReplaceCredential,
   }) {
     final profile = _supportedProfile(device);
     return switch (profile) {
       ProductUiProfile.entranceController => EntranceProductDetail(
           device: device,
           onCapabilityChanged: onCapabilityChanged,
+          onOpenResource: onOpenResource,
+          onReplaceCredential: onReplaceCredential,
         ),
       ProductUiProfile.roofController => RoofProductDetail(
           device: device,

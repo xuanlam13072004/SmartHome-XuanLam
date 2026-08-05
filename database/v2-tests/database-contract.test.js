@@ -44,8 +44,10 @@ test('PostgreSQL V2 contains all ownership, sharing, operation, credential and t
         'device_operations',
         'device_operation_transitions',
         'operation_outbox',
+        'device_resource_sessions',
         'device_credentials',
         'credential_jobs',
+        'credential_outbox',
         'device_audit_logs',
         'device_shadow_outbox',
         'topology_outbox',
@@ -81,7 +83,9 @@ test('generic operation and audit JSON are protected from nested credential keys
     assert.match(sql, /CREATE FUNCTION public\.operation_input_has_sensitive_key/);
     assert.match(sql, /operation_input_has_sensitive_key\(item_value\)/);
     assert.match(sql, /CHECK \(NOT public\.operation_input_has_sensitive_key\(input\)\)/);
-    assert.match(sql, /credential_type <> 'pin' OR material_ciphertext IS NULL/);
+    assert.equal(sql.includes('material_ciphertext'), false);
+    assert.equal(sql.includes('credential_public_key_pem text NOT NULL'), true);
+    assert.match(sql, /payload \? 'encrypted_envelope'/);
 });
 
 test('MongoDB V2 collection and index plan is deterministic and complete', () => {
@@ -138,13 +142,14 @@ test('MongoDB V2 CLIs require an explicit initialization gate', () => {
     }
 });
 
-test('coordinated initializer requires empty targets and is not wired into current Docker runtime', () => {
+test('coordinated initializer enforces the target contract and is wired into Docker startup', () => {
     const initializer = fs.readFileSync(path.resolve(__dirname, '../initialize_v2.js'), 'utf8');
     const compose = fs.readFileSync(path.resolve(__dirname, '../../docker-compose.yml'), 'utf8');
 
-    assert.match(initializer, /V2_EXPECT_EMPTY_DATABASES/);
-    assert.match(initializer, /PostgreSQL target is not empty/);
-    assert.match(initializer, /MongoDB target is not empty/);
-    assert.equal(compose.includes('initialize_v2.js'), false);
-    assert.equal(compose.includes('schema_v2.sql'), false);
+    assert.match(initializer, /POSTGRES_SCHEMA_VERSION = 201/);
+    assert.match(initializer, /PostgreSQL contains an incompatible schema/);
+    assert.match(initializer, /MongoDB contains incompatible collections/);
+    assert.match(initializer, /name\.startsWith\('system\.'\)/);
+    assert.equal(compose.includes('initialize_v2.js'), true);
+    assert.equal(compose.includes('db-initialize'), true);
 });

@@ -4,58 +4,59 @@ import type { ProductCatalog } from '../src/catalog/loader';
 import { patchDeviceState } from '../src/generation/telemetry-generator';
 
 const product: ProductCatalog = {
-    id: 'state-patch-product',
-    display_name: 'State patch product',
+    schema: 'compiled.product.v2',
+    product_id: 'prod_state_patch',
+    catalog_revision: 1,
+    model_name: 'State Patch Product',
     category: 'sensor',
-    capabilities: [],
-    default_state: {},
-    capabilityInstances: [{
+    presentation: {},
+    capability_instances: [{
         capability_id: 'environment',
-        instance: 'main',
-        state_properties: {
-            temperature: { value_type: 'number', validation: { min: -20, max: 80 } },
-            mode: { value_type: 'string', validation: { enum: ['eco', 'comfort'] } },
-        },
-        diagnostic_properties: {
-            online: { value_type: 'boolean' },
-        },
-        commands: [],
+        instance_id: 'main',
+        properties: [
+            { id: 'temperature', channel: 'reported', path: 'instances.main.reported.temperature', type: 'number', minimum: -20, maximum: 80 },
+            { id: 'mode', channel: 'desired', path: 'instances.main.desired.mode', type: 'string', enum: ['eco', 'comfort'] },
+            { id: 'online', channel: 'diagnostic', path: 'diagnostics.main.online', type: 'boolean' },
+        ],
+        operations: [],
     }],
+    firmware_default_state: {
+        schema: 'device.state.v2',
+        state_version: 0,
+        instances: { main: { reported: { temperature: 25 }, desired: { mode: 'eco' } } },
+        diagnostics: { main: { online: true } },
+    },
+    operations: {},
 };
 
-test('manual state patch merges catalog-valid metrics and diagnostics', () => {
-    const next = patchDeviceState(
-        {
-            metrics: { temperature: 25, mode: 'eco' },
-            diagnostics: { online: true },
-        },
-        product,
-        {
-            metrics: { temperature: 31 },
-            diagnostics: { online: false },
-        },
-    );
-    assert.deepEqual(next, {
-        metrics: { temperature: 31, mode: 'eco' },
-        diagnostics: { online: false },
+const current = {
+    state_version: 4,
+    instances: { main: { reported: { temperature: 25 }, desired: { mode: 'eco' } } },
+    diagnostics: { main: { online: true } },
+};
+
+test('manual state patch merges catalog-valid nested state and advances its version', () => {
+    const next = patchDeviceState(current, product, {
+        instances: { main: { reported: { temperature: 31 } } },
+        diagnostics: { main: { online: false } },
     });
+    assert.equal(next.instances.main.reported.temperature, 31);
+    assert.equal(next.instances.main.desired.mode, 'eco');
+    assert.equal(next.diagnostics.main.online, false);
+    assert.equal(next.state_version, 5);
 });
 
-test('manual state patch rejects unknown, out-of-range and invalid enum values', () => {
-    const current = {
-        metrics: { temperature: 25, mode: 'eco' },
-        diagnostics: { online: true },
-    };
+test('manual state patch rejects unknown, out-of-range and wrong-channel properties', () => {
     assert.throws(
-        () => patchDeviceState(current, product, { metrics: { unknown: 1 } }),
-        /Unknown metrics state key unknown/,
+        () => patchDeviceState(current, product, { instances: { main: { reported: { unknown: 1 } } } }),
+        /Unknown reported property/,
     );
     assert.throws(
-        () => patchDeviceState(current, product, { metrics: { temperature: 100 } }),
+        () => patchDeviceState(current, product, { instances: { main: { reported: { temperature: 100 } } } }),
         /at most 80/,
     );
     assert.throws(
-        () => patchDeviceState(current, product, { metrics: { mode: 'turbo' } }),
-        /allowed enum/,
+        () => patchDeviceState(current, product, { instances: { main: { reported: { mode: 'eco' } } } }),
+        /Unknown reported property/,
     );
 });

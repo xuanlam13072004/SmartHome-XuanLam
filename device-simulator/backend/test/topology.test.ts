@@ -3,7 +3,7 @@ import test from 'node:test';
 import {
     assignmentFromClaim,
     chooseNetworkCount,
-    commandRouteMatchesAssignment,
+    operationRouteMatchesAssignment,
     createNetworkFingerprint,
     networkIndexForDevice,
     parseTopologyAssignment,
@@ -11,7 +11,7 @@ import {
 } from '../src/runtime/topology';
 
 const stableHub = parseTopologyAssignment({
-    schema_version: 1,
+    schema: 'device.topology.assignment.v2',
     network_id: 'network-a',
     topology_epoch: 4,
     topology_state: 'stable',
@@ -23,7 +23,7 @@ const stableHub = parseTopologyAssignment({
 });
 
 const stableNode = parseTopologyAssignment({
-    schema_version: 1,
+    schema: 'device.topology.assignment.v2',
     network_id: 'network-a',
     topology_epoch: 4,
     topology_state: 'stable',
@@ -81,20 +81,20 @@ test('claim responses seed the runtime before the retained MQTT assignment arriv
     assert.deepEqual(assignment, stableHub);
 });
 
-test('command routes must match the exact role, network, epoch and Hub', () => {
-    assert.equal(commandRouteMatchesAssignment({
+test('operation routes must match the exact role, network, epoch and Hub', () => {
+    assert.equal(operationRouteMatchesAssignment({
         mode: 'relay',
         network_id: 'network-a',
         topology_epoch: 4,
         hub_mac: 'AA:00:00:00:00:01',
     }, stableNode, 'AA:00:00:00:00:02'), true);
-    assert.equal(commandRouteMatchesAssignment({
+    assert.equal(operationRouteMatchesAssignment({
         mode: 'relay',
         network_id: 'network-a',
         topology_epoch: 3,
         hub_mac: 'AA:00:00:00:00:01',
     }, stableNode, 'AA:00:00:00:00:02'), false);
-    assert.equal(commandRouteMatchesAssignment({
+    assert.equal(operationRouteMatchesAssignment({
         mode: 'direct_fallback',
         network_id: 'network-a',
         topology_epoch: 4,

@@ -27,7 +27,7 @@ async function recordActivity(clients, deviceId, ownerId, source, config, logger
         await clients.redis.set(onlineKey, '1', 'EX', 25);
 
         const db = clients.mongoClient.db(config.MONGO_DB_NAME);
-        const collection = db.collection(config.MONGO_DEVICES_COLLECTION);
+        const collection = db.collection(config.MONGO_DEVICE_SHADOWS_COLLECTION);
         const now = new Date();
 
         // 1. Cập nhật MongoDB shadow: is_online = true, last_activity_source, last_seen
@@ -37,11 +37,11 @@ async function recordActivity(clients, deviceId, ownerId, source, config, logger
                 $set: {
                     is_online: true,
                     last_seen: now,
-                    last_updated: now,
+                    updated_at: now,
                     last_activity_source: source
                 }
             },
-            { upsert: true }
+            { upsert: false }
         );
 
         // 2. Nếu chuyển đổi trạng thái từ OFFLINE -> ONLINE, publish sự kiện lên Redis Pub/Sub
@@ -83,7 +83,7 @@ async function markDeviceOffline(clients, mac, ownerId, config, logger, source) 
             'Presence: Failed to clear online lease while marking offline'
         ));
     const db = clients.mongoClient.db(config.MONGO_DB_NAME);
-    const collection = db.collection(config.MONGO_DEVICES_COLLECTION);
+    const collection = db.collection(config.MONGO_DEVICE_SHADOWS_COLLECTION);
     const now = new Date();
 
     // Cập nhật MongoDB shadow chỉ khi thiết bị thực sự đang online
@@ -92,7 +92,7 @@ async function markDeviceOffline(clients, mac, ownerId, config, logger, source) 
         {
             $set: {
                 is_online: false,
-                last_updated: now,
+                updated_at: now,
                 last_activity_source: source
             }
         }
@@ -130,7 +130,7 @@ async function markDeviceOffline(clients, mac, ownerId, config, logger, source) 
  */
 async function performPresenceSweep(clients, config, logger) {
     const db = clients.mongoClient.db(config.MONGO_DB_NAME);
-    const collection = db.collection(config.MONGO_DEVICES_COLLECTION);
+    const collection = db.collection(config.MONGO_DEVICE_SHADOWS_COLLECTION);
     const threshold = new Date(Date.now() - 25000); // Inactive 25 giây trước
     const now = new Date();
 
@@ -153,7 +153,7 @@ async function performPresenceSweep(clients, config, logger) {
         {
             $set: {
                 is_online: false,
-                last_updated: now,
+                updated_at: now,
                 last_activity_source: 'Presence Sweep'
             }
         }

@@ -11,11 +11,18 @@ import '../../../domain/models/device_topology.dart';
 abstract class IDeviceRepository {
   Future<List<DeviceModel>> getDevices();
   Future<void> updateCapability(
-      String mac, CapabilityModel capability, dynamic value);
+      String mac, CapabilityModel capability, dynamic value,
+      {String? reauthToken});
   Future<DeviceModel> claimDevice(String mac, String secretKey, {String? name});
   Future<DeviceModel> updateDeviceName(String mac, String name);
   Future<void> unpairDevice(String mac);
   Future<ProductModel?> getProduct(String productId);
+  Future<Map<String, dynamic>> createResourceSession(
+      String mac, DeviceResourceDefinition resource,
+      {String? reauthToken});
+  Future<Map<String, dynamic>> replaceCredential(
+      String mac, DeviceCredentialDefinition credential, String material,
+      {String? reauthToken});
 
   /// Assemble a DeviceModel from raw WS JSON data.
   Future<DeviceModel> assembleFromWsJson(Map<String, dynamic> rawJson);
@@ -82,8 +89,16 @@ class ApiDeviceRepository implements IDeviceRepository {
   @override
   Future<DeviceModel> mergeDeviceTelemetry(
       DeviceModel device, Map<String, dynamic> newPayload) async {
-    final newRawState = Map<String, dynamic>.from(device.rawState);
-    newRawState.addAll(newPayload);
+    final incomingVersion = _toInt(newPayload['state_version']) ?? 0;
+    if (incomingVersion <= device.stateVersion) return device;
+    final newInstances = _deepMerge(
+      device.instances,
+      _map(newPayload['instances']),
+    );
+    final newDiagnostics = _deepMerge(
+      device.diagnostics,
+      _map(newPayload['diagnostics']),
+    );
 
     final product = await getProduct(device.productId);
 
@@ -94,11 +109,13 @@ class ApiDeviceRepository implements IDeviceRepository {
       productId: device.productId,
       isActive: true,
       isOnline: device.status == DeviceStatus.online,
-      state: newRawState,
-      diagnostics: device.diagnostics,
+      catalogRevision: product?.catalogRevision ?? 0,
+      stateVersion: incomingVersion,
+      instances: newInstances,
+      diagnostics: newDiagnostics,
+      permissions: device.permissions,
+      membershipRole: device.membershipRole,
       lastSeen: device.lastSeen,
-      rssi: device.rssi,
-      battery: device.battery,
       networkId: device.topology?.networkId,
       joinRank: device.topology?.joinRank,
       topologyRole: device.topology?.role.name,
@@ -133,65 +150,79 @@ class ApiDeviceRepository implements IDeviceRepository {
 
   @override
   Future<void> updateCapability(
-      String mac, CapabilityModel capability, dynamic value) async {
-    final command = _resolveCommand(capability, value);
-    final payload = command.argumentNames.isEmpty
+      String mac, CapabilityModel capability, dynamic value,
+      {String? reauthToken}) async {
+    final operation = capability.resolveOperation(value);
+    final input = operation.inputNames.isEmpty
         ? <String, dynamic>{}
-        : <String, dynamic>{command.argumentNames.single: value};
+        : <String, dynamic>{operation.inputNames.single: value};
 
-    await remoteDataSource.sendCommand(
+    await remoteDataSource.createOperation(
       mac,
-      command.action,
       capability.instance,
-      payload,
+      operation.operationName,
+      input,
+      expectedStateVersion: capability.properties['state_version'] as int?,
+      idempotencyKey:
+          '${DateTime.now().microsecondsSinceEpoch}-${capability.instance}-${operation.operationName}',
+      reauthToken: reauthToken,
     );
   }
 
-  CapabilityCommandDescriptor _resolveCommand(
-      CapabilityModel capability, dynamic value) {
-    final withArgument = capability.commands
-        .where((command) => command.argumentNames.length == 1)
-        .toList();
-    if (withArgument.length == 1) return withArgument.single;
+  @override
+  Future<Map<String, dynamic>> createResourceSession(
+    String mac,
+    DeviceResourceDefinition resource, {
+    String? reauthToken,
+  }) =>
+      remoteDataSource.createResourceSession(
+        mac,
+        resource.instanceId,
+        resource.definition.id,
+        reauthToken: reauthToken,
+      );
 
-    final zeroArgument = capability.commands
-        .where((command) => command.argumentNames.isEmpty)
-        .toList();
-    if (zeroArgument.isNotEmpty) {
-      final desiredTokens = _desiredActionTokens(value);
-      for (final command in zeroArgument) {
-        final action = command.action.toLowerCase();
-        if (desiredTokens.any((token) => action.contains(token))) {
-          return command;
-        }
+  @override
+  Future<Map<String, dynamic>> replaceCredential(
+    String mac,
+    DeviceCredentialDefinition credential,
+    String material, {
+    String? reauthToken,
+  }) =>
+      remoteDataSource.replaceCredential(
+        mac,
+        credential.instanceId,
+        credential.definition.id,
+        material,
+        reauthToken: reauthToken,
+      );
+
+  static Map<String, dynamic> _map(dynamic value) => value is Map
+      ? Map<String, dynamic>.from(value)
+      : <String, dynamic>{};
+
+  static int? _toInt(dynamic value) {
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '');
+  }
+
+  static Map<String, dynamic> _deepMerge(
+    Map<String, dynamic> current,
+    Map<String, dynamic> patch,
+  ) {
+    final result = Map<String, dynamic>.from(current);
+    for (final entry in patch.entries) {
+      final existing = result[entry.key];
+      if (existing is Map && entry.value is Map) {
+        result[entry.key] = _deepMerge(
+          Map<String, dynamic>.from(existing),
+          Map<String, dynamic>.from(entry.value as Map),
+        );
+      } else {
+        result[entry.key] = entry.value;
       }
-      if (zeroArgument.length == 1) return zeroArgument.single;
     }
-
-    throw StateError(
-      'No unambiguous command mapping for capability ${capability.id}',
-    );
-  }
-
-  List<String> _desiredActionTokens(dynamic value) {
-    if (value is bool) {
-      return value
-          ? ['on', 'enable', 'start', 'open', 'lock']
-          : ['off', 'disable', 'stop', 'close', 'unlock'];
-    }
-
-    final normalized = value.toString().toLowerCase();
-    const aliases = {
-      'locked': ['lock'],
-      'unlocked': ['unlock'],
-      'open': ['open'],
-      'opened': ['open'],
-      'closed': ['close'],
-      'opening': ['open'],
-      'closing': ['close'],
-      'stopped': ['stop'],
-    };
-    return aliases[normalized] ?? [normalized];
+    return result;
   }
 
   @override

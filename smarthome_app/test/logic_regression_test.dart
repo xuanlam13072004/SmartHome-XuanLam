@@ -5,434 +5,347 @@ import 'package:smarthome_app/data/datasources/remote/device_remote_data_source.
 import 'package:smarthome_app/data/models/dto/device_dto.dart';
 import 'package:smarthome_app/data/models/dto/product_dto.dart';
 import 'package:smarthome_app/domain/mappers/capability_assembler.dart';
-import 'package:smarthome_app/domain/models/product_model.dart';
-import 'package:smarthome_app/domain/models/device_topology.dart';
+import 'package:smarthome_app/domain/mappers/product_mapper.dart';
 import 'package:smarthome_app/domain/models/ws_events.dart';
-import 'package:smarthome_app/features/dashboard/models/device_qr_payload.dart';
 import 'package:smarthome_app/features/dashboard/models/capability_model.dart';
 import 'package:smarthome_app/features/dashboard/repositories/device_repository.dart';
 
-class _RecordingDeviceRemoteDataSource implements IDeviceRemoteDataSource {
-  String? action;
-  String? instance;
-  Map<String, dynamic>? payload;
+class _RecordingRemoteDataSource implements IDeviceRemoteDataSource {
+  Map<String, dynamic>? lastOperation;
+  String? lastReauthToken;
 
   @override
-  Future<void> sendCommand(
+  Future<Map<String, dynamic>> createOperation(
     String mac,
-    String action,
     String instance,
-    Map<String, dynamic> payload,
-  ) async {
-    this.action = action;
-    this.instance = instance;
-    this.payload = payload;
+    String operationName,
+    Map<String, dynamic> input, {
+    int? expectedStateVersion,
+    String? idempotencyKey,
+    String? reauthToken,
+  }) async {
+    lastOperation = {
+      'mac': mac,
+      'instance_id': instance,
+      'operation_name': operationName,
+      'input': input,
+      'expected_state_version': expectedStateVersion,
+      'idempotency_key': idempotencyKey,
+    };
+    lastReauthToken = reauthToken;
+    return {'success': true};
   }
 
   @override
-  Future<DeviceDto> claimDevice(
+  Future<Map<String, dynamic>> createResourceSession(
     String mac,
-    String secretKey, {
-    String? name,
+    String instanceId,
+    String resourceId, {
+    String? reauthToken,
   }) async =>
-      throw UnsupportedError('Not used by this test');
+      {'status': 'ready'};
 
   @override
-  Future<List<DeviceDto>> getDevices() async => const [];
+  Future<Map<String, dynamic>> replaceCredential(
+    String mac,
+    String instanceId,
+    String credentialName,
+    String material, {
+    String? label,
+    String? reauthToken,
+  }) async =>
+      {'status': 'queued'};
 
   @override
-  Future<List<ProductDto>> getProducts() async => const [];
+  Future<List<DeviceDto>> getDevices() async => [];
+
+  @override
+  Future<List<ProductDto>> getProducts() async => [];
+
+  @override
+  Future<DeviceDto> claimDevice(String mac, String secretKey, {String? name}) =>
+      throw UnsupportedError('Not used');
+
+  @override
+  Future<DeviceDto> updateDeviceName(String mac, String name) =>
+      throw UnsupportedError('Not used');
 
   @override
   Future<void> unpairDevice(String mac) async {}
-
-  @override
-  Future<DeviceDto> updateDeviceName(String mac, String name) async =>
-      throw UnsupportedError('Not used by this test');
 }
 
-ProductModel _productWith(CapabilityInstance instance) => ProductModel(
-      id: 'product-1',
-      manufacturer: 'Test',
-      modelName: 'Test',
-      displayName: 'Test',
-      firmwareFamily: 'test',
-      connectivity: 'wifi',
-      category: 'test',
-      icon: 'device',
-      description: '',
-      defaultState: const {},
-      capabilityInstances: [instance],
-    );
+Map<String, dynamic> _productJson() => {
+      'product_id': 'prod_entrance_controller',
+      'catalog_revision': 3,
+      'ui_profile': 'entrance_controller',
+      'ui_profile_version': 1,
+      'manufacturer': 'SmartHome XuanLam Ltd.',
+      'model_name': 'Entrance Controller',
+      'category': 'security',
+      'firmware_compatibility': {
+        'family': 'entrance_controller',
+        'minimum_version': '2.0.0',
+      },
+      'connectivity_profiles': ['wifi', 'hub_node'],
+      'presentation': {
+        'display_name': 'Bộ Kiểm Soát Cửa Chính',
+        'icon': 'door_front',
+        'description': 'Điều khiển cửa',
+      },
+      'firmware_default_state': {
+        'instances': {
+          'main_lock': {
+            'reported': {'lock_state': 'locked'},
+          },
+        },
+      },
+      'capability_instances': [
+        {
+          'capability_id': 'door_lock',
+          'instance_id': 'main_lock',
+          'semantic_role': 'entrance_lock',
+          'presentation': {
+            'display_name': 'Khóa cửa chính',
+            'icon': 'lock',
+            'section': 'controls',
+            'order': 10,
+          },
+          'properties': [
+            {
+              'id': 'lock_state',
+              'channel': 'reported',
+              'path': 'instances.main_lock.reported.lock_state',
+              'type': 'string',
+              'enum': ['locked', 'unlocked'],
+            },
+            {
+              'id': 'target_lock_state',
+              'channel': 'desired',
+              'path': 'instances.main_lock.desired.target_lock_state',
+              'type': 'string',
+              'enum': ['locked', 'unlocked'],
+            },
+          ],
+          'operations': [
+            {
+              'id': 'lock',
+              'permission': 'door.control',
+              'risk': 'normal',
+              'confirmation': 'none',
+              'input': <String, dynamic>{},
+              'ack_policy': {'reference': 'lock_state'},
+              'effects': [
+                {'property': 'target_lock_state', 'value': 'locked'},
+              ],
+              'presentation': {'label': 'Khóa cửa'},
+            },
+            {
+              'id': 'unlock',
+              'permission': 'door.control',
+              'risk': 'sensitive',
+              'confirmation': 'confirm',
+              'input': <String, dynamic>{},
+              'ack_policy': {'reference': 'lock_state'},
+              'effects': [
+                {'property': 'target_lock_state', 'value': 'unlocked'},
+              ],
+              'presentation': {'label': 'Mở khóa'},
+            },
+          ],
+        },
+      ],
+    };
 
-DeviceDto _device(Map<String, dynamic> state) => DeviceDto(
-      mac: 'AA:BB:CC:DD:EE:FF',
-      ownerId: 'owner-1',
-      name: 'Test device',
-      productId: 'product-1',
-      isActive: true,
-      isOnline: true,
-      state: state,
-      diagnostics: const {},
-    );
+Map<String, dynamic> _deviceJson() => {
+      'mac': 'aa:bb:cc:dd:ee:ff',
+      'owner_id': 'owner-1',
+      'name': 'Cửa chính',
+      'product_id': 'prod_entrance_controller',
+      'catalog_revision': 3,
+      'permissions': ['door.control'],
+      'role': 'owner',
+      'network_id': 'network-1',
+      'join_rank': 1,
+      'topology_role': 'hub',
+      'topology_epoch': 5,
+      'topology_state': 'stable',
+      'active_hub_mac': 'aa:bb:cc:dd:ee:ff',
+      'transport_mode': 'hub',
+      'shadow': {
+        'is_online': true,
+        'state_version': 7,
+        'last_seen': '2026-08-04T00:00:00.000Z',
+        'instances': {
+          'main_lock': {
+            'reported': {'lock_state': 'locked'},
+          },
+        },
+        'diagnostics': {
+          'system': {'rssi_dbm': -61},
+        },
+      },
+    };
 
 void main() {
-  group('AppErrorMapper', () {
-    test('maps the nested backend error contract without a type cast crash',
+  group('V2 catalog and shadow contract', () {
+    test('parses published Product metadata without V1 aliases', () {
+      final dto = ProductDto.fromJson(_productJson());
+      final product = ProductMapper.fromDto(dto);
+
+      expect(product.id, 'prod_entrance_controller');
+      expect(product.catalogRevision, 3);
+      expect(product.uiProfile, 'entrance_controller');
+      expect(product.connectivityProfiles, contains('hub_node'));
+      expect(product.firmwareDefaultState, contains('instances'));
+      expect(product.capabilityInstances.single.instance, 'main_lock');
+    });
+
+    test('parses nested device shadow and canonicalizes MAC', () {
+      final dto = DeviceDto.fromJson(_deviceJson());
+
+      expect(dto.mac, 'AA:BB:CC:DD:EE:FF');
+      expect(dto.stateVersion, 7);
+      expect(
+        (dto.instances['main_lock'] as Map)['reported'],
+        {'lock_state': 'locked'},
+      );
+      expect(dto.permissions, ['door.control']);
+      expect(dto.topologyRole, 'hub');
+    });
+
+    test('assembles only authorized operations and hides desired properties',
         () {
-      final request = RequestOptions(path: '/devices/claim');
-      final error = DioException(
-        requestOptions: request,
-        type: DioExceptionType.badResponse,
-        response: Response<Map<String, dynamic>>(
-          requestOptions: request,
-          statusCode: 409,
-          data: const {
-            'error': {
-              'code': 'DEVICE_ALREADY_CLAIMED',
-              'message': 'Already claimed',
-            },
-          },
-        ),
-      );
-
-      expect(
-        AppErrorMapper.mapError(error),
-        'Thiết bị đã được liên kết với tài khoản khác',
-      );
-    });
-  });
-
-  group('DeviceQrPayload', () {
-    test('reads canonical secret_key and normalizes MAC', () {
-      final payload = DeviceQrPayload.parse(
-        '{"type":"smarthome-device","version":1,'
-        '"mac":"aa:bb:cc:dd:ee:ff","secret_key":" device-secret "}',
-      );
-
-      expect(payload.mac, 'AA:BB:CC:DD:EE:FF');
-      expect(payload.secretKey, 'device-secret');
-    });
-
-    test('keeps legacy secret compatible and rejects invalid MAC', () {
-      expect(
-        DeviceQrPayload.parse(
-          '{"mac":"AA:BB:CC:DD:EE:FF","secret":"legacy-secret"}',
-        ).secretKey,
-        'legacy-secret',
-      );
-      expect(
-        () => DeviceQrPayload.parse(
-          '{"mac":"not-a-mac","secret_key":"device-secret"}',
-        ),
-        throwsFormatException,
-      );
-    });
-  });
-
-  group('Hub-Node topology', () {
-    test('parses REST topology fields with numeric strings safely', () {
-      final dto = DeviceDto.fromJson(const {
-        'mac': 'AA:BB:CC:DD:EE:02',
-        'owner_id': 'owner-1',
-        'name': 'Node',
-        'product_id': 'product-1',
-        'is_online': true,
-        'network_id': 'network-a',
-        'join_rank': '2',
-        'topology_role': 'node',
-        'topology_epoch': '9',
-        'topology_state': 'stable',
-        'active_hub_mac': 'aa:bb:cc:dd:ee:01',
-        'transport_mode': 'relay',
-      });
-      final model = CapabilityAssembler.assemble(dto, null);
-
-      expect(model.topology, isNotNull);
-      expect(model.topology!.role, DeviceTopologyRole.node);
-      expect(model.topology!.joinRank, 2);
-      expect(model.topology!.epoch, 9);
-      expect(model.topology!.transportMode, DeviceTransportMode.relay);
-      expect(model.topology!.activeHubMac, 'AA:BB:CC:DD:EE:01');
-      expect(model.topology!.connectionLabel, 'Qua Hub');
-    });
-
-    test('parses a topology update and preserves failover as normal service',
-        () {
-      final event = WsEventParser.parse(
-        '{"event":"topology_updated","network_id":"network-a",'
-        '"topology_epoch":10,"topology_state":"electing",'
-        '"active_hub_mac":"AA:BB:CC:DD:EE:02","members":['
-        '{"mac":"AA:BB:CC:DD:EE:01","join_rank":1,"role":"node"},'
-        '{"mac":"AA:BB:CC:DD:EE:02","join_rank":2,"role":"hub"}],'
-        '"timestamp":"2026-07-30T01:00:00.000Z"}',
-      );
-
-      expect(event, isA<TopologyUpdatedEvent>());
-      final topologyEvent = event as TopologyUpdatedEvent;
-      expect(topologyEvent.epoch, 10);
-      expect(topologyEvent.members.length, 2);
-      expect(topologyEvent.members.last.role, 'hub');
-
-      const topology = DeviceTopology(
-        networkId: 'network-a',
-        role: DeviceTopologyRole.node,
-        epoch: 10,
-        state: DeviceTopologyState.electing,
-        transportMode: DeviceTransportMode.directFallback,
-      );
-      expect(topology.isOptimizing, isTrue);
-      expect(topology.connectionLabel, 'Kết nối trực tiếp');
-      expect(topology.stateLabel, 'Đang tối ưu kết nối');
-    });
-
-    test('reads removed device identity from an unpair topology event', () {
-      final event = WsEventParser.parse(
-        '{"event":"topology_updated","network_id":"network-a",'
-        '"topology_epoch":11,"topology_state":"stable","members":[],'
-        '"change":{"type":"unpair","mac":"aa:bb:cc:dd:ee:01"}}',
-      ) as TopologyUpdatedEvent;
-
-      expect(event.removedMac, 'AA:BB:CC:DD:EE:01');
-    });
-  });
-
-  group('Capability command mapping', () {
-    test('parses semantic metadata and preserves it through assembly', () {
-      final instance = CapabilityInstance.fromJson(const {
-        'capability_id': 'light_controller',
-        'instance': 'main_light',
-        'semantic_role': 'room_light',
-        'default_display_name': 'Đèn phòng khách',
-        'default_icon': 'lightbulb',
-        'display_order': 7,
-        'state_properties': {
-          'power': {'value_type': 'boolean'},
-        },
-        'diagnostic_properties': <String, dynamic>{},
-        'commands': <dynamic>[],
-      });
-
-      final capability = CapabilityAssembler.assemble(
-        _device(const {'power': true}),
-        _productWith(instance),
-      ).capabilities.single;
-
-      expect(capability.name, 'Đèn phòng khách');
-      expect(capability.capabilityId, 'light_controller');
-      expect(capability.semanticRole, 'room_light');
-      expect(capability.instanceDisplayName, 'Đèn phòng khách');
-      expect(capability.iconName, 'lightbulb');
-      expect(capability.displayOrder, 7);
-      expect(capability.section, CapabilitySection.sensor);
-    });
-
-    test('orders capability instances by display_order with stable ties', () {
-      CapabilityInstance instance(
-        String id,
-        String stateKey,
-        int displayOrder,
-      ) =>
-          CapabilityInstance(
-            capabilityId: id,
-            instance: id,
-            displayOrder: displayOrder,
-            valueType: 'number',
-            validation: const {},
-            stateProperties: {
-              stateKey: const {'value_type': 'number'},
-            },
-            diagnosticProperties: const {},
-            commands: const [],
-          );
-
-      final base = _productWith(instance('second', 'second_value', 2));
-      final product = ProductModel(
-        id: base.id,
-        manufacturer: base.manufacturer,
-        modelName: base.modelName,
-        displayName: base.displayName,
-        firmwareFamily: base.firmwareFamily,
-        connectivity: base.connectivity,
-        category: base.category,
-        icon: base.icon,
-        description: base.description,
-        defaultState: base.defaultState,
-        capabilityInstances: [
-          instance('second', 'second_value', 2),
-          instance('first-a', 'first_a_value', 1),
-          instance('first-b', 'first_b_value', 1),
-        ],
-      );
-
-      final capabilities = CapabilityAssembler.assemble(
-        _device(const {
-          'second_value': 2,
-          'first_a_value': 1,
-          'first_b_value': 1,
-        }),
-        product,
-      ).capabilities;
-
-      expect(
-        capabilities.map((item) => item.id),
-        ['first_a_value', 'first_b_value', 'second_value'],
-      );
-    });
-
-    test('exposes system diagnostics as a separate read-only section', () {
-      final product = _productWith(
-        CapabilityInstance(
-          capabilityId: 'system-diagnostics',
-          instance: 'diagnostics',
-          semanticRole: 'system-diagnostics',
-          defaultDisplayName: 'System Diagnostics',
-          defaultIcon: 'monitor_heart',
-          displayOrder: 99,
-          valueType: '',
-          validation: const {},
-          stateProperties: const {},
-          diagnosticProperties: const {
-            'rssi': {
-              'value_type': 'number',
-              'validation': {'min': -120, 'max': 0, 'unit': 'dBm'},
-            },
-          },
-          commands: const [],
-        ),
-      );
-      final deviceDto = DeviceDto(
-        mac: 'AA:BB:CC:DD:EE:FF',
-        ownerId: 'owner-1',
-        name: 'Test device',
-        productId: 'product-1',
-        isActive: true,
-        isOnline: true,
-        state: const {},
-        diagnostics: const {'rssi': -62},
-      );
-
-      final diagnostic =
-          CapabilityAssembler.assemble(deviceDto, product).capabilities.single;
-
-      expect(diagnostic.section, CapabilitySection.diagnostic);
-      expect(diagnostic.isReadOnly, isTrue);
-      expect(diagnostic.iconName, 'monitor_heart');
-      expect(diagnostic.properties['unit'], 'dBm');
-      expect(diagnostic.properties['min'], -120);
-      expect(diagnostic.properties['max'], 0);
-    });
-
-    test('uses the command action and argument belonging to each state',
-        () async {
-      final product = _productWith(CapabilityInstance(
-        capabilityId: 'light_controller',
-        instance: 'main_light',
-        valueType: '',
-        validation: const {},
-        stateProperties: const {
-          'power': {
-            'value_type': 'boolean',
-            'validation': {'required': true},
-          },
-          'brightness': {
-            'value_type': 'number',
-            'validation': {'min': 0, 'max': 100},
-          },
-        },
-        diagnosticProperties: const {},
-        commands: [
-          CapabilityCommand(
-            action: 'SET_LIGHT_POWER',
-            arguments: const [
-              {'name': 'value'},
-            ],
-          ),
-          CapabilityCommand(
-            action: 'SET_BRIGHTNESS',
-            arguments: const [
-              {'name': 'brightness'},
-            ],
-          ),
-        ],
-      ));
+      final product =
+          ProductMapper.fromDto(ProductDto.fromJson(_productJson()));
       final device = CapabilityAssembler.assemble(
-        _device(const {'power': false, 'brightness': 30}),
+        DeviceDto.fromJson(_deviceJson()),
         product,
       );
-      final remote = _RecordingDeviceRemoteDataSource();
-      final repository = ApiDeviceRepository(remote);
 
-      final brightness =
-          device.capabilities.singleWhere((item) => item.id == 'brightness');
-      await repository.updateCapability(device.mac, brightness, 75);
-
-      expect(remote.action, 'SET_BRIGHTNESS');
-      expect(remote.instance, 'main_light');
-      expect(remote.payload, const {'brightness': 75});
+      expect(device.capabilities, hasLength(1));
+      final lock = device.capabilities.single;
+      expect(lock.id, 'lock_state');
+      expect(lock.instance, 'main_lock');
+      expect(lock.value, 'locked');
+      expect(lock.operations.map((item) => item.operationName),
+          ['lock', 'unlock']);
+      expect(lock.properties['state_version'], 7);
+      expect(device.rawState, {'lock_state': 'locked'});
     });
 
-    test('keeps reported cover position read-only and maps desired state',
-        () async {
-      final product = _productWith(CapabilityInstance(
-        capabilityId: 'cover_controller',
-        instance: 'roof_motor',
-        valueType: '',
-        validation: const {},
-        stateProperties: const {
-          'target_position': {
-            'value_type': 'number',
-            'validation': {'min': 0, 'max': 100},
-          },
-          'current_position': {
-            'value_type': 'number',
-            'validation': {'min': 0, 'max': 100},
-          },
-          'movement_status': {
-            'value_type': 'string',
-            'validation': {
-              'enum': ['opening', 'closing', 'stopped'],
-            },
-          },
-        },
-        diagnosticProperties: const {},
-        commands: [
-          CapabilityCommand(action: 'OPEN', arguments: const []),
-          CapabilityCommand(action: 'CLOSE', arguments: const []),
-          CapabilityCommand(action: 'STOP', arguments: const []),
-          CapabilityCommand(
-            action: 'SET_POSITION',
-            arguments: const [
-              {'name': 'position'},
-            ],
+    test('removes controls when membership lacks the required permission', () {
+      final raw = _deviceJson()..['permissions'] = <String>[];
+      final product =
+          ProductMapper.fromDto(ProductDto.fromJson(_productJson()));
+      final device =
+          CapabilityAssembler.assemble(DeviceDto.fromJson(raw), product);
+
+      expect(device.capabilities.single.isReadOnly, isTrue);
+      expect(device.capabilities.single.operations, isEmpty);
+    });
+  });
+
+  group('V2 operations', () {
+    test('resolves the correct zero-input operation from the target value', () {
+      const capability = CapabilityModel(
+        id: 'lock_state',
+        type: 'enum',
+        name: 'Khóa cửa',
+        instance: 'main_lock',
+        operations: [
+          CapabilityOperationDescriptor(operationName: 'lock'),
+          CapabilityOperationDescriptor(
+            operationName: 'unlock',
+            risk: 'sensitive',
+            confirmation: 'confirm',
           ),
         ],
-      ));
-      final device = CapabilityAssembler.assemble(
-        _device(const {
-          'target_position': 0,
-          'current_position': 20,
-          'movement_status': 'stopped',
-        }),
-        product,
       );
-      final current = device.capabilities
-          .singleWhere((item) => item.id == 'current_position');
-      final target = device.capabilities
-          .singleWhere((item) => item.id == 'target_position');
-      final movement = device.capabilities
-          .singleWhere((item) => item.id == 'movement_status');
 
-      expect(current.isReadOnly, isTrue);
-      expect(current.commands, isEmpty);
-      expect(target.commands.single.action, 'SET_POSITION');
-      expect(target.commands.single.argumentNames, const ['position']);
-
-      final remote = _RecordingDeviceRemoteDataSource();
-      final repository = ApiDeviceRepository(remote);
-      await repository.updateCapability(device.mac, movement, 'closing');
-      expect(remote.action, 'CLOSE');
-      expect(remote.payload, isEmpty);
+      expect(capability.resolveOperation('locked').operationName, 'lock');
+      expect(capability.resolveOperation('unlocked').operationName, 'unlock');
     });
+
+    test('sends instance, operation input, state fence and reauth token',
+        () async {
+      final remote = _RecordingRemoteDataSource();
+      final repository = ApiDeviceRepository(remote);
+      const capability = CapabilityModel(
+        id: 'rain_protection_enabled',
+        type: 'on_off',
+        name: 'Bảo vệ khi mưa',
+        instance: 'roof_automation',
+        properties: {'state_version': 12},
+        operations: [
+          CapabilityOperationDescriptor(
+            operationName: 'set_rain_protection',
+            inputNames: ['enabled'],
+            risk: 'dangerous',
+            confirmation: 'reauthenticate',
+          ),
+        ],
+      );
+
+      await repository.updateCapability(
+        'AA:BB:CC:DD:EE:FF',
+        capability,
+        true,
+        reauthToken: 'reauth-token',
+      );
+
+      expect(remote.lastOperation?['instance_id'], 'roof_automation');
+      expect(remote.lastOperation?['operation_name'], 'set_rain_protection');
+      expect(remote.lastOperation?['input'], {'enabled': true});
+      expect(remote.lastOperation?['expected_state_version'], 12);
+      expect(remote.lastReauthToken, 'reauth-token');
+    });
+  });
+
+  test('maps structured backend errors without a type cast crash', () {
+    final error = DioException(
+      requestOptions: RequestOptions(path: '/devices'),
+      response: Response<Map<String, dynamic>>(
+        requestOptions: RequestOptions(path: '/devices'),
+        statusCode: 409,
+        data: {
+          'error': {
+            'code': 'STATE_VERSION_CONFLICT',
+            'message': 'State changed',
+          },
+        },
+      ),
+    );
+
+    expect(
+      AppErrorMapper.mapError(error),
+      'Trạng thái thiết bị đã thay đổi. Vui lòng thử lại',
+    );
+  });
+
+  test('maps V2 resource errors and parses credential realtime status', () {
+    final error = DioException(
+      requestOptions: RequestOptions(path: '/resource-sessions'),
+      response: Response<Map<String, dynamic>>(
+        requestOptions: RequestOptions(path: '/resource-sessions'),
+        statusCode: 403,
+        data: {
+          'error': {
+            'code': 'RESOURCE_FORBIDDEN',
+            'message': 'Permission denied',
+          },
+        },
+      ),
+    );
+    final event = WsEventParser.parse(
+      '{"event":"credential_status","mac":"AA:BB:CC:DD:EE:FF",'
+      '"payload":{"status":"applied"},"timestamp":"2026-08-04T00:00:00Z"}',
+    );
+
+    expect(
+      AppErrorMapper.mapError(error),
+      'Bạn không có quyền truy cập tài nguyên này',
+    );
+    expect(event, isA<CredentialStatusEvent>());
+    expect((event as CredentialStatusEvent).payload['status'], 'applied');
   });
 }

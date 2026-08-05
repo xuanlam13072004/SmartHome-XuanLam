@@ -53,13 +53,15 @@ test('compiler emits JSON-safe namespaced state without Map or Set values', () =
     visit(compiled);
 });
 
-test('planned hardware is visible to review but excluded from active runtime contract', () => {
+test('runtime contract contains no unconfirmed hazard hardware', () => {
     const compiled = compileCatalog(loadCatalogV2());
     const hazard = compiled.product_index.prod_hazard_mitigation;
 
-    assert.equal(hazard.capability_instances.some(instance => instance.instance_id === 'load_cutoff'), false);
-    assert.equal(hazard.planned_capability_instances.some(instance => instance.instance_id === 'load_cutoff'), true);
-    assert.equal(Object.keys(hazard.operations).some(key => key.startsWith('load_cutoff.')), false);
+    assert.deepEqual(hazard.planned_capability_instances, []);
+    for (const removed of ['load_cutoff', 'exhaust_fan', 'kitchen_power']) {
+        assert.equal(hazard.capability_instances.some(instance => instance.instance_id === removed), false);
+        assert.equal(Object.keys(hazard.operations).some(key => key.startsWith(`${removed}.`)), false);
+    }
 });
 
 test('entrance credentials are write-only, owner-only and absent from generic operations', () => {
@@ -163,14 +165,15 @@ test('roof uses rain semantics and physical buttons are event-only', () => {
     const compiled = compileCatalog(loadCatalogV2());
     const roof = compiled.product_index.prod_roof_controller;
     const rain = roof.capability_instances.find(instance => instance.instance_id === 'rain_sensor');
-    const openButton = roof.capability_instances.find(instance => instance.instance_id === 'open_button');
+    const button = roof.capability_instances.find(instance => instance.instance_id === 'roof_button');
 
     assert.equal(rain.capability_id, 'rain_detection');
     assert.equal(roof.contract_maturity, 'edge_reviewed');
-    assert.equal(openButton.properties.length, 0);
-    assert.equal(openButton.operations.length, 0);
-    assert.equal(openButton.events.some(event => event.id === 'button_pressed'), true);
-    assert.equal(openButton.events.every(event => event.producer === 'device_firmware'), true);
+    assert.equal(button.semantic_role, 'local_toggle_input');
+    assert.equal(button.properties.length, 0);
+    assert.equal(button.operations.length, 0);
+    assert.equal(button.events.some(event => event.id === 'button_pressed'), true);
+    assert.equal(button.events.every(event => event.producer === 'device_firmware'), true);
 });
 
 test('roof does not claim position or obstruction feedback without confirmed hardware', () => {
@@ -204,10 +207,10 @@ test('roof motor operations are device-executed and bounded by persisted maximum
     assert.equal(configureRuntime.input.seconds.maximum, 300);
 });
 
-test('roof policies and environmental measurements remain device-local', () => {
+test('roof rain policy and the only physical sensor remain device-local', () => {
     const roof = compileCatalog(loadCatalogV2()).product_index.prod_roof_controller;
     const policy = roof.capability_instances.find(instance => instance.instance_id === 'roof_automation');
-    const sensorIds = ['rain_sensor', 'solar_sensor', 'outdoor_temperature', 'outdoor_humidity'];
+    const sensorIds = ['rain_sensor'];
 
     assert.equal(policy.runtime.execution_authority, 'device_firmware');
     assert.equal(policy.runtime.configuration_persistence, 'device_nvs');
@@ -221,19 +224,26 @@ test('roof policies and environmental measurements remain device-local', () => {
         assert.equal(instance.runtime.reported_state_authority, 'device_firmware');
         assert.equal(instance.runtime.offline_behavior, 'full_local');
     }
+    for (const absent of ['solar_sensor', 'outdoor_temperature', 'outdoor_humidity']) {
+        assert.equal(roof.capability_instances.some(item => item.instance_id === absent), false);
+    }
 });
 
-test('hazard controls cannot model siren or ventilation as unrestricted switches', () => {
+test('hazard contract matches MQ2, flame sensor, DHT11, buzzer and mute button', () => {
     const compiled = compileCatalog(loadCatalogV2());
     const hazard = compiled.product_index.prod_hazard_mitigation;
     const incident = hazard.capability_instances.find(instance => instance.instance_id === 'hazard');
     const siren = hazard.capability_instances.find(instance => instance.instance_id === 'alarm_siren');
-    const fan = hazard.capability_instances.find(instance => instance.instance_id === 'exhaust_fan');
+    const temperature = hazard.capability_instances.find(instance => instance.instance_id === 'kitchen_temperature');
+    const humidity = hazard.capability_instances.find(instance => instance.instance_id === 'kitchen_humidity');
+    const muteButton = hazard.capability_instances.find(instance => instance.instance_id === 'mute_button');
 
     assert.equal(hazard.contract_maturity, 'edge_reviewed');
     assert.equal(hazard.connectivity_profiles.includes('ethernet'), false);
     assert.equal(siren.capability_id, 'alarm_siren');
-    assert.equal(fan.capability_id, 'ventilation_controller');
+    assert.equal(temperature.capability_id, 'temperature_measurement');
+    assert.equal(humidity.capability_id, 'humidity_measurement');
+    assert.equal(muteButton.capability_id, 'local_button');
     assert.equal(incident.properties.some(property => property.id === 'alarm_state'), false);
     assert.deepEqual(
         incident.properties.find(property => property.id === 'incident_state').enum,
@@ -260,14 +270,8 @@ test('hazard controls cannot model siren or ventilation as unrestricted switches
     ]);
     assert.equal(mute.safety_constraints.includes('mitigation_continues'), true);
 
-    assert.deepEqual(
-        fan.properties.find(property => property.id === 'fan_state').enum,
-        ['off', 'running'],
-    );
-    const stopFan = fan.operations.find(operation => operation.id === 'stop_manual_ventilation');
-    assert.equal(stopFan.safety_constraints.includes('no_active_hazard'), true);
-    assert.equal(stopFan.safety_constraints.includes('safety_policy_not_requesting_fan'), true);
-    assert.equal(fan.events.some(event => event.id === 'ventilation_command_rejected'), true);
+    assert.equal(hazard.capability_instances.some(instance => instance.instance_id === 'exhaust_fan'), false);
+    assert.equal(hazard.capability_instances.some(instance => instance.instance_id === 'kitchen_power'), false);
 });
 
 test('active hazard capabilities are device-authoritative and remain locally safe offline', () => {
@@ -287,7 +291,7 @@ test('active hazard capabilities are device-authoritative and remain locally saf
     }
 
     assert.equal(
-        hazard.local_policies.some(policy => policy.id === 'ventilation_safety_override'),
+        hazard.local_policies.some(policy => policy.id === 'temporary_mute'),
         true,
     );
     assert.equal(

@@ -18,7 +18,7 @@ export interface ProductWeight {
 
 export interface SimulationRunConfig {
     user_count: number;
-    username_prefix: string;
+    email_prefix: string;
     email_domain: string;
     devices_min: number;
     devices_max: number;
@@ -46,9 +46,9 @@ export interface SimulationRunMetricTotals {
     telemetry_published: number;
     telemetry_failed: number;
     telemetry_bytes: number;
-    commands_received: number;
-    commands_applied: number;
-    commands_rejected: number;
+    operations_received: number;
+    operations_applied: number;
+    operations_rejected: number;
     acks_published: number;
     acks_failed: number;
     mqtt_connects: number;

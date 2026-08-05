@@ -1,18 +1,13 @@
 require('dotenv').config();
-const dns = require('dns');
-try {
-  dns.setServers(['8.8.8.8', '8.8.4.4']);
-} catch (err) {}
-
 const pino = require('pino');
 
 const config = require('./config/env');
 const { createRedisClient } = require('./infra/redisClient');
 const { createMqttClient } = require('./infra/mqttClient');
 const { createMongoClient } = require('./infra/mongoClient');
-const { CatalogCache } = require('../../shared/catalogCache');
-const { recordCatalogReload } = require('./monitoring/metrics');
-const { startCommandConsumer } = require('./workers/commandConsumer');
+const { RuntimeCatalog } = require('../../shared/catalog-v2');
+const { startOperationConsumer } = require('./workers/operationConsumer');
+const { startCredentialConsumer } = require('./workers/credentialConsumer');
 const { startTelemetrySubscriber } = require('./workers/telemetrySubscriber');
 const { startPresenceWorker } = require('./workers/presenceWorker');
 const { startTopologySubscriber } = require('./workers/topologySubscriber');
@@ -34,12 +29,14 @@ const logger = pino({
 const state = {
     redis: null,
     blockingRedis: null,
+    credentialRedis: null,
     mqttClient: null,
     mongoClient: null,
     heartbeatTimer: null,
     healthTimer: null,
     shuttingDown: false,
-    commandConsumerTask: null,
+    operationConsumerTask: null,
+    credentialConsumerTask: null,
     telemetrySubscriberTask: null,
     presenceWorkerTask: null,
     presenceWorkerCleanup: null,
@@ -62,6 +59,8 @@ async function connectRedis() {
     state.redis = redis;
     state.blockingRedis = redis.duplicate();
     await state.blockingRedis.ping();
+    state.credentialRedis = redis.duplicate();
+    await state.credentialRedis.ping();
     logger.info('Redis blocking connection initialized');
 }
 
@@ -182,6 +181,9 @@ async function shutdown(signal) {
     if (state.blockingRedis) {
         closeTasks.push(state.blockingRedis.quit().catch(() => state.blockingRedis.disconnect()));
     }
+    if (state.credentialRedis) {
+        closeTasks.push(state.credentialRedis.quit().catch(() => state.credentialRedis.disconnect()));
+    }
 
     if (state.mongoClient) {
         closeTasks.push(state.mongoClient.close());
@@ -207,10 +209,9 @@ async function start() {
         process.exit(1);
     }
 
-    // Khởi động Catalog Cache
-    const catalogCache = new CatalogCache(state.mongoClient.db(config.MONGO_DB_NAME), state.redis, logger, { onReloadSuccess: recordCatalogReload });
-    await catalogCache.start();
-    state.catalogCache = catalogCache;
+    const catalog = new RuntimeCatalog({ log: logger });
+    await catalog.start();
+    state.catalog = catalog;
 
     // Khởi tạo các Batch Writers & Chức năng Pipeline
     state.telemetryWriter = new TelemetryBatchWriter(state.mongoClient, state.mqttClient, config, logger);
@@ -225,7 +226,7 @@ async function start() {
         redis: state.redis,
         mqttClient: state.mqttClient,
         mongoClient: state.mongoClient,
-        catalogCache: state.catalogCache,
+        catalog: state.catalog,
         telemetryWriter: state.telemetryWriter,
         shadowWriter: state.shadowWriter,
         telemetrySanitizer: state.telemetrySanitizer,
@@ -255,8 +256,14 @@ async function start() {
         logger.info({ port: metricsPort }, 'Prometheus metrics server listening');
     });
 
-    state.commandConsumerTask = startCommandConsumer({ ...clients, redis: state.blockingRedis }, config, logger).catch((err) => {
-        logger.fatal({ err }, 'Command consumer fatal error');
+    state.operationConsumerTask = startOperationConsumer({ ...clients, redis: state.blockingRedis }, config, logger).catch((err) => {
+        logger.fatal({ err }, 'Operation consumer fatal error');
+        process.exit(1);
+    });
+    state.credentialConsumerTask = startCredentialConsumer(
+        { ...clients, redis: state.credentialRedis }, config, logger,
+    ).catch((err) => {
+        logger.fatal({ err }, 'Credential consumer fatal error');
         process.exit(1);
     });
 

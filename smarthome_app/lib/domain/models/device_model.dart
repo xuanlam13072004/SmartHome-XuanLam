@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../features/dashboard/models/capability_model.dart';
 import '../../core/widgets/indicators/status_badge.dart' show DeviceStatus;
 import 'device_topology.dart';
+import 'product_model.dart';
 
 class DeviceModel {
   final String mac; // Canonical device identifier (matches backend)
@@ -12,12 +13,16 @@ class DeviceModel {
   final int uiProfileVersion;
   final IconData icon;
   final DeviceStatus status; // online, offline
+  final int stateVersion;
+  final Map<String, dynamic> instances;
   final Map<String, dynamic> rawState;
   final Map<String, dynamic> diagnostics;
+  final List<String> permissions;
+  final String? membershipRole;
   final String? lastSeen;
-  final int? rssi;
-  final int? battery;
   final DeviceTopology? topology;
+  final List<DeviceResourceDefinition> resources;
+  final List<DeviceCredentialDefinition> credentials;
 
   // Danh sách capabilities sau khi đã ghép nối với Product Catalog
   final List<CapabilityModel> capabilities;
@@ -31,13 +36,17 @@ class DeviceModel {
     this.uiProfileVersion = 1,
     required this.icon,
     required this.status,
+    this.stateVersion = 0,
+    this.instances = const {},
     required this.rawState,
     required this.diagnostics,
+    this.permissions = const [],
+    this.membershipRole,
     required this.capabilities,
     this.lastSeen,
-    this.rssi,
-    this.battery,
     this.topology,
+    this.resources = const [],
+    this.credentials = const [],
   });
 
   DeviceModel copyWith({
@@ -49,14 +58,18 @@ class DeviceModel {
     int? uiProfileVersion,
     IconData? icon,
     DeviceStatus? status,
+    int? stateVersion,
+    Map<String, dynamic>? instances,
     Map<String, dynamic>? rawState,
     Map<String, dynamic>? diagnostics,
+    List<String>? permissions,
+    String? membershipRole,
     List<CapabilityModel>? capabilities,
     String? lastSeen,
-    int? rssi,
-    int? battery,
     DeviceTopology? topology,
     bool clearTopology = false,
+    List<DeviceResourceDefinition>? resources,
+    List<DeviceCredentialDefinition>? credentials,
   }) {
     return DeviceModel(
       mac: mac ?? this.mac,
@@ -67,13 +80,17 @@ class DeviceModel {
       uiProfileVersion: uiProfileVersion ?? this.uiProfileVersion,
       icon: icon ?? this.icon,
       status: status ?? this.status,
+      stateVersion: stateVersion ?? this.stateVersion,
+      instances: instances ?? this.instances,
       rawState: rawState ?? this.rawState,
       diagnostics: diagnostics ?? this.diagnostics,
+      permissions: permissions ?? this.permissions,
+      membershipRole: membershipRole ?? this.membershipRole,
       capabilities: capabilities ?? this.capabilities,
       lastSeen: lastSeen ?? this.lastSeen,
-      rssi: rssi ?? this.rssi,
-      battery: battery ?? this.battery,
       topology: clearTopology ? null : topology ?? this.topology,
+      resources: resources ?? this.resources,
+      credentials: credentials ?? this.credentials,
     );
   }
 

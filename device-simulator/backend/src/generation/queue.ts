@@ -29,13 +29,13 @@ import {
     createNetworkFingerprint,
     networkIndexForDevice,
 } from '../runtime/topology';
+import { getProduct } from '../catalog/loader';
 
 const delay = (milliseconds: number) =>
     new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 interface AccountRow {
     id: string;
-    username: string;
     email: string;
     full_name: string | null;
     created_at: Date;
@@ -207,7 +207,7 @@ export class GenerationQueue {
                 index,
                 run.id,
                 run.config.email_domain,
-                run.config.username_prefix,
+                run.config.email_prefix,
                 seed,
             );
             const targetDeviceCount = deterministicInteger(
@@ -220,7 +220,6 @@ export class GenerationQueue {
             const record: SimulatedUserRecord = {
                 run_id: run.id,
                 generation_index: index,
-                username: generated.username,
                 email: generated.email,
                 full_name: generated.full_name,
                 credential: encrypt(generated.password),
@@ -247,7 +246,7 @@ export class GenerationQueue {
         let accountProvenance: SimulatedUserRecord['account_provenance'];
         if (!accountId) {
             const existingAccount = await getPgPool().query<AccountRow>(
-                `SELECT id::text, username, email, full_name, created_at
+                `SELECT id::text, email, full_name, created_at
                  FROM accounts
                  WHERE email = $1`,
                 [user.email.toLowerCase()],
@@ -257,7 +256,6 @@ export class GenerationQueue {
                 const authenticated = await apiGateway.getCurrentUser(session.accessToken);
                 accountId = verifyRecoverableGeneratedAccount(
                     {
-                        username: user.username,
                         email: user.email,
                         full_name: user.full_name,
                         registry_created_at: user.created_at,
@@ -271,7 +269,6 @@ export class GenerationQueue {
                 accountProvenance = 'recovered_after_register';
             } else {
                 const registered = await apiGateway.register({
-                    username: user.username,
                     email: user.email,
                     password,
                     full_name: user.full_name,
@@ -305,7 +302,7 @@ export class GenerationQueue {
             });
         } else if (user.account_created_by_simulator !== true) {
             const existingAccount = await getPgPool().query<AccountRow>(
-                `SELECT id::text, username, email, full_name, created_at
+                `SELECT id::text, email, full_name, created_at
                  FROM accounts
                  WHERE id = $1`,
                 [accountId],
@@ -317,7 +314,6 @@ export class GenerationQueue {
             const authenticated = await apiGateway.getCurrentUser(session.accessToken);
             accountId = verifyRecoverableGeneratedAccount(
                 {
-                    username: user.username,
                     email: user.email,
                     full_name: user.full_name,
                     registry_created_at: user.created_at,
@@ -328,7 +324,7 @@ export class GenerationQueue {
                 },
                 authenticated,
             );
-            accountProvenance = 'verified_legacy';
+            accountProvenance = 'recovered_after_register';
             await db.collection<SimulatedUserRecord>('simulated_users').updateOne(
                 { run_id: run.id, generation_index: index },
                 {
@@ -344,7 +340,7 @@ export class GenerationQueue {
                 severity: 'info',
                 run_id: run.id,
                 account_id: accountId,
-                message: `Verified legacy simulator account ownership for ${user.email}`,
+                message: `Recovered and verified simulator account ownership for ${user.email}`,
             });
         }
 
@@ -461,6 +457,8 @@ export class GenerationQueue {
                 simulated_network_index: simulatedNetworkIndex,
                 network_fingerprint: networkFingerprint,
                 secret: encrypt(identity.rawSecret),
+                credential_private_key: encrypt(identity.credentialPrivateKeyPem),
+                credential_public_key_pem: identity.credentialPublicKeyPem,
                 factory_owned: false,
                 provisioning_state: 'planned',
                 runtime_state: 'offline',
@@ -490,9 +488,15 @@ export class GenerationQueue {
 
         const rawSecret = decrypt(device.secret.iv, device.secret.encrypted, device.secret.authTag);
         if (device.provisioning_state === 'planned' || device.provisioning_state === 'failed') {
-            await provisionMockDevice(device.product_id, {
+            await provisionMockDevice(getProduct(device.product_id), {
                 mac: device.mac,
                 rawSecret,
+                credentialPublicKeyPem: device.credential_public_key_pem,
+                credentialPrivateKeyPem: decrypt(
+                    device.credential_private_key.iv,
+                    device.credential_private_key.encrypted,
+                    device.credential_private_key.authTag,
+                ),
             });
             await db.collection<SimulatedDeviceRecord>('simulated_devices').updateOne(
                 { mac: device.mac },
@@ -641,9 +645,9 @@ export class GenerationQueue {
     private async createAvailableDeviceIdentity(
         seed: string,
         scope: string,
-    ): Promise<ReturnType<typeof createMockDeviceIdentity>> {
+    ): Promise<Awaited<ReturnType<typeof createMockDeviceIdentity>>> {
         for (let attempt = 0; attempt < 20; attempt += 1) {
-            const identity = createMockDeviceIdentity(seed, `${scope}:attempt:${attempt}`);
+            const identity = await createMockDeviceIdentity(seed, `${scope}:attempt:${attempt}`);
             const [factoryRecord, registryRecord] = await Promise.all([
                 getPgPool().query('SELECT 1 FROM factory_devices WHERE mac = $1', [identity.mac]),
                 getMongoDb().collection('simulated_devices').findOne({ mac: identity.mac }),

@@ -51,18 +51,6 @@ const setupCollections = async (logger: FastifyBaseLogger): Promise<void> => {
 
         const simulatedUsers = registryDb.collection('simulated_users');
         const accountIdIndexName = 'account_id_string_unique_v2';
-        const accountIdIndexes = (await simulatedUsers.indexes()).filter(
-            (index) => index.key?.account_id === 1 && index.name !== accountIdIndexName,
-        );
-        for (const legacyIndex of accountIdIndexes) {
-            if (!legacyIndex.name) continue;
-            logger.warn(
-                { indexName: legacyIndex.name },
-                'Replacing legacy simulated_users account_id index',
-            );
-            await simulatedUsers.dropIndex(legacyIndex.name);
-        }
-
         await Promise.all([
             registryDb.collection('simulation_runs').createIndex({ id: 1 }, { unique: true }),
             registryDb.collection('simulation_runs').createIndex({ status: 1, created_at: -1 }),

@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+    decryptAccessToken,
     decryptRefreshToken,
     encryptAuthSession,
 } from '../src/security/auth-session';
-import { decrypt } from '../src/security/crypto';
 
 test('stored login sessions encrypt both tokens and retain only session metadata in plaintext', () => {
     const encrypted = encryptAuthSession({
@@ -16,13 +16,6 @@ test('stored login sessions encrypt both tokens and retain only session metadata
     assert.equal(encrypted.session_id, 'session-id');
     assert.notEqual(encrypted.access_token.encrypted, 'access-token-value');
     assert.notEqual(encrypted.refresh_token.encrypted, 'refresh-token-value');
-    assert.equal(
-        decrypt(
-            encrypted.access_token.iv,
-            encrypted.access_token.encrypted,
-            encrypted.access_token.authTag,
-        ),
-        'access-token-value',
-    );
+    assert.equal(decryptAccessToken(encrypted), 'access-token-value');
     assert.equal(decryptRefreshToken(encrypted), 'refresh-token-value');
 });

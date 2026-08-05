@@ -8,6 +8,10 @@ import '../../../core/widgets/widgets.dart';
 import '../../products/product_ui_registry.dart';
 import '../providers/devices_provider.dart';
 import '../../../domain/models/device_model.dart';
+import '../../../core/utils/app_error_mapper.dart';
+import '../../auth/providers/auth_provider.dart';
+import '../models/capability_model.dart';
+import '../../../domain/models/product_model.dart';
 
 class DeviceDetailScreen extends ConsumerWidget {
   const DeviceDetailScreen({
@@ -113,17 +117,279 @@ class DeviceDetailScreen extends ConsumerWidget {
           child: productUiRegistry.buildDetail(
             context,
             device: device,
-            onCapabilityChanged: (capId, value) {
-              ref.read(devicesProvider.notifier).updateCapability(
-                    deviceMac,
-                    capId,
-                    value,
-                  );
+            onCapabilityChanged: (capability, value) {
+              _applyCapabilityChange(
+                context,
+                ref,
+                device,
+                capability,
+                value,
+              );
             },
+            onOpenResource: (resource) => _openResource(
+              context,
+              ref,
+              device,
+              resource,
+            ),
+            onReplaceCredential: (credential) => _replaceCredential(
+              context,
+              ref,
+              device,
+              credential,
+            ),
           ),
         );
       },
     );
+  }
+
+  Future<void> _openResource(
+    BuildContext context,
+    WidgetRef ref,
+    DeviceModel device,
+    DeviceResourceDefinition resource,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final session = await ref
+          .read(devicesProvider.notifier)
+          .createResourceSession(
+            device.mac,
+            resource,
+          );
+      final status = session['status']?.toString() ?? 'requested';
+      if (!context.mounted) return;
+      if (status != 'ready') {
+        throw StateError(
+          session['reason_code']?.toString() ??
+              'Thiết bị chưa sẵn sàng cung cấp tài nguyên',
+        );
+      }
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Phiên camera đã sẵn sàng'),
+          content: SelectableText(
+            session['resource_locator']?.toString() ?? '',
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Đóng'),
+            ),
+          ],
+        ),
+      );
+    } catch (error) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(AppErrorMapper.mapError(error))),
+      );
+    }
+  }
+
+  Future<void> _replaceCredential(
+    BuildContext context,
+    WidgetRef ref,
+    DeviceModel device,
+    DeviceCredentialDefinition credential,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final pin = await _requestNewPin(context, credential);
+      if (pin == null) return;
+      if (!context.mounted) return;
+      final password = await _requestPassword(
+        context,
+        const CapabilityOperationDescriptor(
+          operationName: 'replace_credential',
+          confirmation: 'reauthenticate',
+          label: 'Đổi mã PIN',
+        ),
+      );
+      if (password == null) return;
+      final reauthToken =
+          await ref.read(authRepositoryProvider).reauthenticate(password);
+      await ref.read(devicesProvider.notifier).replaceCredential(
+            device.mac,
+            credential,
+            pin,
+            reauthToken: reauthToken,
+          );
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Đã gửi yêu cầu. PIN chỉ có hiệu lực sau khi thiết bị xác nhận.'),
+        ),
+      );
+    } catch (error) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(AppErrorMapper.mapError(error))),
+      );
+    }
+  }
+
+  Future<String?> _requestNewPin(
+    BuildContext context,
+    DeviceCredentialDefinition credential,
+  ) async {
+    final controller = TextEditingController();
+    final constraints = credential.definition.constraints;
+    final minimum = constraints['min_length'] as int? ?? 4;
+    final maximum = constraints['max_length'] as int? ?? 12;
+    String? errorText;
+    try {
+      return await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setState) => AlertDialog(
+            title: const Text('Đặt mã PIN mới'),
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              obscureText: true,
+              keyboardType: TextInputType.number,
+              maxLength: maximum,
+              decoration: InputDecoration(
+                labelText: 'PIN $minimum–$maximum chữ số',
+                errorText: errorText,
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Hủy'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final value = controller.text.trim();
+                  if (!RegExp(r'^\d+$').hasMatch(value) ||
+                      value.length < minimum ||
+                      value.length > maximum) {
+                    setState(() => errorText = 'PIN không đúng định dạng');
+                    return;
+                  }
+                  Navigator.pop(dialogContext, value);
+                },
+                child: const Text('Tiếp tục'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } finally {
+      controller.dispose();
+    }
+  }
+
+  Future<void> _applyCapabilityChange(
+    BuildContext context,
+    WidgetRef ref,
+    DeviceModel device,
+    CapabilityModel capability,
+    dynamic value,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final operation = capability.resolveOperation(value);
+      String? reauthToken;
+
+      if (operation.confirmation == 'confirm') {
+        final confirmed = await _confirmOperation(context, operation);
+        if (!confirmed) return;
+      } else if (operation.confirmation == 'reauthenticate') {
+        final password = await _requestPassword(context, operation);
+        if (password == null) return;
+        reauthToken = await ref
+            .read(authRepositoryProvider)
+            .reauthenticate(password);
+      }
+
+      await ref.read(devicesProvider.notifier).updateCapability(
+            device.mac,
+            capability,
+            value,
+            reauthToken: reauthToken,
+          );
+    } catch (error) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(AppErrorMapper.mapError(error))),
+      );
+    }
+  }
+
+  Future<bool> _confirmOperation(
+    BuildContext context,
+    CapabilityOperationDescriptor operation,
+  ) async {
+    return await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Xác nhận thao tác'),
+            content: Text(
+              'Bạn có chắc muốn thực hiện “${operation.label.isEmpty ? operation.operationName : operation.label}”?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Hủy'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Xác nhận'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
+  Future<String?> _requestPassword(
+    BuildContext context,
+    CapabilityOperationDescriptor operation,
+  ) async {
+    final controller = TextEditingController();
+    try {
+      return await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Xác minh chủ sở hữu'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Thao tác “${operation.label.isEmpty ? operation.operationName : operation.label}” cần nhập lại mật khẩu tài khoản.',
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'Mật khẩu'),
+                onSubmitted: (value) {
+                  if (value.isNotEmpty) Navigator.pop(dialogContext, value);
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Hủy'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final password = controller.text;
+                if (password.isNotEmpty) Navigator.pop(dialogContext, password);
+              },
+              child: const Text('Tiếp tục'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      controller.dispose();
+    }
   }
 
   void _showRenameDialog(

@@ -42,6 +42,23 @@ class _FakeDeviceRepository implements IDeviceRepository {
   Future<ProductModel?> getProduct(String productId) async => null;
 
   @override
+  Future<Map<String, dynamic>> createResourceSession(
+    String mac,
+    DeviceResourceDefinition resource, {
+    String? reauthToken,
+  }) =>
+      throw UnsupportedError('Not used by this test');
+
+  @override
+  Future<Map<String, dynamic>> replaceCredential(
+    String mac,
+    DeviceCredentialDefinition credential,
+    String material, {
+    String? reauthToken,
+  }) =>
+      throw UnsupportedError('Not used by this test');
+
+  @override
   Future<DeviceModel> mergeDeviceTelemetry(
     DeviceModel device,
     Map<String, dynamic> newPayload,
@@ -55,8 +72,9 @@ class _FakeDeviceRepository implements IDeviceRepository {
   Future<void> updateCapability(
     String mac,
     CapabilityModel capability,
-    dynamic value,
-  ) async {}
+    dynamic value, {
+    String? reauthToken,
+  }) async {}
 
   @override
   DeviceModel updateDeviceStatus(DeviceModel device, bool isOnline) => device;

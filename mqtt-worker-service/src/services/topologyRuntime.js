@@ -25,8 +25,8 @@ function hubLeaseKey(networkId) {
     return `${CACHE_PREFIXES.HUB_LEASE}${networkId}`;
 }
 
-function commandRouteKey(commandId) {
-    return `${CACHE_PREFIXES.COMMAND_ROUTE}${commandId}`;
+function operationRouteKey(operationId) {
+    return `${CACHE_PREFIXES.OPERATION_ROUTE}${operationId}`;
 }
 
 function parseJson(value, label) {
@@ -124,25 +124,19 @@ async function hasCurrentHubLease(redis, topology) {
     );
 }
 
-async function resolveCommandRoute(redis, command, config) {
-    const targetMac = normalizeMac(command.device_id);
+async function resolveOperationRoute(redis, operation, config) {
+    const targetMac = normalizeMac(operation.device_id);
     const topology = await resolveDeviceTopology(redis, targetMac);
     if (!topology) {
-        return {
-            mode: 'direct',
-            owner_id: command.owner_id,
-            target_device_id: targetMac,
-            publish_device_id: targetMac,
-            expected_ack_origin: targetMac,
-            network_id: null,
-            topology_epoch: null,
-            hub_mac: null,
-            compatibility_legacy: true,
-        };
-    }
-    if (topology.owner_id !== command.owner_id) {
         throw new TopologyRoutingError(
-            'Command owner does not match topology owner',
+            'Device topology is not ready',
+            'TOPOLOGY_NOT_READY',
+            true
+        );
+    }
+    if (topology.owner_id !== operation.owner_id) {
+        throw new TopologyRoutingError(
+            'Operation owner does not match topology owner',
             'TOPOLOGY_OWNER_MISMATCH'
         );
     }
@@ -154,12 +148,11 @@ async function resolveCommandRoute(redis, command, config) {
     }
 
     const baseRoute = {
-        owner_id: command.owner_id,
+        owner_id: operation.owner_id,
         target_device_id: targetMac,
         network_id: topology.network_id,
         topology_epoch: topology.topology_epoch,
         member_count: topology.member_count,
-        compatibility_legacy: topology.member_count === 1,
     };
 
     if (topology.role === 'hub') {
@@ -230,40 +223,14 @@ async function validateInboundTransport(
 
     const topology = await resolveDeviceTopology(redis, targetMac);
     if (!topology) {
-        if (originMac !== targetMac) {
-            throw new TopologyRoutingError(
-                'Legacy telemetry topic origin does not match device_id',
-                'TRANSPORT_ORIGIN_MISMATCH'
-            );
-        }
-        return {
-            mode: 'direct',
-            owner_id: null,
-            network_id: null,
-            topology_epoch: null,
-            hub_mac: null,
-            topic_origin: originMac,
-            compatibility_legacy: true,
-        };
+        throw new TopologyRoutingError(
+            'Device topology is not ready',
+            'TOPOLOGY_NOT_READY',
+            true
+        );
     }
 
     if (!transport) {
-        if (
-            topology.member_count === 1
-            && topology.role === 'hub'
-            && originMac === targetMac
-        ) {
-            await renewHubLease(redis, topology, config);
-            return {
-                mode: 'hub',
-                owner_id: topology.owner_id,
-                network_id: topology.network_id,
-                topology_epoch: topology.topology_epoch,
-                hub_mac: targetMac,
-                topic_origin: originMac,
-                compatibility_legacy: true,
-            };
-        }
         throw new TopologyRoutingError(
             'Topology transport envelope is required',
             'TRANSPORT_ENVELOPE_REQUIRED'
@@ -344,37 +311,36 @@ async function validateInboundTransport(
         topology_epoch: topology.topology_epoch,
         hub_mac: transportHubMac || topology.active_hub_mac,
         topic_origin: originMac,
-        compatibility_legacy: false,
     };
 }
 
-async function storeCommandRoute(redis, commandId, route, config) {
+async function storeOperationRoute(redis, operationId, route, config) {
     await redis.set(
-        commandRouteKey(commandId),
+        operationRouteKey(operationId),
         JSON.stringify(route),
         'EX',
-        config.COMMAND_IDEMPOTENCY_TTL_SECONDS
+        config.OPERATION_IDEMPOTENCY_TTL_SECONDS
     );
 }
 
-async function deleteCommandRoute(redis, commandId) {
-    await redis.del(commandRouteKey(commandId));
+async function deleteOperationRoute(redis, operationId) {
+    await redis.del(operationRouteKey(operationId));
 }
 
-async function validateCommandAck(
+async function validateOperationAck(
     redis,
     ack,
     topicOrigin,
     config
 ) {
     const route = parseJson(
-        await redis.get(commandRouteKey(ack.command_id)),
-        'Command route'
+        await redis.get(operationRouteKey(ack.operation_id)),
+        'Operation route'
     );
     if (!route) {
         throw new TopologyRoutingError(
-            'ACK has no matching command route',
-            'COMMAND_ROUTE_NOT_FOUND'
+            'ACK has no matching operation route',
+            'OPERATION_ROUTE_NOT_FOUND'
         );
     }
 
@@ -385,7 +351,7 @@ async function validateCommandAck(
         || originMac !== normalizeMac(route.expected_ack_origin)
     ) {
         throw new TopologyRoutingError(
-            'ACK device or MQTT origin does not match the command route',
+            'ACK device or MQTT origin does not match the operation route',
             'ACK_ROUTE_MISMATCH'
         );
     }
@@ -413,7 +379,7 @@ async function validateCommandAck(
         }
 
         const envelope = ack.transport || ack.route;
-        if (!envelope && !route.compatibility_legacy) {
+        if (!envelope) {
             throw new TopologyRoutingError(
                 'ACK topology envelope is required',
                 'ACK_ENVELOPE_REQUIRED'
@@ -430,7 +396,7 @@ async function validateCommandAck(
                 )
             ) {
                 throw new TopologyRoutingError(
-                    'ACK topology envelope does not match the command route',
+                    'ACK topology envelope does not match the operation route',
                     'ACK_ENVELOPE_MISMATCH'
                 );
             }
@@ -503,11 +469,11 @@ module.exports = {
     TopologyRoutingError,
     normalizeMac,
     resolveDeviceTopology,
-    resolveCommandRoute,
+    resolveOperationRoute,
     validateInboundTransport,
-    storeCommandRoute,
-    deleteCommandRoute,
-    validateCommandAck,
+    storeOperationRoute,
+    deleteOperationRoute,
+    validateOperationAck,
     validateTopologyAck,
     markTopologyTransportOffline,
     renewHubLease,

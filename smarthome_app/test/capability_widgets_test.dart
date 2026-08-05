@@ -21,10 +21,10 @@ const power = CapabilityModel(
   iconName: 'lightbulb',
   displayOrder: 1,
   section: CapabilitySection.control,
-  commands: [
-    CapabilityCommandDescriptor(
-      action: 'SET_LIGHT_POWER',
-      argumentNames: ['value'],
+  operations: [
+    CapabilityOperationDescriptor(
+      operationName: 'set_light_power',
+      inputNames: ['value'],
     ),
   ],
 );
@@ -42,10 +42,10 @@ const brightness = CapabilityModel(
   iconName: 'lightbulb',
   displayOrder: 1,
   section: CapabilitySection.control,
-  commands: [
-    CapabilityCommandDescriptor(
-      action: 'SET_BRIGHTNESS',
-      argumentNames: ['brightness'],
+  operations: [
+    CapabilityOperationDescriptor(
+      operationName: 'set_brightness',
+      inputNames: ['brightness'],
     ),
   ],
 );

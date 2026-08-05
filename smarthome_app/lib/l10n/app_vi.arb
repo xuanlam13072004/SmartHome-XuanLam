@@ -146,8 +146,6 @@
     }
   },
 
-  "commandSent": "Lệnh đã được gửi",
-  "@commandSent": { "description": "Thông báo lệnh đã gửi" },
 
   "commandAcked": "Thiết bị đã xác nhận",
   "@commandAcked": { "description": "Thông báo thiết bị xác nhận lệnh" },

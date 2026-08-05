@@ -30,3 +30,10 @@ export const decryptRefreshToken = (session: EncryptedAuthSession): string =>
         session.refresh_token.encrypted,
         session.refresh_token.authTag,
     );
+
+export const decryptAccessToken = (session: EncryptedAuthSession): string =>
+    decrypt(
+        session.access_token.iv,
+        session.access_token.encrypted,
+        session.access_token.authTag,
+    );

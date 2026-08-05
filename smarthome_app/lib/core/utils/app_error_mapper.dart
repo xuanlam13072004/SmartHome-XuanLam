@@ -77,7 +77,6 @@ class AppErrorMapper {
     const errorMessages = {
       'ACCOUNT_EXISTS': 'Tài khoản đã tồn tại',
       'EMAIL_EXISTS': 'Email đã được sử dụng',
-      'USERNAME_EXISTS': 'Tên người dùng đã tồn tại',
       'CONFLICT': 'Dữ liệu đã tồn tại hoặc đang được sử dụng',
       'VALIDATION_ERROR': 'Dữ liệu không hợp lệ',
       'FST_ERR_RATE_LIMIT': 'Bạn thao tác quá nhanh. Vui lòng thử lại sau',
@@ -96,11 +95,32 @@ class AppErrorMapper {
       'INVALID_DEVICE_NAME': 'Tên thiết bị không hợp lệ',
       'NOT_DEVICE_OWNER': 'Bạn không phải chủ sở hữu thiết bị này',
       'DEVICE_OFFLINE': 'Thiết bị đang ngoại tuyến',
-      'UNSUPPORTED_COMMAND_ACTION': 'Lệnh không được hỗ trợ',
-      'UNSUPPORTED_INSTANCE': 'Phiên bản capability không hợp lệ',
-      'COMMAND_VALIDATION_FAILED': 'Giá trị lệnh không hợp lệ',
-      'COMMAND_ARGUMENT_INVALID': 'Tham số lệnh không hợp lệ',
-      'INSTANCE_REQUIRED': 'Cần chỉ định capability instance',
+      'INVALID_DEVICE_PRODUCT_REVISION':
+          'Phiên bản Product của thiết bị không hợp lệ',
+      'PRODUCT_REVISION_UNAVAILABLE': 'Phiên bản Product hiện không khả dụng',
+      'OPERATION_NOT_SUPPORTED': 'Thiết bị không hỗ trợ thao tác này',
+      'OPERATION_FORBIDDEN': 'Bạn không có quyền thực hiện thao tác này',
+      'OPERATION_INPUT_INVALID': 'Dữ liệu thao tác không hợp lệ',
+      'RESOURCE_NOT_SUPPORTED': 'Thiết bị không hỗ trợ tài nguyên này',
+      'RESOURCE_FORBIDDEN': 'Bạn không có quyền truy cập tài nguyên này',
+      'RESOURCE_SESSION_REQUIRED':
+          'Tài nguyên này phải được mở bằng phiên truy cập bảo vệ',
+      'RESOURCE_SESSION_NOT_FOUND':
+          'Phiên truy cập tài nguyên không tồn tại hoặc đã hết hạn',
+      'RESOURCE_OPERATION_UNAVAILABLE':
+          'Thiết bị chưa hỗ trợ mở tài nguyên này',
+      'CREDENTIAL_FORBIDDEN':
+          'Chỉ chủ sở hữu thiết bị mới được quản lý thông tin bảo mật',
+      'CREDENTIAL_NOT_SUPPORTED':
+          'Thiết bị không hỗ trợ loại thông tin bảo mật này',
+      'CREDENTIAL_MATERIAL_INVALID':
+          'Thông tin bảo mật không đúng định dạng yêu cầu',
+      'CREDENTIAL_KEY_UNAVAILABLE':
+          'Thiết bị chưa sẵn sàng nhận thông tin bảo mật',
+      'REAUTHENTICATION_REQUIRED': 'Thao tác này cần xác minh lại mật khẩu',
+      'STATE_VERSION_CONFLICT':
+          'Trạng thái thiết bị đã thay đổi. Vui lòng thử lại',
+      'DEVICE_FORBIDDEN': 'Bạn không có quyền truy cập thiết bị này',
     };
 
     return errorMessages[errorCode] ?? 'Lỗi: $errorCode';

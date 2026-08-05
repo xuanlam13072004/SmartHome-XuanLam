@@ -24,15 +24,50 @@ export const unpairSchema = z.object({
     }),
 });
 
-export const commandSchema = z.object({
+export const operationSchema = z.object({
     params: z.object({
         mac: macSchema,
     }),
     body: z.object({
-        action: z.string().min(1).max(64),
-        instance: z.string().min(1).max(64).optional(),
-        payload: z.record(z.any()).optional(),
+        instance_id: z.string().regex(/^[a-z][a-z0-9_]{1,63}$/),
+        operation_name: z.string().regex(/^[a-z][a-z0-9_]{1,63}$/),
+        input: z.record(z.unknown()).optional(),
+        idempotency_key: z.string().min(1).max(128).optional(),
+        expected_state_version: z.number().int().nonnegative().optional(),
     }),
+});
+
+export const resourceSessionSchema = z.object({
+    params: z.object({
+        mac: macSchema,
+        instanceId: z.string().regex(/^[a-z][a-z0-9_]{1,63}$/),
+        resourceId: z.string().regex(/^[a-z][a-z0-9_]{1,63}$/),
+    }),
+    body: z.object({}).strict(),
+});
+
+export const resourceSessionStatusSchema = z.object({
+    params: z.object({
+        mac: macSchema,
+        sessionId: z.string().uuid(),
+    }),
+});
+
+export const replaceCredentialSchema = z.object({
+    params: z.object({
+        mac: macSchema,
+        instanceId: z.string().regex(/^[a-z][a-z0-9_]{1,63}$/),
+        credentialName: z.string().regex(/^[a-z][a-z0-9_]{1,63}$/),
+    }),
+    body: z.object({
+        material: z.string().min(1).max(4096),
+        label: z.string().trim().min(1).max(120).optional(),
+        idempotency_key: z.string().min(1).max(128).optional(),
+    }),
+});
+
+export const credentialListSchema = z.object({
+    params: z.object({ mac: macSchema }),
 });
 
 export const deviceStateSchema = z.object({

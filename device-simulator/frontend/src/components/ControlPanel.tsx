@@ -4,7 +4,7 @@ import type { CatalogProduct, RunConfig } from '../types'
 
 const defaultConfig: RunConfig = {
   user_count: 2,
-  username_prefix: 'sim',
+  email_prefix: 'sim',
   email_domain: 'simulator.local',
   devices_min: 1,
   devices_max: 3,
@@ -146,8 +146,8 @@ export default function ControlPanel({
             <Field label="Number of users" help="1–10,000 per run">
               <input min="1" max="10000" onChange={(event) => updateNumber('user_count', event.target.value)} required type="number" value={config.user_count} />
             </Field>
-            <Field label="Username prefix" help="Letters, numbers, dash or underscore">
-              <input maxLength={24} onChange={(event) => setConfig({ ...config, username_prefix: event.target.value })} pattern="[a-zA-Z0-9_-]+" required value={config.username_prefix} />
+            <Field label="Email prefix" help="Letters, numbers, dash or underscore">
+              <input maxLength={24} onChange={(event) => setConfig({ ...config, email_prefix: event.target.value })} pattern="[a-zA-Z0-9_-]+" required value={config.email_prefix} />
             </Field>
             <Field label="Email domain" help="Used only for generated accounts">
               <input onChange={(event) => setConfig({ ...config, email_domain: event.target.value })} required value={config.email_domain} />

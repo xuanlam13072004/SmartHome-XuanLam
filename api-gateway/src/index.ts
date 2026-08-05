@@ -1,25 +1,18 @@
-import dns from 'dns';
-
-// Fix Node.js SRV lookup issues by using Google's public DNS servers
-try {
-    dns.setServers(['8.8.8.8', '8.8.4.4']);
-} catch (dnsErr) {
-    console.warn('⚠️ Failed to set custom DNS servers:', dnsErr);
-}
-
 import 'dotenv/config';
 import { env } from './config/env';
 import { buildApp } from './app';
 import { syncOwnershipToRedis } from './modules/device/service';
-import { CommandStatusConsumer } from './workers/commandStatusConsumer';
-import { CommandOutboxDispatcher } from './workers/commandOutboxDispatcher';
+import { OperationStatusConsumer } from './workers/operationStatusConsumer';
+import { OperationOutboxDispatcher } from './workers/operationOutboxDispatcher';
 import { DeviceShadowOutboxDispatcher } from './workers/deviceShadowOutboxDispatcher';
 import {
     synchronizeTopologyCache,
     TopologyOutboxDispatcher,
 } from './workers/topologyOutboxDispatcher';
 import { TopologyCoordinator } from './workers/topologyCoordinator';
-import { CatalogCache } from '../../shared/catalogCache';
+import { RuntimeCatalog } from '../../shared/catalog-v2';
+import { CredentialOutboxDispatcher } from './workers/credentialOutboxDispatcher';
+import { CredentialStatusConsumer } from './workers/credentialStatusConsumer';
 
 const app = buildApp();
 
@@ -28,11 +21,13 @@ const host = env.HOST;
 
 const start = async () => {
     try {
-        let statusConsumer: CommandStatusConsumer | null = null;
-        let outboxDispatcher: CommandOutboxDispatcher | null = null;
+        let statusConsumer: OperationStatusConsumer | null = null;
+        let outboxDispatcher: OperationOutboxDispatcher | null = null;
         let shadowOutboxDispatcher: DeviceShadowOutboxDispatcher | null = null;
         let topologyOutboxDispatcher: TopologyOutboxDispatcher | null = null;
         let topologyCoordinator: TopologyCoordinator | null = null;
+        let credentialOutboxDispatcher: CredentialOutboxDispatcher | null = null;
+        let credentialStatusConsumer: CredentialStatusConsumer | null = null;
 
         // Đăng ký hook dừng Consumer khi app đóng (phải đăng ký trước khi ready/listen)
         app.addHook('onClose', async () => {
@@ -51,26 +46,39 @@ const start = async () => {
             if (topologyOutboxDispatcher) {
                 await topologyOutboxDispatcher.stop();
             }
+            if (credentialOutboxDispatcher) {
+                await credentialOutboxDispatcher.stop();
+            }
+            if (credentialStatusConsumer) {
+                await credentialStatusConsumer.stop();
+            }
         });
 
-        app.decorate('catalogCache', null as unknown as CatalogCache);
+        app.decorate('catalog', null as unknown as RuntimeCatalog);
 
         // Load all plugins and decorators first
         await app.ready();
 
-        // Khởi động Catalog Cache
-        const catalogCache = new CatalogCache(app.mongo.db, app.redis, app.log);
-        await catalogCache.start();
-        (app as any).catalogCache = catalogCache;
+        const catalog = new RuntimeCatalog({ log: app.log });
+        await catalog.start();
+        (app as any).catalog = catalog;
 
-        // Khởi động Command Status Consumer để cập nhật trạng thái lệnh không đồng bộ
-        statusConsumer = new CommandStatusConsumer(app.pg, app.redis, app.log, app.mongo.db);
+        // Đồng bộ vòng đời operation bất đồng bộ từ MQTT Worker.
+        statusConsumer = new OperationStatusConsumer(app.pg, app.redis, app.log, app.mongo.db);
         await statusConsumer.start();
 
-        // Commands are committed to PostgreSQL together with an outbox row, then
-        // delivered to Redis asynchronously so a Redis outage cannot lose them.
-        outboxDispatcher = new CommandOutboxDispatcher(app.pg, app.redis, app.log);
+        // Operations use a PostgreSQL outbox so a Redis outage cannot lose them.
+        outboxDispatcher = new OperationOutboxDispatcher(
+            app.pg,
+            app.redis,
+            app.mongo.db,
+            app.log,
+        );
         outboxDispatcher.start();
+        credentialStatusConsumer = new CredentialStatusConsumer(app.pg, app.redis, app.log);
+        await credentialStatusConsumer.start();
+        credentialOutboxDispatcher = new CredentialOutboxDispatcher(app.pg, app.redis, app.log);
+        credentialOutboxDispatcher.start();
         shadowOutboxDispatcher = new DeviceShadowOutboxDispatcher(
             app.pg,
             app.mongo.db,

@@ -7,6 +7,8 @@ import 'realtime_provider.dart';
 import '../../../domain/models/ws_events.dart';
 import 'dart:async';
 import '../../../domain/models/device_topology.dart';
+import '../models/capability_model.dart';
+import '../../../domain/models/product_model.dart';
 
 part 'devices_provider.g.dart';
 
@@ -39,8 +41,7 @@ class Devices extends _$Devices {
       } else if (event is TopologyUpdatedEvent) {
         _handleTopologyUpdated(event);
       }
-      // CommandStatusEvent and ActiveCommandsEvent can be handled here
-      // when command status UI is implemented
+      // Operation status events can be surfaced by a dedicated activity UI.
     });
 
     ref.onDispose(() => _realtimeSub?.cancel());
@@ -165,7 +166,8 @@ class Devices extends _$Devices {
   }
 
   Future<void> updateCapability(
-      String mac, String capabilityId, dynamic value) async {
+      String mac, CapabilityModel capability, dynamic value,
+      {String? reauthToken}) async {
     final previousState = state;
 
     // Optimistic Update: Update UI immediately
@@ -175,14 +177,14 @@ class Devices extends _$Devices {
       state = AsyncData(devices.map((device) {
         if (device.mac == mac) {
           final newCapabilities = device.capabilities.map((cap) {
-            if (cap.id == capabilityId) {
+            if (cap.id == capability.id && cap.instance == capability.instance) {
               return cap.copyWith(value: value);
             }
             return cap;
           }).toList();
 
           final newRawState = Map<String, dynamic>.from(device.rawState);
-          newRawState[capabilityId] = value;
+          newRawState[capability.id] = value;
 
           return device.copyWith(
             capabilities: newCapabilities,
@@ -202,16 +204,23 @@ class Devices extends _$Devices {
         }
 
         final device = devices![deviceIndex];
-        final capabilityIndex =
-            device.capabilities.indexWhere((item) => item.id == capabilityId);
+        final capabilityIndex = device.capabilities.indexWhere((item) =>
+            item.id == capability.id && item.instance == capability.instance);
         if (capabilityIndex < 0) {
-          throw StateError('Capability $capabilityId not found');
+          throw StateError(
+              'Capability ${capability.instance}.${capability.id} not found');
         }
-        final capability = device.capabilities[capabilityIndex];
-        await repo.updateCapability(mac, capability, value);
+        final currentCapability = device.capabilities[capabilityIndex];
+        await repo.updateCapability(
+          mac,
+          currentCapability,
+          value,
+          reauthToken: reauthToken,
+        );
       } catch (e) {
         // Revert to previous state on error
         state = previousState;
+        rethrow;
       }
     }
   }
@@ -222,6 +231,30 @@ class Devices extends _$Devices {
     // Refresh danh sách sau khi claim thành công
     ref.invalidateSelf();
   }
+
+  Future<Map<String, dynamic>> createResourceSession(
+    String mac,
+    DeviceResourceDefinition resource, {
+    String? reauthToken,
+  }) =>
+      ref.read(deviceRepositoryProvider).createResourceSession(
+            mac,
+            resource,
+            reauthToken: reauthToken,
+          );
+
+  Future<Map<String, dynamic>> replaceCredential(
+    String mac,
+    DeviceCredentialDefinition credential,
+    String material, {
+    String? reauthToken,
+  }) =>
+      ref.read(deviceRepositoryProvider).replaceCredential(
+            mac,
+            credential,
+            material,
+            reauthToken: reauthToken,
+          );
 
   Future<void> renameDevice(String mac, String name) async {
     final repo = ref.read(deviceRepositoryProvider);

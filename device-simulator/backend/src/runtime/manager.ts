@@ -18,7 +18,7 @@ import {
     parseTopologyAssignment,
     shouldApplyAssignment,
     transportEnvelopeFor,
-    type CommandRoute,
+    type OperationRoute,
     type TopologyAssignment,
 } from './topology';
 
@@ -241,7 +241,7 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
         device: DeviceRuntime,
         kind: BrokerMessageKind,
         payload: Record<string, unknown>,
-        commandRoute?: CommandRoute,
+        operationRoute?: OperationRoute,
     ): Promise<void> {
         const topology = device.topology;
         const effectiveMode = device.effectiveTransportMode;
@@ -249,18 +249,18 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
             await device.publishBrokerMessage(kind, payload);
             return;
         }
-        if (commandRoute?.mode === 'direct') {
+        if (operationRoute?.mode === 'direct') {
             await device.publishBrokerMessage(kind, payload);
             return;
         }
 
-        const routeMode = commandRoute?.mode || effectiveMode;
-        const envelope = commandRoute
+        const routeMode = operationRoute?.mode || effectiveMode;
+        const envelope = operationRoute
             ? {
-                mode: commandRoute.mode,
-                network_id: commandRoute.network_id,
-                topology_epoch: commandRoute.topology_epoch,
-                hub_mac: commandRoute.hub_mac,
+                mode: operationRoute.mode,
+                network_id: operationRoute.network_id,
+                topology_epoch: operationRoute.topology_epoch,
+                hub_mac: operationRoute.hub_mac,
             }
             : transportEnvelopeFor(topology, routeMode);
         const routedPayload = {
@@ -269,12 +269,12 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
         };
 
         if (routeMode === 'relay') {
-            const hubMac = normalizeMac(String(commandRoute?.hub_mac || topology.active_hub_mac || ''));
+            const hubMac = normalizeMac(String(operationRoute?.hub_mac || topology.active_hub_mac || ''));
             const hub = this.devices.get(hubMac);
             if (!hub?.brokerConnected) {
                 await device.activateDirectFallback();
-                if (kind === 'ack' && commandRoute?.mode === 'relay') {
-                    throw new Error('The command route Hub became unavailable before ACK');
+                if (kind === 'operation_ack' && operationRoute?.mode === 'relay') {
+                    throw new Error('The operation route Hub became unavailable before ACK');
                 }
                 await device.publishBrokerMessage(kind, {
                     ...payload,
@@ -289,16 +289,16 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
         await device.publishBrokerMessage(kind, routedPayload);
     }
 
-    async deliverRelayedCommand(hubMacInput: string, rawPayload: Buffer): Promise<void> {
+    async deliverRelayedOperation(hubMacInput: string, rawPayload: Buffer): Promise<void> {
         const hubMac = normalizeMac(hubMacInput);
         let parsed: unknown;
         try {
             parsed = JSON.parse(rawPayload.toString());
         } catch {
-            throw new Error('Hub received a command that is not valid JSON');
+            throw new Error('Hub received an operation that is not valid JSON');
         }
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-            throw new Error('Hub received an invalid relayed command');
+            throw new Error('Hub received an invalid relayed operation');
         }
         const target = normalizeMac(String(
             (parsed as Record<string, unknown>).target_device_id || '',
@@ -318,7 +318,7 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
         ) {
             throw new Error('Hub and Node do not share the current topology assignment');
         }
-        await node.receiveCommand(rawPayload, hubMac);
+        await node.receiveOperation(rawPayload, hubMac);
     }
 
     onBrokerUnavailable(device: DeviceRuntime): void {

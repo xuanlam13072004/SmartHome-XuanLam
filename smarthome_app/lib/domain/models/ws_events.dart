@@ -36,22 +36,34 @@ class DeviceStatusEvent extends WsEvent {
   }) : super('device_status');
 }
 
-class CommandStatusEvent extends WsEvent {
+class OperationStatusEvent extends WsEvent {
   final String mac;
   final Map<String, dynamic> payload;
   final String timestamp;
 
-  CommandStatusEvent({
+  OperationStatusEvent({
     required this.mac,
     required this.payload,
     required this.timestamp,
-  }) : super('command_status');
+  }) : super('operation_status');
 }
 
-class ActiveCommandsEvent extends WsEvent {
-  final List<dynamic> commands;
+class CredentialStatusEvent extends WsEvent {
+  final String mac;
+  final Map<String, dynamic> payload;
+  final String timestamp;
 
-  ActiveCommandsEvent(this.commands) : super('active_commands');
+  CredentialStatusEvent({
+    required this.mac,
+    required this.payload,
+    required this.timestamp,
+  }) : super('credential_status');
+}
+
+class ActiveOperationsEvent extends WsEvent {
+  final List<dynamic> operations;
+
+  ActiveOperationsEvent(this.operations) : super('active_operations');
 }
 
 class TopologyMemberUpdate {
@@ -118,15 +130,24 @@ class WsEventParser {
             mac: data['mac'] as String? ?? '',
             isOnline: isOnline,
           );
-        case 'command_status':
-          return CommandStatusEvent(
+        case 'operation_status':
+          return OperationStatusEvent(
             mac: data['mac'] as String? ?? '',
             payload:
                 data['payload'] as Map<String, dynamic>? ?? <String, dynamic>{},
             timestamp: data['timestamp'] as String? ?? '',
           );
-        case 'active_commands':
-          return ActiveCommandsEvent(data['commands'] as List<dynamic>? ?? []);
+        case 'credential_status':
+          return CredentialStatusEvent(
+            mac: data['mac'] as String? ?? '',
+            payload:
+                data['payload'] as Map<String, dynamic>? ?? <String, dynamic>{},
+            timestamp: data['timestamp'] as String? ?? '',
+          );
+        case 'active_operations':
+          return ActiveOperationsEvent(
+            data['operations'] as List<dynamic>? ?? [],
+          );
         case 'topology_updated':
           final rawMembers = data['members'] as List<dynamic>? ?? const [];
           final members = rawMembers

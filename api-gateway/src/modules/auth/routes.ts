@@ -1,7 +1,7 @@
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { typedRouteConfig } from '../../plugins/validation';
-import { loginSchema, logoutSchema, refreshSchema, registerSchema } from './schemas';
-import { loginUser, logoutSession, refreshSession, registerUser } from './service';
+import { loginSchema, logoutSchema, reauthenticateSchema, refreshSchema, registerSchema } from './schemas';
+import { loginUser, logoutSession, reauthenticateUser, refreshSession, registerUser } from './service';
 
 /**
  * Auth routes
@@ -79,6 +79,22 @@ const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
                 email: (request.user as any).email,
             },
         };
+    });
+
+    app.post('/auth/reauthenticate', {
+        preHandler: [app.authenticate],
+        config: typedRouteConfig({
+            zodSchema: reauthenticateSchema,
+            rateLimit: { max: 5, timeWindow: '1 minute' },
+        }),
+    }, async (request) => {
+        const body = request.body as any;
+        const result = await reauthenticateUser(
+            app,
+            (request.user as any).userId,
+            body.password,
+        );
+        return { success: true, ...result };
     });
 };
 

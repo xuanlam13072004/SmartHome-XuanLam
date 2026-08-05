@@ -13,7 +13,7 @@ export interface TopologyMember {
 }
 
 export interface TopologyAssignment {
-    schema_version: number;
+    schema: 'device.topology.assignment.v2';
     network_id: string;
     topology_epoch: number;
     topology_state: TopologyState;
@@ -25,7 +25,7 @@ export interface TopologyAssignment {
     issued_at?: string;
 }
 
-export interface CommandRoute {
+export interface OperationRoute {
     mode: TransportMode | 'direct';
     network_id: string | null;
     topology_epoch: number | null;
@@ -84,6 +84,9 @@ export const networkIndexForDevice = (
 
 export const parseTopologyAssignment = (input: unknown): TopologyAssignment => {
     if (!isRecord(input)) throw new Error('Topology assignment must be a JSON object');
+    if (input.schema !== 'device.topology.assignment.v2') {
+        throw new Error('Topology assignment schema is invalid');
+    }
     const networkId = typeof input.network_id === 'string' ? input.network_id.trim() : '';
     const epoch = safeInteger(input.topology_epoch);
     const joinRank = safeInteger(input.join_rank);
@@ -140,7 +143,7 @@ export const parseTopologyAssignment = (input: unknown): TopologyAssignment => {
         : [];
 
     return {
-        schema_version: safeInteger(input.schema_version) ?? 1,
+        schema: 'device.topology.assignment.v2',
         network_id: networkId,
         topology_epoch: epoch,
         topology_state: topologyState as TopologyState,
@@ -174,7 +177,7 @@ export const assignmentFromClaim = (device: {
     }
     const role = device.topology_role;
     return parseTopologyAssignment({
-        schema_version: 1,
+        schema: 'device.topology.assignment.v2',
         network_id: device.network_id,
         join_rank: Number(device.join_rank),
         topology_epoch: Number(device.topology_epoch),
@@ -214,8 +217,8 @@ export const transportEnvelopeFor = (
     hub_mac: assignment.active_hub_mac,
 });
 
-export const commandRouteMatchesAssignment = (
-    route: CommandRoute,
+export const operationRouteMatchesAssignment = (
+    route: OperationRoute,
     assignment: TopologyAssignment | undefined,
     targetMac: string,
     effectiveMode?: TransportMode,

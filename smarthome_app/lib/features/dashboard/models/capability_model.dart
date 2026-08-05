@@ -1,11 +1,17 @@
-class CapabilityCommandDescriptor {
-  final String action;
-  final List<String> argumentNames;
-
-  const CapabilityCommandDescriptor({
-    required this.action,
-    this.argumentNames = const [],
+class CapabilityOperationDescriptor {
+  const CapabilityOperationDescriptor({
+    required this.operationName,
+    this.inputNames = const [],
+    this.risk = 'normal',
+    this.confirmation = 'none',
+    this.label = '',
   });
+
+  final String operationName;
+  final List<String> inputNames;
+  final String risk;
+  final String confirmation;
+  final String label;
 }
 
 enum CapabilitySection {
@@ -14,29 +20,7 @@ enum CapabilitySection {
   diagnostic,
 }
 
-/// Represents a single capability rendered in the device detail UI.
-/// Built from Product Catalog data + device state, NOT hardcoded.
 class CapabilityModel {
-  final String id; // State key (e.g. 'on_off', 'brightness')
-  final String
-      type; // Widget type: 'on_off', 'range', 'sensor', 'enum', 'unknown'
-  final String name; // Display name
-  final dynamic value; // Current value from device state
-  final Map<String, dynamic>
-      properties; // metadata: min, max, step, options, unit...
-  final bool isReadOnly; // sensor/diagnostic = true
-  final String
-      instance; // Backend capability instance (e.g. 'main', 'warm_white')
-  final String?
-      action; // Command action to send (e.g. 'turn_on', 'set_brightness')
-  final List<CapabilityCommandDescriptor> commands;
-  final String capabilityId;
-  final String semanticRole;
-  final String instanceDisplayName;
-  final String iconName;
-  final int displayOrder;
-  final CapabilitySection section;
-
   const CapabilityModel({
     required this.id,
     required this.type,
@@ -45,8 +29,7 @@ class CapabilityModel {
     this.properties = const {},
     this.isReadOnly = false,
     this.instance = '',
-    this.action,
-    this.commands = const [],
+    this.operations = const [],
     this.capabilityId = '',
     this.semanticRole = '',
     this.instanceDisplayName = '',
@@ -54,6 +37,42 @@ class CapabilityModel {
     this.displayOrder = 0,
     this.section = CapabilitySection.control,
   });
+
+  final String id;
+  final String type;
+  final String name;
+  final dynamic value;
+  final Map<String, dynamic> properties;
+  final bool isReadOnly;
+  final String instance;
+  final List<CapabilityOperationDescriptor> operations;
+  final String capabilityId;
+  final String semanticRole;
+  final String instanceDisplayName;
+  final String iconName;
+  final int displayOrder;
+  final CapabilitySection section;
+
+  CapabilityOperationDescriptor resolveOperation(dynamic nextValue) {
+    final singleInput =
+        operations.where((operation) => operation.inputNames.length == 1);
+    if (singleInput.length == 1) return singleInput.single;
+
+    final noInput =
+        operations.where((operation) => operation.inputNames.isEmpty).toList();
+    if (noInput.isNotEmpty) {
+      final tokens = _desiredOperationTokens(nextValue);
+      for (final operation in noInput) {
+        final name = operation.operationName.toLowerCase();
+        if (tokens.any(name.contains)) return operation;
+      }
+      if (noInput.length == 1) return noInput.single;
+    }
+
+    throw StateError(
+      'No unambiguous operation mapping for capability $instance.$id',
+    );
+  }
 
   CapabilityModel copyWith({
     String? id,
@@ -63,8 +82,7 @@ class CapabilityModel {
     Map<String, dynamic>? properties,
     bool? isReadOnly,
     String? instance,
-    String? action,
-    List<CapabilityCommandDescriptor>? commands,
+    List<CapabilityOperationDescriptor>? operations,
     String? capabilityId,
     String? semanticRole,
     String? instanceDisplayName,
@@ -80,8 +98,7 @@ class CapabilityModel {
       properties: properties ?? this.properties,
       isReadOnly: isReadOnly ?? this.isReadOnly,
       instance: instance ?? this.instance,
-      action: action ?? this.action,
-      commands: commands ?? this.commands,
+      operations: operations ?? this.operations,
       capabilityId: capabilityId ?? this.capabilityId,
       semanticRole: semanticRole ?? this.semanticRole,
       instanceDisplayName: instanceDisplayName ?? this.instanceDisplayName,
@@ -90,4 +107,25 @@ class CapabilityModel {
       section: section ?? this.section,
     );
   }
+}
+
+List<String> _desiredOperationTokens(dynamic value) {
+  if (value is bool) {
+    return value
+        ? const ['on', 'enable', 'start', 'open', 'lock']
+        : const ['off', 'disable', 'stop', 'close', 'unlock'];
+  }
+
+  final normalized = value.toString().toLowerCase();
+  const aliases = {
+    'locked': ['lock'],
+    'unlocked': ['unlock'],
+    'open': ['open'],
+    'opened': ['open'],
+    'closed': ['close'],
+    'opening': ['open'],
+    'closing': ['close'],
+    'stopped': ['stop'],
+  };
+  return aliases[normalized] ?? [normalized];
 }

@@ -1,66 +1,72 @@
 class ProductDto {
+  const ProductDto({
+    required this.id,
+    required this.catalogRevision,
+    required this.uiProfile,
+    required this.uiProfileVersion,
+    required this.manufacturer,
+    required this.modelName,
+    required this.displayName,
+    required this.firmwareFamily,
+    required this.connectivityProfiles,
+    required this.category,
+    required this.icon,
+    required this.description,
+    required this.firmwareDefaultState,
+    required this.capabilityInstances,
+  });
+
   final String id;
+  final int catalogRevision;
   final String uiProfile;
   final int uiProfileVersion;
   final String manufacturer;
   final String modelName;
   final String displayName;
   final String firmwareFamily;
-  final String connectivity;
+  final List<String> connectivityProfiles;
   final String category;
   final String icon;
   final String description;
-  final Map<String, dynamic> defaultState;
-
-  /// Parsed capability instances with state/diagnostic schemas.
-  /// Structure from backend (serialised from catalogCache):
-  /// Each entry: { capability_id, instance, value_type, validation,
-  ///   state_properties, diagnostic_properties, commands }
+  final Map<String, dynamic> firmwareDefaultState;
   final List<Map<String, dynamic>> capabilityInstances;
 
-  ProductDto({
-    required this.id,
-    this.uiProfile = 'generic',
-    this.uiProfileVersion = 1,
-    required this.manufacturer,
-    required this.modelName,
-    required this.displayName,
-    required this.firmwareFamily,
-    required this.connectivity,
-    required this.category,
-    required this.icon,
-    required this.description,
-    required this.defaultState,
-    required this.capabilityInstances,
-  });
-
   factory ProductDto.fromJson(Map<String, dynamic> json) {
-    // The backend getAllProducts() serialises compiled products.
-    // capabilityInstances may not be present in the current API response,
-    // so we reconstruct from available fields.
-
-    // Attempt to extract capability instances from the response
-    List<Map<String, dynamic>> instances = [];
-    if (json['capabilityInstances'] is List) {
-      instances = (json['capabilityInstances'] as List)
-          .map((e) => e as Map<String, dynamic>)
-          .toList();
-    }
-
+    final presentation = _map(json['presentation']);
+    final firmware = _map(json['firmware_compatibility']);
     return ProductDto(
-      id: json['_id'] as String? ?? '',
-      uiProfile: json['ui_profile'] as String? ?? 'generic',
-      uiProfileVersion: (json['ui_profile_version'] as num?)?.toInt() ?? 1,
-      manufacturer: json['manufacturer'] as String? ?? '',
-      modelName: json['model_name'] as String? ?? '',
-      displayName: json['display_name'] as String? ?? '',
-      firmwareFamily: json['firmware_family'] as String? ?? 'generic',
-      connectivity: json['connectivity'] as String? ?? 'wifi',
-      category: json['category'] as String? ?? '',
-      icon: json['icon'] as String? ?? '',
-      description: json['description'] as String? ?? '',
-      defaultState: json['default_state'] as Map<String, dynamic>? ?? {},
-      capabilityInstances: instances,
+      id: json['product_id']?.toString() ?? '',
+      catalogRevision: _int(json['catalog_revision']) ?? 0,
+      uiProfile: json['ui_profile']?.toString() ?? 'generic',
+      uiProfileVersion: _int(json['ui_profile_version']) ?? 1,
+      manufacturer: json['manufacturer']?.toString() ?? '',
+      modelName: json['model_name']?.toString() ?? '',
+      displayName: presentation['display_name']?.toString() ??
+          json['model_name']?.toString() ??
+          '',
+      firmwareFamily: firmware['family']?.toString() ?? 'generic',
+      connectivityProfiles: (json['connectivity_profiles'] as List? ?? const [])
+          .map((value) => value.toString())
+          .toList(growable: false),
+      category: json['category']?.toString() ?? '',
+      icon: presentation['icon']?.toString() ?? '',
+      description: presentation['description']?.toString() ??
+          json['description']?.toString() ??
+          '',
+      firmwareDefaultState: _map(json['firmware_default_state']),
+      capabilityInstances: (json['capability_instances'] as List? ?? const [])
+          .whereType<Map<Object?, Object?>>()
+          .map((value) => Map<String, dynamic>.from(value))
+          .toList(growable: false),
     );
+  }
+
+  static Map<String, dynamic> _map(dynamic value) => value is Map
+      ? Map<String, dynamic>.from(value)
+      : <String, dynamic>{};
+
+  static int? _int(dynamic value) {
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '');
   }
 }

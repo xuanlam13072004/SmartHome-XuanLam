@@ -33,8 +33,8 @@ function startHealthMonitor(clients, config, logger) {
             await clients.redis.ping();
             health.redis = true;
 
-            const streamKey = config.REDIS_COMMAND_STREAM;
-            const groupName = config.REDIS_COMMAND_GROUP;
+            const streamKey = config.REDIS_OPERATION_STREAM;
+            const groupName = config.REDIS_OPERATION_GROUP;
 
             const pending = await clients.redis.call('XPENDING', streamKey, groupName);
             // XPENDING returns [count, minId, maxId, [consumer, count]...]

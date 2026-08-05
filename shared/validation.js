@@ -1,132 +1,112 @@
-/**
- * shared/validation.js
- * 
- * Bộ validate dữ liệu dùng chung (Shared Validation Module) cho hệ thống SmartHome-XuanLam.
- * Dùng cho cả:
- * - API Gateway (validate command arguments gửi xuống thiết bị)
- * - MQTT Worker (validate telemetry metrics nhận được từ thiết bị)
- * 
- * Đảm bảo tính nhất quán 100% về quy tắc kiểm soát dữ liệu trên toàn hệ thống.
- */
+'use strict';
 
-/**
- * @typedef {Object} ValidationSchema
- * @property {string} value_type - Kiểu dữ liệu (boolean, number, string, object)
- * @property {Object} [validation] - Ràng buộc cơ bản (min, max, max_length, enum, required)
- * @property {Object.<string, ValidationSchema>} [validation_versions] - Ràng buộc riêng theo từng phiên bản
- */
+function isPlainObject(value) {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
 
-/**
- * @typedef {Object} CompiledCommand
- * @property {string} capability_id - ID của capability chứa command
- * @property {Array<{name: string, value_type: string, validation?: Object}>} arguments - Các đối số của command
- */
-
-/**
- * @typedef {Object} CompiledProduct
- * @property {string} _id - Product ID
- * @property {string} manufacturer - Nhà sản xuất
- * @property {string} model_name - Tên model
- * @property {string} display_name - Tên hiển thị
- * @property {string} connectivity - Wifi/zigbee...
- * @property {string} category - Danh mục sản phẩm
- * @property {Object} default_state - Trạng thái mặc định khởi tạo
- * @property {Set<string>} allowedStateKeys - Các khóa state được phép
- * @property {Set<string>} allowedDiagnosticKeys - Các khóa diagnostics được phép
- * @property {Map<string, CompiledCommand>} allowedCommandActions - Map các command được phép
- * @property {Object.<string, ValidationSchema>} stateSchemaMap - Map từ state key sang schema
- * @property {Object.<string, ValidationSchema>} diagnosticSchemaMap - Map từ diagnostics key sang schema
- */
-
-/**
- * @typedef {Object} TelemetrySanitizerResult
- * @property {Object} sanitizedState - Trạng thái state đã lọc
- * @property {Object} sanitizedDiagnostics - Dữ liệu kỹ thuật đã lọc
- * @property {Array<{key: string, val: any, type: string, error: string}>} warnings - Cảnh báo validation lỗi
- */
-
-/**
- * validateValueAgainstSchema: Kiểm tra một giá trị có khớp với đặc tả của capability hay không.
- * 
- * @param {any} value - Giá trị cần kiểm tra
- * @param {object} schema - Đặc tả schema của thuộc tính (từ capability)
- * @param {string|number} [schemaVersion] - Phiên bản schema của thiết bị để chọn luật tương ứng
- * @returns {object} { valid: boolean, error: string | null }
- */
-function validateValueAgainstSchema(value, schema, schemaVersion = undefined) {
-    if (!schema) {
-        return { valid: false, error: 'Schema is undefined' };
+function validateValueAgainstSchema(value, schema, options = {}) {
+    if (!isPlainObject(schema)) {
+        return { valid: false, error: 'Schema is undefined or invalid' };
     }
 
-    const { value_type } = schema;
-    let validation = schema.validation;
-
-    // Hỗ trợ Validation Versioning: chọn tập luật tương ứng với phiên bản của thiết bị
-    if (schemaVersion !== undefined && schema.validation_versions && schema.validation_versions[schemaVersion]) {
-        validation = schema.validation_versions[schemaVersion];
+    const required = options.required === true || schema.required === true;
+    if (value === undefined) {
+        return required
+            ? { valid: false, error: 'Value is required' }
+            : { valid: true, error: null };
+    }
+    if (value === null) {
+        return schema.nullable === true
+            ? { valid: true, error: null }
+            : { valid: false, error: 'Value cannot be null' };
     }
 
-    // 1. Kiểm tra sự tồn tại (required)
-    if (value === undefined || value === null) {
-        if (validation && validation.required) {
-            return { valid: false, error: 'Value is required' };
-        }
-        return { valid: true, error: null }; // Cho phép null/undefined nếu không bắt buộc
-    }
-
-    // 2. Validate kiểu dữ liệu chính (value_type)
-    switch (value_type) {
+    switch (schema.type) {
         case 'boolean':
-            if (typeof value !== 'boolean') {
-                return { valid: false, error: `Expected type boolean, got ${typeof value}` };
-            }
+            if (typeof value !== 'boolean') return { valid: false, error: 'Expected boolean' };
             break;
-
         case 'number':
-            if (typeof value !== 'number' || Number.isNaN(value)) {
-                return { valid: false, error: `Expected type number, got ${typeof value}` };
-            }
-            // Kiểm tra ràng buộc của number
-            if (validation) {
-                if (validation.min !== undefined && value < validation.min) {
-                    return { valid: false, error: `Value ${value} is less than minimum: ${validation.min}` };
-                }
-                if (validation.max !== undefined && value > validation.max) {
-                    return { valid: false, error: `Value ${value} is greater than maximum: ${validation.max}` };
-                }
+            if (typeof value !== 'number' || !Number.isFinite(value)) {
+                return { valid: false, error: 'Expected a finite number' };
             }
             break;
-
+        case 'integer':
+            if (!Number.isInteger(value)) return { valid: false, error: 'Expected integer' };
+            break;
         case 'string':
-            if (typeof value !== 'string') {
-                return { valid: false, error: `Expected type string, got ${typeof value}` };
+            if (typeof value !== 'string') return { valid: false, error: 'Expected string' };
+            if (schema.min_length !== undefined && value.length < schema.min_length) {
+                return { valid: false, error: `String is shorter than ${schema.min_length}` };
             }
-            // Kiểm tra ràng buộc của string
-            if (validation) {
-                if (validation.max_length !== undefined && value.length > validation.max_length) {
-                    return { valid: false, error: `String length ${value.length} exceeds max_length: ${validation.max_length}` };
-                }
-                if (validation.enum !== undefined && Array.isArray(validation.enum)) {
-                    if (!validation.enum.includes(value)) {
-                        return { valid: false, error: `Value "${value}" is not in allowed enum list: [${validation.enum.join(', ')}]` };
+            if (schema.max_length !== undefined && value.length > schema.max_length) {
+                return { valid: false, error: `String is longer than ${schema.max_length}` };
+            }
+            break;
+        case 'array':
+            if (!Array.isArray(value)) return { valid: false, error: 'Expected array' };
+            if (schema.min_items !== undefined && value.length < schema.min_items) {
+                return { valid: false, error: `Array has fewer than ${schema.min_items} items` };
+            }
+            if (schema.max_items !== undefined && value.length > schema.max_items) {
+                return { valid: false, error: `Array has more than ${schema.max_items} items` };
+            }
+            if (schema.items) {
+                for (let index = 0; index < value.length; index += 1) {
+                    const itemResult = validateValueAgainstSchema(value[index], schema.items, { required: true });
+                    if (!itemResult.valid) {
+                        return { valid: false, error: `Item ${index}: ${itemResult.error}` };
                     }
                 }
             }
             break;
-
         case 'object':
-            if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-                return { valid: false, error: `Expected type object, got ${typeof value}` };
+            if (!isPlainObject(value)) return { valid: false, error: 'Expected object' };
+            if (isPlainObject(schema.properties)) {
+                for (const [key, propertySchema] of Object.entries(schema.properties)) {
+                    const propertyResult = validateValueAgainstSchema(
+                        value[key],
+                        propertySchema,
+                        { required: propertySchema.required === true },
+                    );
+                    if (!propertyResult.valid) {
+                        return { valid: false, error: `${key}: ${propertyResult.error}` };
+                    }
+                }
             }
             break;
-
         default:
-            return { valid: false, error: `Unsupported value_type: ${value_type}` };
+            return { valid: false, error: `Unsupported schema type: ${schema.type}` };
+    }
+
+    if (typeof value === 'number') {
+        if (schema.minimum !== undefined && value < schema.minimum) {
+            return { valid: false, error: `Value is below minimum ${schema.minimum}` };
+        }
+        if (schema.maximum !== undefined && value > schema.maximum) {
+            return { valid: false, error: `Value is above maximum ${schema.maximum}` };
+        }
+    }
+    if (Array.isArray(schema.enum) && !schema.enum.some(candidate => Object.is(candidate, value))) {
+        return { valid: false, error: 'Value is not in the allowed enum' };
     }
 
     return { valid: true, error: null };
 }
 
+function validateObjectAgainstSchema(input, schemaMap) {
+    if (!isPlainObject(input)) return { valid: false, error: 'Input must be an object' };
+    const unknown = Object.keys(input).filter(key => !Object.prototype.hasOwnProperty.call(schemaMap, key));
+    if (unknown.length > 0) {
+        return { valid: false, error: `Unknown input fields: ${unknown.join(', ')}` };
+    }
+    for (const [key, schema] of Object.entries(schemaMap)) {
+        const result = validateValueAgainstSchema(input[key], schema, { required: true });
+        if (!result.valid) return { valid: false, error: `${key}: ${result.error}` };
+    }
+    return { valid: true, error: null };
+}
+
 module.exports = {
-    validateValueAgainstSchema
+    validateObjectAgainstSchema,
+    validateValueAgainstSchema,
 };

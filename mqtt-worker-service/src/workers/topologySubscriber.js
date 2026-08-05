@@ -44,7 +44,7 @@ async function publishTopologyAssignment(
 
     for (const member of current.members || []) {
         const assignment = {
-            schema_version: 1,
+            schema: 'device.topology.assignment.v2',
             network_id: current.network_id,
             topology_epoch: Number(current.topology_epoch),
             topology_state: current.topology_state,

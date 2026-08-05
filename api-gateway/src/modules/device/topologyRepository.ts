@@ -7,7 +7,8 @@ type DeviceRow = {
     mac: string;
     name: string;
     product_id: string;
-    gateway_id: string | null;
+    catalog_revision: number;
+    firmware_version: string | null;
     network_id: string | null;
     join_rank: string | number | null;
     is_active: boolean;
@@ -65,11 +66,12 @@ export function resolveNetworkFingerprint(
         return networkFingerprint.trim().toLowerCase();
     }
 
-    // Backward-compatible claims receive a deterministic, device-isolated
-    // network. No SSID, Wi-Fi password or modem identifier is persisted.
+    // If a device has not supplied an attested network fingerprint yet, keep
+    // it isolated. Never group devices by account and never persist Wi-Fi
+    // credentials, SSID or raw modem identifiers.
     return crypto
         .createHash('sha256')
-        .update(`legacy-isolated-network:${mac}`)
+        .update(`isolated-network:${mac}`)
         .digest('hex');
 }
 
@@ -151,11 +153,13 @@ async function loadTopologySnapshot(
 async function recordTopologyEvent(
     client: PoolClient,
     snapshot: TopologySnapshot,
+    eventType: 'membership_changed' | 'hub_election_started' | 'hub_changed' | 'network_stable' | 'network_empty',
     reason: string,
     change: TopologyChange
 ) {
     const payload = {
-        schema_version: 1,
+        schema_version: 2,
+        reason,
         network_id: snapshot.network_id,
         owner_id: snapshot.owner_id,
         active_hub_device_id: snapshot.active_hub_device_id,
@@ -166,17 +170,19 @@ async function recordTopologyEvent(
         change,
     };
 
-    await client.query(
+    const result = await client.query<{ id: string }>(
         `INSERT INTO topology_outbox
-            (network_id, topology_epoch, reason, payload)
-         VALUES ($1, $2, $3, $4::jsonb)`,
+            (network_id, topology_epoch, event_type, payload)
+         VALUES ($1, $2, $3, $4::jsonb)
+         RETURNING id`,
         [
             snapshot.network_id,
             snapshot.topology_epoch,
-            reason,
+            eventType,
             JSON.stringify(payload),
         ]
     );
+    return Number(result.rows[0].id);
 }
 
 export async function claimTopologyMembership(
@@ -186,6 +192,7 @@ export async function claimTopologyMembership(
         mac: string;
         name: string;
         productId: string;
+        catalogRevision: number;
         networkFingerprint: string;
     }
 ) {
@@ -208,22 +215,31 @@ export async function claimTopologyMembership(
 
     const insertResult = await client.query<DeviceRow>(
         `INSERT INTO device_metadata
-            (owner_id, mac, name, product_id, gateway_id, network_id,
-             join_rank, is_active, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, NULL, $5, $6, true, NOW(), NOW())
-         RETURNING id, owner_id, mac, name, product_id, gateway_id,
-                   network_id, join_rank, is_active, created_at, updated_at`,
+            (owner_id, mac, name, product_id, catalog_revision, network_id,
+             join_rank, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, true)
+         RETURNING id, owner_id, mac, name, product_id, catalog_revision,
+                   firmware_version, network_id, join_rank, is_active,
+                   created_at, updated_at`,
         [
             input.ownerId,
             input.mac,
             input.name,
             input.productId,
+            input.catalogRevision,
             network.id,
             joinRank,
         ]
     );
     const device = insertResult.rows[0];
     const hubChanged = shouldAssignNewDeviceAsHub;
+
+    await client.query(
+        `INSERT INTO device_memberships
+            (device_id, account_id, role, status, granted_by)
+         VALUES ($1, $2, 'owner', 'active', $2)`,
+        [device.id, input.ownerId]
+    );
 
     await client.query(
         `UPDATE device_networks
@@ -243,7 +259,7 @@ export async function claimTopologyMembership(
     );
 
     const topology = await loadTopologySnapshot(client, network.id);
-    await recordTopologyEvent(client, topology, 'device_claimed', {
+    const topologyOutboxId = await recordTopologyEvent(client, topology, 'membership_changed', 'device_claimed', {
         type: 'claim',
         device_id: device.id,
         mac: device.mac,
@@ -256,6 +272,7 @@ export async function claimTopologyMembership(
             join_rank: joinRank,
         },
         topology,
+        topologyOutboxId,
     };
 }
 
@@ -265,8 +282,9 @@ export async function removeTopologyMembership(
     mac: string
 ) {
     const deviceResult = await client.query<DeviceRow>(
-        `SELECT id, owner_id, mac, name, product_id, gateway_id,
-                network_id, join_rank, is_active, created_at, updated_at
+        `SELECT id, owner_id, mac, name, product_id, catalog_revision,
+                firmware_version, network_id, join_rank, is_active,
+                created_at, updated_at
          FROM device_metadata
          WHERE owner_id = $1 AND mac = $2
          FOR UPDATE`,
@@ -279,7 +297,7 @@ export async function removeTopologyMembership(
     const device = deviceResult.rows[0];
     if (device.network_id === null) {
         await client.query('DELETE FROM device_metadata WHERE id = $1', [device.id]);
-        return { device, topology: null, hubChanged: false };
+        return { device, topology: null, hubChanged: false, topologyOutboxId: null };
     }
 
     const networkResult = await client.query<NetworkRow>(
@@ -334,14 +352,20 @@ export async function removeTopologyMembership(
         : removedActiveHub
             ? 'hub_unpaired'
             : 'device_unpaired';
-    await recordTopologyEvent(client, topology, reason, {
+    const topologyOutboxId = await recordTopologyEvent(
+        client,
+        topology,
+        networkIsEmpty ? 'network_empty' : 'membership_changed',
+        reason,
+        {
         type: 'unpair',
         device_id: device.id,
         mac: device.mac,
         hub_changed: hubChanged,
-    });
+        }
+    );
 
-    return { device, topology, hubChanged };
+    return { device, topology, hubChanged, topologyOutboxId };
 }
 
 export async function transitionTopologyForHubFailure(
@@ -422,6 +446,7 @@ export async function transitionTopologyForHubFailure(
     await recordTopologyEvent(
         client,
         topology,
+        'hub_election_started',
         candidate ? 'hub_failover_started' : 'hub_degraded_no_candidate',
         {
             type: 'hub_failure',
@@ -490,6 +515,7 @@ export async function acknowledgeHubAssignment(
     await recordTopologyEvent(
         client,
         topology,
+        input.status === 'ready' ? 'network_stable' : 'hub_changed',
         input.status === 'ready'
             ? 'hub_assignment_ready'
             : 'hub_assignment_failed',

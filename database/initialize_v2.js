@@ -12,10 +12,37 @@ function assertInitializationGate() {
     if (process.env.ALLOW_V2_DATABASE_INITIALIZATION !== 'true') {
         throw new Error('ALLOW_V2_DATABASE_INITIALIZATION=true is required.');
     }
-    if (process.env.V2_EXPECT_EMPTY_DATABASES !== 'true') {
-        throw new Error('V2_EXPECT_EMPTY_DATABASES=true is required.');
-    }
 }
+
+const POSTGRES_SCHEMA_VERSION = 201;
+const REQUIRED_POSTGRES_TABLES = [
+    'accounts',
+    'user_sessions',
+    'factory_devices',
+    'device_networks',
+    'device_metadata',
+    'device_memberships',
+    'device_operations',
+    'operation_outbox',
+    'device_resource_sessions',
+    'device_credentials',
+    'credential_jobs',
+    'credential_outbox',
+    'device_shadow_outbox',
+    'topology_outbox',
+];
+
+const ALLOWED_MONGO_COLLECTIONS = new Set([
+    'catalog_releases',
+    'capability_definitions',
+    'product_definitions',
+    'device_shadows',
+    'device_telemetry',
+    'device_events',
+    'device_incidents',
+    'active_operations',
+    'telemetry_ingest_receipts',
+]);
 
 async function initializePostgres() {
     const client = new Client({
@@ -34,12 +61,32 @@ async function initializePostgres() {
               WHERE table_schema = 'public'
                 AND table_type = 'BASE TABLE'`,
         );
-        if (result.rows.length > 0) {
-            throw new Error(`PostgreSQL target is not empty: ${result.rows.map(row => row.table_name).sort().join(', ')}`);
+        const existingTables = result.rows.map(row => row.table_name).sort();
+        if (existingTables.length > 0) {
+            if (!existingTables.includes('schema_migrations')) {
+                throw new Error(
+                    `PostgreSQL contains an incompatible schema: ${existingTables.join(', ')}. `
+                    + 'Clear the configured PostgreSQL data directory before starting the new architecture.',
+                );
+            }
+
+            const version = await client.query(
+                'SELECT 1 FROM public.schema_migrations WHERE version = $1',
+                [POSTGRES_SCHEMA_VERSION],
+            );
+            const missing = REQUIRED_POSTGRES_TABLES.filter(table => !existingTables.includes(table));
+            if (version.rows.length !== 1 || missing.length > 0) {
+                throw new Error(
+                    `PostgreSQL schema is incomplete or incompatible. Missing: ${missing.join(', ') || 'none'}. `
+                    + 'Clear the configured PostgreSQL data directory and initialize again.',
+                );
+            }
+            return { initialized: false, schemaVersion: POSTGRES_SCHEMA_VERSION };
         }
 
         const schema = fs.readFileSync(path.join(__dirname, 'postgres/schema_v2.sql'), 'utf8');
         await client.query(schema);
+        return { initialized: true, schemaVersion: POSTGRES_SCHEMA_VERSION };
     } finally {
         await client.end();
     }
@@ -51,11 +98,19 @@ async function initializeMongo() {
     try {
         const db = client.db(process.env.MONGO_DB_NAME);
         const existing = await db.listCollections({}, { nameOnly: true }).toArray();
-        if (existing.length > 0) {
-            throw new Error(`MongoDB target is not empty: ${existing.map(item => item.name).sort().join(', ')}`);
+        const unexpected = existing
+            .map(item => item.name)
+            .filter(name => !name.startsWith('system.'))
+            .filter(name => !ALLOWED_MONGO_COLLECTIONS.has(name));
+        if (unexpected.length > 0) {
+            throw new Error(
+                `MongoDB contains incompatible collections: ${unexpected.sort().join(', ')}. `
+                + 'Clear the configured MongoDB data directory before starting the new architecture.',
+            );
         }
         await applyMongoCollectionsV2(db);
         await seedCatalogV2(db);
+        return { initialized: existing.length === 0 };
     } finally {
         await client.close();
     }
@@ -69,7 +124,7 @@ async function main() {
 
     await initializePostgres();
     await initializeMongo();
-    process.stdout.write('Database V2 initialization completed.\n');
+    process.stdout.write('SmartHome database contract is ready.\n');
 }
 
 if (require.main === module) {
@@ -81,6 +136,8 @@ if (require.main === module) {
 
 module.exports = {
     assertInitializationGate,
+    ALLOWED_MONGO_COLLECTIONS,
+    POSTGRES_SCHEMA_VERSION,
     initializeMongo,
     initializePostgres,
 };

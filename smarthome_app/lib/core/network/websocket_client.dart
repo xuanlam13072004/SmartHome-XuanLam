@@ -41,7 +41,7 @@ class WebSocketClient {
   final _messageController = StreamController<String>.broadcast();
   Stream<String> get messageStream => _messageController.stream;
 
-  // Pending Commands
+  // Pending client messages while the socket is reconnecting.
   final List<String> _pendingQueue = [];
 
   WebSocketClient({required this.url, required this.authRepository}) {

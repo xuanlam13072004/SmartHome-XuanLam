@@ -72,14 +72,13 @@ export class ApiGatewayClient {
     }
 
     async register(user: {
-        username: string;
         email: string;
         password: string;
         full_name: string;
-    }): Promise<{ id: string; username: string; email: string; full_name: string }> {
+    }): Promise<{ id: string; email: string; full_name: string }> {
         const data = await this.request<{
             success: boolean;
-            user: { id: string; username: string; email: string; full_name: string };
+            user: { id: string; email: string; full_name: string };
         }>('/auth/register', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -181,6 +180,21 @@ export class ApiGatewayClient {
             throw new Error('API Gateway returned an invalid claim response');
         }
         return data.device;
+    }
+
+    async unpairDevice(accessToken: string, mac: string): Promise<void> {
+        const data = await this.request<{ success: boolean }>(
+            `/devices/${encodeURIComponent(mac)}`,
+            {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                },
+            },
+        );
+        if (!data.success) {
+            throw new Error('API Gateway returned an invalid unpair response');
+        }
     }
 }
 

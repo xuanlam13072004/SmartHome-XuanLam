@@ -13,7 +13,8 @@ const envSchema = z.object({
 
     MONGO_URI: z.string().url(),
     MONGO_DB_NAME: z.string().default('SmartHomeDB'),
-    MONGO_DEVICES_COLLECTION: z.string().default('devices'),
+    MONGO_DEVICE_SHADOWS_COLLECTION: z.string().default('device_shadows'),
+    MONGO_ACTIVE_OPERATIONS_COLLECTION: z.string().default('active_operations'),
 
     REDIS_URL: z.string().url(),
     WS_MAX_PAYLOAD_BYTES: z.coerce.number().int().positive().default(65536),

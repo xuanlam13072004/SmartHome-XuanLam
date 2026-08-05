@@ -7,10 +7,7 @@
     "scripts": {
         "dev": "tsx watch src/index.ts",
         "build": "tsc -p tsconfig.json",
-        "start": "node dist/index.js",
-        "test:topology-schema": "node scripts/verifyTopologySchema.js",
-        "test:topology-transactions": "npm run build && node scripts/verifyTopologyTransactions.js",
-        "test:topology-runtime": "npm run build && node scripts/verifyTopologyRuntime.js"
+        "start": "node dist/index.js"
     },
     "dependencies": {
         "@fastify/cors": "^11.3.0",

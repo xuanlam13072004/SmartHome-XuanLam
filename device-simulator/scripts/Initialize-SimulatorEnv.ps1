@@ -53,7 +53,7 @@ $requiredUpstreamKeys = @(
     'PG_DATABASE',
     'MONGO_URI',
     'MONGO_DB_NAME',
-    'MONGO_DEVICES_COLLECTION',
+    'MONGO_DEVICE_SHADOWS_COLLECTION',
     'MONGO_TELEMETRY_COLLECTION'
 )
 
@@ -71,8 +71,8 @@ $overrides = @{
     POSTGRES_DB                      = $upstream['PG_DATABASE']
     MAIN_MONGODB_URI                 = $upstream['MONGO_URI']
     MAIN_MONGO_DB_NAME               = $upstream['MONGO_DB_NAME']
-    MAIN_MONGO_DEVICES_COLLECTION    = $upstream['MONGO_DEVICES_COLLECTION']
-    MAIN_MONGO_TELEMETRY_COLLECTION  = $upstream['MONGO_TELEMETRY_COLLECTION']
+    MAIN_MONGO_DEVICE_SHADOWS_COLLECTION = $upstream['MONGO_DEVICE_SHADOWS_COLLECTION']
+    MAIN_MONGO_TELEMETRY_COLLECTION      = $upstream['MONGO_TELEMETRY_COLLECTION']
 }
 
 $outputLines = foreach ($line in [System.IO.File]::ReadAllLines($templatePath)) {

@@ -18,7 +18,7 @@ export interface ProductWeight {
 
 export interface RunConfig {
   user_count: number
-  username_prefix: string
+  email_prefix: string
   email_domain: string
   devices_min: number
   devices_max: number
@@ -61,9 +61,9 @@ export interface RunMetrics {
     telemetry_published: number
     telemetry_failed: number
     telemetry_bytes: number
-    commands_received: number
-    commands_applied: number
-    commands_rejected: number
+    operations_received: number
+    operations_applied: number
+    operations_rejected: number
     acks_published: number
     acks_failed: number
     mqtt_connects: number
@@ -75,7 +75,7 @@ export interface RunMetrics {
     telemetry_per_second: number
     telemetry_failures_per_minute: number
     bytes_per_second: number
-    commands_per_second: number
+    operations_per_second: number
   }
   runtime: {
     registered: number
@@ -100,8 +100,7 @@ export interface SimulatedUser {
   generation_index: number
   account_id?: string
   account_created_by_simulator?: boolean
-  account_provenance?: 'registered' | 'recovered_after_register' | 'verified_legacy'
-  username: string
+  account_provenance?: 'registered' | 'recovered_after_register'
   email: string
   full_name: string
   target_device_count: number
@@ -117,14 +116,18 @@ export interface SimulatedUser {
   updated_at: string
 }
 
-export interface DeviceCommand {
+export interface DeviceOperation {
   id: string
   mac: string
   status: string
-  command: Record<string, unknown>
-  error_log?: string | null
-  retry_count: number
-  event_version: number
+  instance_id: string
+  operation_name: string
+  input: Record<string, unknown>
+  risk: 'normal' | 'sensitive' | 'dangerous'
+  reason_code?: string | null
+  catalog_revision: number
+  accepted_at: string
+  completed_at?: string | null
   created_at: string
   updated_at: string
 }
@@ -151,8 +154,12 @@ export interface SimulatedDevice {
   desired_state: 'online' | 'offline'
   seq: number
   state_snapshot?: {
-    metrics: Record<string, unknown>
-    diagnostics: Record<string, unknown>
+    state_version: number
+    instances: Record<string, {
+      reported: Record<string, unknown>
+      desired: Record<string, unknown>
+    }>
+    diagnostics: Record<string, Record<string, unknown>>
   }
   retention_policy: 'ttl' | 'permanent'
   expires_at?: string

@@ -18,17 +18,23 @@ const envSchema = z.object({
 
     MONGO_URI: z.string().url(),
     MONGO_DB_NAME: z.string().default('SmartHomeDB'),
-    MONGO_DEVICES_COLLECTION: z.string().default('devices'),
+    MONGO_DEVICE_SHADOWS_COLLECTION: z.string().default('device_shadows'),
+    MONGO_ACTIVE_OPERATIONS_COLLECTION: z.string().default('active_operations'),
+    MONGO_DEVICE_TELEMETRY_COLLECTION: z.string().default('device_telemetry'),
+    MONGO_DEVICE_EVENTS_COLLECTION: z.string().default('device_events'),
+    MONGO_DEVICE_INCIDENTS_COLLECTION: z.string().default('device_incidents'),
+    MONGO_INGEST_RECEIPTS_COLLECTION: z.string().default('telemetry_ingest_receipts'),
 
     REDIS_URL: z.string().url(),
-    REDIS_COMMAND_STREAM: z.string().default('device.commands'),
-    REDIS_COMMAND_STATUS_STREAM: z.string().default('command.status.stream'),
+    REDIS_OPERATION_STREAM: z.string().default('device.operations'),
+    REDIS_OPERATION_STATUS_STREAM: z.string().default('operation.status.stream'),
+    REDIS_CREDENTIAL_STREAM: z.string().default('device.credentials'),
+    REDIS_CREDENTIAL_STATUS_STREAM: z.string().default('credential.status.stream'),
     REDIS_CACHE_OWNER_PREFIX: z.string().default('owner_of:'),
     REDIS_CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
-    COMMAND_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(30),
+    OPERATION_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(30),
     TOPOLOGY_ELECTION_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(30),
     TOPOLOGY_HUB_LEASE_SECONDS: z.coerce.number().int().positive().default(15),
-    TOPOLOGY_COMMAND_REROUTE_LIMIT: z.coerce.number().int().nonnegative().default(3),
 });
 
 const parseResult = envSchema.safeParse(process.env);

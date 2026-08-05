@@ -7,6 +7,7 @@ import { safeSend } from '../utils/safeSend.js';
 
 interface JWTPayload {
     userId: string;
+    purpose?: string;
     email?: string;
     iat?: number;
     exp?: number;
@@ -45,7 +46,7 @@ export function handleConnection(socket: WebSocket, req: IncomingMessage): void 
         const token = authHeader.substring(7);
         try {
             const decoded = jwt.verify(token, env.JWT_SECRET) as JWTPayload;
-            if (decoded && decoded.userId) {
+            if (decoded && decoded.userId && !decoded.purpose) {
                 isAuthenticated = true;
                 ownerId = decoded.userId;
                 if (!addConnection(ownerId, socket)) {
@@ -110,7 +111,7 @@ export function handleConnection(socket: WebSocket, req: IncomingMessage): void 
 
                     try {
                         const decoded = jwt.verify(token, env.JWT_SECRET) as JWTPayload;
-                        if (decoded && decoded.userId) {
+                        if (decoded && decoded.userId && !decoded.purpose) {
                             isAuthenticated = true;
                             ownerId = decoded.userId;
                             if (authTimeout) {

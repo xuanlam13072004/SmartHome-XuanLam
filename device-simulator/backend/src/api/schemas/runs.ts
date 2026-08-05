@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const createRunBodySchema = z.object({
     user_count: z.number().int().min(1).max(10000),
-    username_prefix: z.string().trim().min(1).max(24).regex(/^[a-zA-Z0-9_-]+$/).default('sim'),
+    email_prefix: z.string().trim().min(1).max(24).regex(/^[a-zA-Z0-9_-]+$/).default('sim'),
     email_domain: z.string().trim().min(3).max(120).regex(/^[a-zA-Z0-9.-]+$/).default('simulator.local'),
     devices_min: z.number().int().min(0).max(100).default(1),
     devices_max: z.number().int().min(0).max(100).default(5),

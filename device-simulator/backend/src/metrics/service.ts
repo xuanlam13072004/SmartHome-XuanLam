@@ -34,7 +34,7 @@ export interface RunMetricsSnapshot {
         telemetry_per_second: number;
         telemetry_failures_per_minute: number;
         bytes_per_second: number;
-        commands_per_second: number;
+        operations_per_second: number;
     };
     runtime: RuntimeMetricStats;
     process: {
@@ -49,9 +49,9 @@ export const emptyMetricTotals = (): SimulationRunMetricTotals => ({
     telemetry_published: 0,
     telemetry_failed: 0,
     telemetry_bytes: 0,
-    commands_received: 0,
-    commands_applied: 0,
-    commands_rejected: 0,
+    operations_received: 0,
+    operations_applied: 0,
+    operations_rejected: 0,
     acks_published: 0,
     acks_failed: 0,
     mqtt_connects: 0,
@@ -96,8 +96,8 @@ export const calculateWindowRates = (
         bytes_per_second: roundRate(
             (aggregate.telemetry_bytes || 0) / observedSeconds,
         ),
-        commands_per_second: roundRate(
-            (aggregate.commands_received || 0) / observedSeconds,
+        operations_per_second: roundRate(
+            (aggregate.operations_received || 0) / observedSeconds,
         ),
     };
 };

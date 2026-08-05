@@ -53,8 +53,9 @@ const envSchema = z.object({
     SIMULATOR_MONGO_DB_NAME: z.string().default('DeviceSimulatorDB'),
     MAIN_MONGODB_URI: optionalString,
     MAIN_MONGO_DB_NAME: z.string().default('SmartHomeDB'),
-    MAIN_MONGO_DEVICES_COLLECTION: z.string().default('devices'),
-    MAIN_MONGO_TELEMETRY_COLLECTION: z.string().default('telemetry_logs'),
+    MAIN_MONGO_DEVICE_SHADOWS_COLLECTION: z.string().default('device_shadows'),
+    MAIN_MONGO_TELEMETRY_COLLECTION: z.string().default('device_telemetry'),
+    MAIN_MONGO_INGEST_RECEIPTS_COLLECTION: z.string().default('telemetry_ingest_receipts'),
 
     MQTT_HOST: z.string(),
     MQTT_PORT: z.coerce.number().int().min(1).max(65535).default(1883),
@@ -68,7 +69,7 @@ const envSchema = z.object({
     MQTT_STATUS_TOPIC: z.string().default('smarthome/{device_id}/status'),
     MQTT_TOPOLOGY_TOPIC: z.string().default('smarthome/{device_id}/topology'),
     MQTT_TOPOLOGY_ACK_TOPIC: z.string().default('smarthome/{device_id}/topology/ack'),
-    COMMAND_DEDUP_TTL_MS: z.coerce.number().int().min(1000).max(24 * 60 * 60 * 1000)
+    OPERATION_DEDUP_TTL_MS: z.coerce.number().int().min(1000).max(24 * 60 * 60 * 1000)
         .default(10 * 60 * 1000),
 
     CLEANUP_INTERVAL_MS: z.coerce.number().int().min(10000).default(15 * 60 * 1000),

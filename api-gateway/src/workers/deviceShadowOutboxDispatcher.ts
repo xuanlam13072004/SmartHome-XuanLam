@@ -10,18 +10,19 @@ type Logger = {
 
 type ShadowEvent = {
     id: number;
+    device_id: string | null;
     mac: string;
-    operation: 'upsert' | 'unpair' | 'rename';
+    operation: 'claim' | 'upsert' | 'rename' | 'unpair';
     payload: Record<string, any>;
 };
 
-async function applyMonotonicUpdate(
+async function applyGuardedUpdate(
     mongoDb: Db,
     event: ShadowEvent,
     fields: Record<string, unknown>,
-    upsert = false
+    upsert = false,
 ) {
-    const devices = mongoDb.collection<any>(env.MONGO_DEVICES_COLLECTION);
+    const collection = mongoDb.collection<any>(env.MONGO_DEVICE_SHADOWS_COLLECTION);
     const filter = {
         _id: event.mac,
         $or: [
@@ -33,79 +34,77 @@ async function applyMonotonicUpdate(
         $set: {
             ...fields,
             shadow_outbox_event_id: event.id,
+            updated_at: new Date(),
         },
     };
-
     try {
-        await devices.updateOne(filter, update, { upsert });
-    } catch (err: any) {
-        // With upsert enabled, an already-applied/newer event no longer
-        // matches the guarded filter and Mongo attempts an _id insert. Treat
-        // that duplicate-key race as a no-op (or apply once if this event won).
-        if (!upsert || err?.code !== 11000) throw err;
-        await devices.updateOne(filter, update);
+        await collection.updateOne(filter, update, { upsert });
+    } catch (error: any) {
+        if (!upsert || error?.code !== 11000) throw error;
+        await collection.updateOne(filter, update);
     }
 }
 
 async function applyEvent(mongoDb: Db, event: ShadowEvent) {
     const payload = event.payload || {};
-
-    if (event.operation === 'upsert') {
-        await applyMonotonicUpdate(
+    if (event.operation === 'claim' || event.operation === 'upsert') {
+        await applyGuardedUpdate(
             mongoDb,
             event,
             {
+                device_id: event.device_id,
                 owner_id: payload.owner_id,
                 product_id: payload.product_id,
+                catalog_revision: Number(payload.catalog_revision),
                 name: payload.name,
-                state: payload.default_state || {},
+                access_account_ids: payload.access_account_ids || [payload.owner_id],
+                state_version: 0,
+                instances: {},
                 diagnostics: {},
                 is_online: false,
-                last_updated: new Date(),
+                last_seen: null,
             },
-            true
+            true,
         );
         return;
     }
-
-    if (event.operation === 'unpair') {
-        await applyMonotonicUpdate(
-            mongoDb,
-            event,
-            {
-                owner_id: null,
-                name: null,
-                is_online: false,
-                last_updated: new Date(),
-            }
-        );
+    if (event.operation === 'rename') {
+        await applyGuardedUpdate(mongoDb, event, { name: payload.name });
         return;
     }
 
-    await applyMonotonicUpdate(mongoDb, event, {
-        name: payload.name,
-        last_updated: new Date(),
-    });
+    await Promise.all([
+        mongoDb.collection<any>(env.MONGO_DEVICE_SHADOWS_COLLECTION).deleteOne({ _id: event.mac }),
+        mongoDb.collection<any>(env.MONGO_ACTIVE_OPERATIONS_COLLECTION).deleteMany({ device_id: event.mac }),
+        mongoDb.collection<any>(env.MONGO_DEVICE_TELEMETRY_COLLECTION).deleteMany({
+            'metadata.device_id': event.mac,
+        }),
+        mongoDb.collection<any>(env.MONGO_DEVICE_EVENTS_COLLECTION).deleteMany({ device_id: event.mac }),
+        mongoDb.collection<any>(env.MONGO_DEVICE_INCIDENTS_COLLECTION).deleteMany({ device_id: event.mac }),
+        mongoDb.collection<any>(env.MONGO_INGEST_RECEIPTS_COLLECTION).deleteMany({ device_id: event.mac }),
+    ]);
 }
 
 export async function dispatchDeviceShadowOutboxEvent(
     pgPool: Pool,
     mongoDb: Db,
     logger: Logger,
-    eventId: number
+    eventId: number,
 ) {
     const result = await pgPool.query(
-        `SELECT id, mac, operation, payload
+        `SELECT current.id, current.device_id, current.mac,
+                current.operation, current.payload
          FROM device_shadow_outbox AS current
-         WHERE id = $1
-           AND processed_at IS NULL
+         WHERE current.id = $1
+           AND current.processed_at IS NULL
+           AND current.available_at <= NOW()
            AND NOT EXISTS (
              SELECT 1 FROM device_shadow_outbox AS earlier
              WHERE earlier.mac = current.mac
                AND earlier.processed_at IS NULL
                AND earlier.id < current.id
            )`,
-        [eventId]
+        [eventId],
     );
     if (result.rows.length === 0) return;
 
@@ -114,20 +113,25 @@ export async function dispatchDeviceShadowOutboxEvent(
         await applyEvent(mongoDb, event);
         await pgPool.query(
             `UPDATE device_shadow_outbox
-             SET processed_at = NOW(), attempts = attempts + 1,
-                 last_error = NULL, updated_at = NOW()
+             SET processed_at = NOW(), attempt_count = attempt_count + 1,
+                 last_error = NULL
              WHERE id = $1 AND processed_at IS NULL`,
-            [event.id]
+            [event.id],
         );
-        logger.debug({ eventId: event.id, mac: event.mac }, 'Device shadow outbox event applied');
-    } catch (err: any) {
+        logger.debug({ eventId: event.id, mac: event.mac }, 'Device shadow event applied');
+    } catch (error: any) {
         await pgPool.query(
             `UPDATE device_shadow_outbox
-             SET attempts = attempts + 1, last_error = $2, updated_at = NOW()
+             SET attempt_count = attempt_count + 1,
+                 available_at = NOW() + LEAST(300, POWER(2, LEAST(attempt_count, 8))) * INTERVAL '1 second',
+                 last_error = $2
              WHERE id = $1`,
-            [event.id, String(err?.message || err).slice(0, 2000)]
-        ).catch(updateErr => logger.warn({ updateErr, eventId: event.id }, 'Failed to record shadow outbox error'));
-        throw err;
+            [event.id, String(error?.message || error).slice(0, 2000)],
+        ).catch(updateError => logger.warn(
+            { updateError, eventId: event.id },
+            'Failed to record device shadow outbox error',
+        ));
+        throw error;
     }
 }
 
@@ -139,7 +143,7 @@ export class DeviceShadowOutboxDispatcher {
     constructor(
         private readonly pgPool: Pool,
         private readonly mongoDb: Db,
-        private readonly logger: Logger
+        private readonly logger: Logger,
     ) {}
 
     start() {
@@ -152,7 +156,7 @@ export class DeviceShadowOutboxDispatcher {
         if (!this.running) return;
         this.timer = setTimeout(() => {
             this.inFlight = this.dispatchBatch()
-                .catch(err => this.logger.error({ err }, 'Device shadow outbox dispatch failed'))
+                .catch(error => this.logger.error({ error }, 'Device shadow outbox dispatch failed'))
                 .finally(() => {
                     this.inFlight = null;
                     this.schedule(1000);
@@ -166,6 +170,7 @@ export class DeviceShadowOutboxDispatcher {
             `SELECT current.id
              FROM device_shadow_outbox AS current
              WHERE current.processed_at IS NULL
+               AND current.available_at <= NOW()
                AND NOT EXISTS (
                  SELECT 1 FROM device_shadow_outbox AS earlier
                  WHERE earlier.mac = current.mac
@@ -173,16 +178,18 @@ export class DeviceShadowOutboxDispatcher {
                    AND earlier.id < current.id
                )
              ORDER BY current.id ASC
-             LIMIT 50`
+             LIMIT 50`,
         );
-
         for (const row of result.rows) {
             await dispatchDeviceShadowOutboxEvent(
                 this.pgPool,
                 this.mongoDb,
                 this.logger,
-                Number(row.id)
-            ).catch(err => this.logger.warn({ err, eventId: row.id }, 'Shadow event will be retried'));
+                Number(row.id),
+            ).catch(error => this.logger.warn(
+                { error, eventId: row.id },
+                'Device shadow event will be retried',
+            ));
         }
     }
 

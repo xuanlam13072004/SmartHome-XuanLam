@@ -12,7 +12,7 @@ const logger = {
 } as any;
 
 const hubAssignment = parseTopologyAssignment({
-    schema_version: 1,
+    schema: 'device.topology.assignment.v2',
     network_id: 'network-a',
     topology_epoch: 8,
     topology_state: 'stable',
@@ -24,7 +24,7 @@ const hubAssignment = parseTopologyAssignment({
 });
 
 const nodeAssignment = parseTopologyAssignment({
-    schema_version: 1,
+    schema: 'device.topology.assignment.v2',
     network_id: 'network-a',
     topology_epoch: 8,
     topology_state: 'stable',
@@ -75,7 +75,7 @@ test('Node telemetry is published by the active Hub with a relay envelope', asyn
     });
 });
 
-test('Hub downlink is delivered only to the Node in the same current epoch', async () => {
+test('Hub operation downlink is delivered only to the Node in the same current epoch', async () => {
     const manager = new RuntimeManager(logger);
     const received: Array<{ origin: string; payload: unknown }> = [];
     const hub = {
@@ -88,19 +88,24 @@ test('Hub downlink is delivered only to the Node in the same current epoch', asy
         runId: 'run-a',
         topology: nodeAssignment,
         connected: true,
-        receiveCommand: async (payload: Buffer, origin: string) => {
+        receiveOperation: async (payload: Buffer, origin: string) => {
             received.push({ origin, payload: JSON.parse(payload.toString()) });
         },
     };
     (manager as any).devices.set(hub.id, hub);
     (manager as any).devices.set(node.id, node);
 
-    const command = Buffer.from(JSON.stringify({
-        command_id: '995ee62b-25c6-4656-b198-0ea4407712cf',
+    const operation = Buffer.from(JSON.stringify({
+        schema: 'device.operation.v2',
+        operation_id: '995ee62b-25c6-4656-b198-0ea4407712cf',
         target_device_id: node.id,
-        action: 'set_power',
-        instance: 'main',
-        payload: { power: true },
+        product_id: 'prod_test',
+        catalog_revision: 1,
+        instance_id: 'main',
+        operation_name: 'set_power',
+        input: { power: true },
+        issued_at: new Date().toISOString(),
+        timeout_at: new Date(Date.now() + 60_000).toISOString(),
         route: {
             mode: 'relay',
             network_id: 'network-a',
@@ -108,7 +113,7 @@ test('Hub downlink is delivered only to the Node in the same current epoch', asy
             hub_mac: hub.id,
         },
     }));
-    await manager.deliverRelayedCommand(hub.id, command);
+    await manager.deliverRelayedOperation(hub.id, operation);
 
     assert.equal(received.length, 1);
     assert.equal(received[0].origin, hub.id);

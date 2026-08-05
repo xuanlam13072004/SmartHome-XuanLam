@@ -15,6 +15,12 @@ import { getRuntimeManager } from '../runtime/manager';
 import { getGenerationQueue } from '../generation/queue';
 import { recordSimulatorEvent } from '../events/service';
 import { decrypt } from '../security/crypto';
+import {
+    decryptAccessToken,
+    decryptRefreshToken,
+    encryptAuthSession,
+} from '../security/auth-session';
+import { apiGateway } from '../infrastructure/api-gateway/client';
 import { classifyAccountCleanupTargets } from './targets';
 
 export interface CleanupResult {
@@ -196,8 +202,8 @@ export class CleanupCronjob {
                 ownedFactoryMacs.push(device.mac);
                 continue;
             }
-            const factoryRecord = await getPgPool().query<{ secret_key: string }>(
-                'SELECT secret_key FROM factory_devices WHERE mac = $1',
+            const factoryRecord = await getPgPool().query<{ secret_key_hash: string }>(
+                'SELECT secret_key_hash FROM factory_devices WHERE mac = $1',
                 [device.mac],
             );
             if (factoryRecord.rows.length !== 1) continue;
@@ -207,7 +213,7 @@ export class CleanupCronjob {
                 device.secret.authTag,
             );
             const secretMatches = await argon2.verify(
-                factoryRecord.rows[0].secret_key,
+                factoryRecord.rows[0].secret_key_hash,
                 rawSecret,
             ).catch(() => false);
             if (secretMatches) ownedFactoryMacs.push(device.mac);
@@ -221,9 +227,12 @@ export class CleanupCronjob {
         }
         if (accountIds.length > 0) {
             const ownedDevices = await getPgPool().query<{ owner_id: string; mac: string }>(
-                `SELECT owner_id::text, mac
-                 FROM device_metadata
-                 WHERE owner_id = ANY($1::uuid[])`,
+                `SELECT membership.account_id::text AS owner_id, device.mac
+                 FROM device_memberships AS membership
+                 JOIN device_metadata AS device ON device.id = membership.device_id
+                 WHERE membership.account_id = ANY($1::uuid[])
+                   AND membership.role = 'owner'
+                   AND membership.status = 'active'`,
                 [accountIds],
             );
             const untrackedDevices = ownedDevices.rows.filter((row) =>
@@ -243,6 +252,30 @@ export class CleanupCronjob {
         const macs = devices.map((device) => device.mac);
         const runtimeManager = getRuntimeManager(this.logger);
         await Promise.all(macs.map((mac) => runtimeManager.removeDevice(mac)));
+
+        const devicesByAccount = new Map<string, SimulatedDeviceRecord[]>();
+        for (const device of devices) {
+            const accountDevices = devicesByAccount.get(device.simulator_user_id) || [];
+            accountDevices.push(device);
+            devicesByAccount.set(device.simulator_user_id, accountDevices);
+        }
+        for (const user of users) {
+            if (!user.account_id) continue;
+            const accountDevices = devicesByAccount.get(user.account_id) || [];
+            if (accountDevices.length === 0) continue;
+            let accessToken = await this.getCleanupAccessToken(user, false);
+            for (const device of accountDevices) {
+                try {
+                    await apiGateway.unpairDevice(accessToken, device.mac);
+                } catch (error) {
+                    const statusCode = Number((error as { statusCode?: number }).statusCode || 0);
+                    if (statusCode === 404) continue;
+                    if (statusCode !== 401) throw error;
+                    accessToken = await this.getCleanupAccessToken(user, true);
+                    await apiGateway.unpairDevice(accessToken, device.mac);
+                }
+            }
+        }
 
         const pgClient = await getPgPool().connect();
         try {
@@ -267,14 +300,23 @@ export class CleanupCronjob {
         if (macs.length > 0) {
             const mainDb = getMainMongoDb();
             await Promise.all([
-                mainDb.collection<{ _id: string }>(env.MAIN_MONGO_DEVICES_COLLECTION).deleteMany({
+                mainDb.collection<{ _id: string }>(env.MAIN_MONGO_DEVICE_SHADOWS_COLLECTION).deleteMany({
                     _id: { $in: macs },
                 }),
                 mainDb.collection(env.MAIN_MONGO_TELEMETRY_COLLECTION).deleteMany({
                     'metadata.device_id': { $in: macs },
                 }),
-                mainDb.collection('active_commands').deleteMany({
-                    $or: [{ mac: { $in: macs } }, { device_id: { $in: macs } }],
+                mainDb.collection('active_operations').deleteMany({
+                    device_id: { $in: macs },
+                }),
+                mainDb.collection('device_events').deleteMany({
+                    device_id: { $in: macs },
+                }),
+                mainDb.collection('device_incidents').deleteMany({
+                    device_id: { $in: macs },
+                }),
+                mainDb.collection(env.MAIN_MONGO_INGEST_RECEIPTS_COLLECTION).deleteMany({
+                    device_id: { $in: macs },
                 }),
             ]);
         }
@@ -305,6 +347,44 @@ export class CleanupCronjob {
             accountsDeleted: accountIds.length,
             devicesDeleted: macs.length,
         };
+    }
+
+    private async getCleanupAccessToken(
+        user: SimulatedUserRecord,
+        forceRefresh: boolean,
+    ): Promise<string> {
+        if (user.auth_session && !forceRefresh) {
+            return decryptAccessToken(user.auth_session);
+        }
+
+        let session;
+        if (user.auth_session) {
+            try {
+                session = await apiGateway.refreshSession({
+                    sessionId: user.auth_session.session_id,
+                    refreshToken: decryptRefreshToken(user.auth_session),
+                });
+            } catch {
+                session = undefined;
+            }
+        }
+        if (!session) {
+            session = await apiGateway.login({
+                email: user.email,
+                password: decrypt(
+                    user.credential.iv,
+                    user.credential.encrypted,
+                    user.credential.authTag,
+                ),
+            });
+        }
+
+        user.auth_session = encryptAuthSession(session);
+        await getMongoDb().collection<SimulatedUserRecord>('simulated_users').updateOne(
+            { run_id: user.run_id, account_id: user.account_id },
+            { $set: { auth_session: user.auth_session, updated_at: new Date() } },
+        );
+        return session.accessToken;
     }
 
     private async blockCleanup(

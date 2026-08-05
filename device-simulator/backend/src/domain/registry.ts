@@ -28,8 +28,7 @@ export interface SimulatedUserRecord {
     generation_index: number;
     account_id?: string;
     account_created_by_simulator?: boolean;
-    account_provenance?: 'registered' | 'recovered_after_register' | 'verified_legacy';
-    username: string;
+    account_provenance?: 'registered' | 'recovered_after_register';
     email: string;
     full_name: string;
     credential: EncryptedValue;
@@ -62,6 +61,8 @@ export interface SimulatedDeviceRecord {
     active_hub_mac?: string | null;
     transport_mode?: TransportMode;
     secret: EncryptedValue;
+    credential_private_key: EncryptedValue;
+    credential_public_key_pem: string;
     factory_owned: boolean;
     provisioning_state: DeviceProvisioningState;
     runtime_state: DeviceRuntimeState;

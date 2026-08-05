@@ -2,7 +2,7 @@ import 'fastify';
 import type { Pool } from 'pg';
 import type Redis from 'ioredis';
 import type { Db, MongoClient } from 'mongodb';
-import type { CatalogCache } from '../../../shared/catalogCache';
+import type { RuntimeCatalog } from '../../../shared/catalog-v2';
 
 declare module 'fastify' {
     interface FastifyInstance {
@@ -12,6 +12,6 @@ declare module 'fastify' {
             client: MongoClient;
             db: Db;
         };
-        catalogCache: CatalogCache;
+        catalog: RuntimeCatalog;
     }
 }

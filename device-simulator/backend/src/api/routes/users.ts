@@ -56,25 +56,30 @@ export const createUsersRoutes = (cleanupJob: CleanupCronjob): FastifyPluginAsyn
                 .sort({ generation_index: 1 })
                 .toArray();
             const macs = devices.map((device) => device.mac);
-            const [telemetry, commands] = await Promise.all([
+            const [telemetry, operations] = await Promise.all([
                 macs.length === 0
                     ? []
                     : getMainMongoDb().collection(env.MAIN_MONGO_TELEMETRY_COLLECTION)
                         .find({ 'metadata.device_id': { $in: macs } })
-                        .sort({ timestamp: -1 })
+                        .sort({ observed_at: -1 })
                         .limit(100)
                         .toArray(),
                 getPgPool().query(
-                    `SELECT id::text, mac, status, command, error_log, retry_count,
-                            event_version, created_at, updated_at
-                     FROM device_commands
-                     WHERE owner_id = $1
-                     ORDER BY created_at DESC
+                    `SELECT operation.id::text, device.mac, operation.status,
+                            operation.instance_id, operation.operation_name,
+                            operation.input, operation.risk, operation.reason_code,
+                            operation.catalog_revision, operation.accepted_at,
+                            operation.completed_at, operation.created_at,
+                            operation.updated_at
+                     FROM device_operations AS operation
+                     JOIN device_metadata AS device ON device.id = operation.device_id
+                     WHERE operation.actor_account_id = $1
+                     ORDER BY operation.created_at DESC
                      LIMIT 100`,
                     [accountId],
                 ).then((result) => result.rows),
             ]);
-            return { success: true, user, devices, telemetry, commands };
+            return { success: true, user, devices, telemetry, operations };
         });
 
         app.post('/api/users/:accountId/relogin', async (request, reply) => {
@@ -233,7 +238,7 @@ export const createUsersRoutes = (cleanupJob: CleanupCronjob): FastifyPluginAsyn
             reply.header('Cache-Control', 'no-store');
             return {
                 success: true,
-                credential: { email: user.email, username: user.username, password },
+                credential: { email: user.email, password },
             };
         });
     };

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../core/core.dart';
 import '../../../core/widgets/widgets.dart';
 import '../../../domain/models/device_model.dart';
+import '../../../domain/models/product_model.dart';
 import '../../dashboard/models/capability_model.dart';
 import '../../dashboard/widgets/capabilities/capability_section_panel.dart';
 import '../../dashboard/widgets/device_hero_card.dart';
@@ -53,10 +54,16 @@ class EntranceProductDetail extends StatelessWidget {
     super.key,
     required this.device,
     required this.onCapabilityChanged,
+    this.onOpenResource,
+    this.onReplaceCredential,
   });
 
   final DeviceModel device;
   final ProductCapabilityChanged onCapabilityChanged;
+  final Future<void> Function(DeviceResourceDefinition resource)?
+      onOpenResource;
+  final Future<void> Function(DeviceCredentialDefinition credential)?
+      onReplaceCredential;
 
   @override
   Widget build(BuildContext context) {
@@ -69,6 +76,15 @@ class EntranceProductDetail extends StatelessWidget {
       ids: const ['is_streaming', 'camera_state'],
       capabilityIds: const ['camera_stream'],
     );
+    final liveStream = device.resources
+        .where((item) => item.definition.id == 'live_stream')
+        .firstOrNull;
+    final snapshot = device.resources
+        .where((item) => item.definition.id == 'snapshot')
+        .firstOrNull;
+    final pin = device.credentials
+        .where((item) => item.definition.kind == 'pin')
+        .firstOrNull;
     final access = _take(
       device,
       used,
@@ -135,6 +151,49 @@ class EntranceProductDetail extends StatelessWidget {
         ),
         ..._remainingGroups(device, used),
       ],
+      customSections: [
+        if (liveStream != null || snapshot != null)
+          _ProtectedActionPanel(
+            icon: Icons.videocam_rounded,
+            title: 'Camera cửa chính',
+            description:
+                'Mỗi lần xem tạo một phiên riêng có thời hạn và được backend kiểm tra quyền.',
+            actions: [
+              if (liveStream != null)
+                FilledButton.icon(
+                  onPressed: onOpenResource == null
+                      ? null
+                      : () => onOpenResource!(liveStream),
+                  icon: const Icon(Icons.play_arrow_rounded),
+                  label: const Text('Xem trực tiếp'),
+                ),
+              if (snapshot != null)
+                OutlinedButton.icon(
+                  onPressed: onOpenResource == null
+                      ? null
+                      : () => onOpenResource!(snapshot),
+                  icon: const Icon(Icons.camera_alt_rounded),
+                  label: const Text('Chụp ảnh'),
+                ),
+            ],
+          ),
+        if (pin != null)
+          _ProtectedActionPanel(
+            icon: Icons.password_rounded,
+            title: 'Mã PIN mở cửa',
+            description:
+                'Chỉ chủ sở hữu được thay đổi. PIN đi qua kênh mã hóa riêng và không lưu trên cloud.',
+            actions: [
+              FilledButton.icon(
+                onPressed: onReplaceCredential == null
+                    ? null
+                    : () => onReplaceCredential!(pin),
+                icon: const Icon(Icons.key_rounded),
+                label: const Text('Đổi mã PIN'),
+              ),
+            ],
+          ),
+      ],
     );
   }
 }
@@ -152,16 +211,12 @@ class RoofProductDetail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final used = <CapabilityModel>{};
-    final position = device.capabilityMatching(
-      ids: const ['current_position', 'target_position'],
-      capabilityIds: const ['cover_controller'],
-    );
     final rain = device.capabilityMatching(
-      ids: const ['rain_detected', 'rain_state'],
-      capabilityIds: const ['rain_sensor'],
+      ids: const ['rain_detected'],
+      capabilityIds: const ['rain_detection'],
     );
     final movement = device.capabilityMatching(
-      ids: const ['movement_status'],
+      ids: const ['movement'],
       capabilityIds: const ['cover_controller'],
     );
     final motionControls = _take(
@@ -179,7 +234,7 @@ class RoofProductDetail extends StatelessWidget {
     final environment = _take(
       device,
       used,
-      hints: const ['rain', 'light', 'temperature', 'humidity'],
+      hints: const ['rain'],
     );
     final raining =
         _truthy(rain?.value) || '${rain?.value}'.toLowerCase().contains('rain');
@@ -190,8 +245,8 @@ class RoofProductDetail extends StatelessWidget {
       summaries: [
         ProductStatusFact(
           icon: Icons.open_in_full_rounded,
-          label: 'Độ mở',
-          value: productCapabilityValue(position, fallback: '—'),
+          label: 'Trạng thái mái',
+          value: productCapabilityValue(movement, fallback: 'Đã dừng'),
         ),
         ProductStatusFact(
           icon: raining ? Icons.water_drop_rounded : Icons.cloud_outlined,
@@ -246,10 +301,12 @@ class HazardProductDetail extends StatelessWidget {
     final used = <CapabilityModel>{};
     final flame = device.capabilityMatching(ids: const ['flame_detected']);
     final gas = device.capabilityMatching(
-      ids: const ['gas_level', 'mq2_level', 'smoke_level'],
+      ids: const ['gas_level', 'smoke_level'],
+      capabilityIds: const ['gas_measurement', 'smoke_measurement'],
     );
     final siren = device.capabilityMatching(
-      ids: const ['siren_active', 'audible_state'],
+      ids: const ['audible_state'],
+      capabilityIds: const ['alarm_siren'],
     );
     final environment = _take(
       device,
@@ -330,13 +387,16 @@ class IrrigationProductDetail extends StatelessWidget {
   Widget build(BuildContext context) {
     final used = <CapabilityModel>{};
     final moisture = device.capabilityMatching(
-      ids: const ['soil_moisture', 'moisture_level'],
+      ids: const ['moisture_level'],
+      capabilityIds: const ['soil_moisture_measurement'],
     );
     final water = device.capabilityMatching(
-      ids: const ['water_level', 'water_availability'],
+      ids: const ['level_normalized', 'water_availability'],
+      capabilityIds: const ['water_level_measurement'],
     );
     final pump = device.capabilityMatching(
-      ids: const ['pump_active', 'pump_state', 'pump_output_state'],
+      ids: const ['pump_output_state'],
+      capabilityIds: const ['irrigation_pump'],
     );
     final waterControls = _take(
       device,
@@ -416,6 +476,7 @@ class ProductDetailWorkbench extends StatelessWidget {
     this.heroAccent,
     this.primaryPower,
     this.summaryBeforeHero = false,
+    this.customSections = const [],
   });
 
   final DeviceModel device;
@@ -426,6 +487,7 @@ class ProductDetailWorkbench extends StatelessWidget {
   final List<ProductCapabilityGroup> groups;
   final ProductCapabilityChanged onCapabilityChanged;
   final bool summaryBeforeHero;
+  final List<Widget> customSections;
 
   @override
   Widget build(BuildContext context) {
@@ -438,7 +500,7 @@ class ProductDetailWorkbench extends StatelessWidget {
       primaryPower: primaryPower,
       onPowerChanged: primaryPower == null
           ? null
-          : (value) => onCapabilityChanged(primaryPower!.id, value),
+          : (value) => onCapabilityChanged(primaryPower!, value),
     );
     final summary = ProductStatusPanel(facts: summaries);
 
@@ -453,6 +515,10 @@ class ProductDetailWorkbench extends StatelessWidget {
         if (!summaryBeforeHero) ...[
           const SizedBox(height: AppSpacing.xl),
           summary,
+        ],
+        for (final section in customSections) ...[
+          const SizedBox(height: AppSpacing.xl),
+          section,
         ],
         if (device.topology != null) ...[
           const SizedBox(height: AppSpacing.xl),
@@ -498,6 +564,55 @@ class ProductStatusFact {
   final String label;
   final String value;
   final Color? tone;
+}
+
+class _ProtectedActionPanel extends StatelessWidget {
+  const _ProtectedActionPanel({
+    required this.icon,
+    required this.title,
+    required this.description,
+    required this.actions,
+  });
+
+  final IconData icon;
+  final String title;
+  final String description;
+  final List<Widget> actions;
+
+  @override
+  Widget build(BuildContext context) => Card(
+        margin: EdgeInsets.zero,
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(icon, color: context.colorScheme.primary),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Text(title, style: context.textTheme.titleMedium),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                description,
+                style: context.textTheme.bodySmall?.copyWith(
+                  color: context.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.sm,
+                children: actions,
+              ),
+            ],
+          ),
+        ),
+      );
 }
 
 class ProductStatusPanel extends StatelessWidget {
@@ -656,7 +771,15 @@ List<ProductCapabilityGroup> _remainingGroups(
 bool _truthy(dynamic value) {
   if (value is bool) return value;
   final normalised = '$value'.toLowerCase();
-  return const {'true', 'on', 'active', 'streaming', 'detected'}
+  return const {
+    'true',
+    'on',
+    'active',
+    'streaming',
+    'detected',
+    'sounding',
+    'running',
+  }
       .contains(normalised);
 }
 

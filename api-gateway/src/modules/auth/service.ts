@@ -15,37 +15,34 @@ function generateRefreshToken(): string {
     return crypto.randomBytes(48).toString('hex');
 }
 
+function authError(message: string, code: string) {
+    const error = new Error(message) as any;
+    error.statusCode = 401;
+    error.code = code;
+    return error;
+}
+
 export async function registerUser(app: FastifyInstance, input: {
-    username: string;
     email: string;
     password: string;
-    full_name?: string;
+    full_name: string;
 }) {
     const email = normalizeEmail(input.email);
-
-    const existing = await app.pg.query(
-        'SELECT id FROM accounts WHERE email = $1 OR username = $2',
-        [email, input.username]
-    );
-
+    const existing = await app.pg.query('SELECT id FROM accounts WHERE email = $1', [email]);
     if (existing.rows.length > 0) {
-        const err = new Error('An account with this email or username already exists.') as any;
-        err.statusCode = 409;
-        err.code = 'ACCOUNT_EXISTS';
-        throw err;
+        const error = new Error('An account with this email already exists.') as any;
+        error.statusCode = 409;
+        error.code = 'ACCOUNT_EXISTS';
+        throw error;
     }
 
     const passwordHash = await argon2.hash(input.password);
-
     const result = await app.pg.query(
-        `
-    INSERT INTO accounts (username, email, password_hash, full_name, created_at, updated_at)
-    VALUES ($1, $2, $3, $4, NOW(), NOW())
-    RETURNING id, username, email, full_name
-    `,
-        [input.username, email, passwordHash, input.full_name?.trim() || input.username]
+        `INSERT INTO accounts (email, password_hash, full_name)
+         VALUES ($1, $2, $3)
+         RETURNING id, email, full_name, status, created_at`,
+        [email, passwordHash, input.full_name.trim()],
     );
-
     return result.rows[0];
 }
 
@@ -54,45 +51,31 @@ export async function loginUser(app: FastifyInstance, input: {
     password: string;
 }) {
     const email = normalizeEmail(input.email);
-
     const result = await app.pg.query(
-        'SELECT id, username, email, password_hash, full_name FROM accounts WHERE email = $1',
-        [email]
+        `SELECT id, email, password_hash, full_name, status, token_version
+         FROM accounts
+         WHERE email = $1`,
+        [email],
     );
-
-    if (result.rows.length === 0) {
-        const err = new Error('Invalid credentials') as any;
-        err.statusCode = 401;
-        err.code = 'INVALID_CREDENTIALS';
-        throw err;
-    }
-
     const user = result.rows[0];
-    const valid = await argon2.verify(user.password_hash, input.password);
-
-    if (!valid) {
-        const err = new Error('Invalid credentials') as any;
-        err.statusCode = 401;
-        err.code = 'INVALID_CREDENTIALS';
-        throw err;
+    if (!user || user.status !== 'active' || !(await argon2.verify(user.password_hash, input.password))) {
+        throw authError('Invalid credentials', 'INVALID_CREDENTIALS');
     }
 
     const accessToken = app.jwt.sign(
-        { userId: user.id, email: user.email },
-        { expiresIn: env.JWT_EXPIRES_IN }
+        { userId: user.id, email: user.email, tokenVersion: user.token_version },
+        { expiresIn: env.JWT_EXPIRES_IN },
     );
-
     const refreshToken = generateRefreshToken();
-    const refreshHash = await argon2.hash(refreshToken);
-    const expiresAt = nowPlusSeconds(env.REFRESH_TOKEN_TTL_SECONDS);
-
     const session = await app.pg.query(
-        `
-    INSERT INTO user_sessions (owner_id, refresh_token_hash, is_active, expires_at, created_at)
-    VALUES ($1, $2, true, $3, NOW())
-    RETURNING id
-    `,
-        [user.id, refreshHash, expiresAt]
+        `INSERT INTO user_sessions (account_id, refresh_token_hash, status, expires_at)
+         VALUES ($1, $2, 'active', $3)
+         RETURNING id`,
+        [
+            user.id,
+            await argon2.hash(refreshToken),
+            nowPlusSeconds(env.REFRESH_TOKEN_TTL_SECONDS),
+        ],
     );
 
     return {
@@ -101,7 +84,6 @@ export async function loginUser(app: FastifyInstance, input: {
         session_id: session.rows[0].id,
         user: {
             id: user.id,
-            username: user.username,
             email: user.email,
             full_name: user.full_name,
         },
@@ -116,58 +98,49 @@ export async function refreshSession(app: FastifyInstance, input: {
     try {
         await client.query('BEGIN');
         const result = await client.query(
-            `SELECT id, owner_id, refresh_token_hash, is_active, expires_at
-             FROM user_sessions
-             WHERE id = $1 AND is_active = true AND expires_at > NOW()
-             FOR UPDATE`,
-            [input.session_id]
+            `SELECT session.id, session.account_id, session.refresh_token_hash,
+                    account.email, account.status AS account_status, account.token_version
+             FROM user_sessions AS session
+             JOIN accounts AS account ON account.id = session.account_id
+             WHERE session.id = $1
+               AND session.status = 'active'
+               AND session.expires_at > NOW()
+             FOR UPDATE OF session`,
+            [input.session_id],
         );
-
-        if (result.rows.length === 0) {
-            const err = new Error('Invalid session') as any;
-            err.statusCode = 401;
-            err.code = 'INVALID_SESSION';
-            throw err;
-        }
-
         const session = result.rows[0];
-        const valid = await argon2.verify(session.refresh_token_hash, input.refresh_token);
-
-        if (!valid) {
-            const err = new Error('Invalid refresh token') as any;
-            err.statusCode = 401;
-            err.code = 'INVALID_REFRESH_TOKEN';
-            throw err;
+        if (!session || session.account_status !== 'active') {
+            throw authError('Invalid session', 'INVALID_SESSION');
+        }
+        if (!(await argon2.verify(session.refresh_token_hash, input.refresh_token))) {
+            throw authError('Invalid refresh token', 'INVALID_REFRESH_TOKEN');
         }
 
-        const userResult = await client.query('SELECT email FROM accounts WHERE id = $1', [session.owner_id]);
-        const email = userResult.rows[0]?.email;
-
-        const accessToken = app.jwt.sign(
-            { userId: session.owner_id, email },
-            { expiresIn: env.JWT_EXPIRES_IN }
-        );
-
-        const newRefreshToken = generateRefreshToken();
-        const newHash = await argon2.hash(newRefreshToken);
-        const newExpiresAt = nowPlusSeconds(env.REFRESH_TOKEN_TTL_SECONDS);
-
+        const refreshToken = generateRefreshToken();
+        const expiresAt = nowPlusSeconds(env.REFRESH_TOKEN_TTL_SECONDS);
         await client.query(
             `UPDATE user_sessions
-             SET refresh_token_hash = $1, expires_at = $2, is_active = true
+             SET refresh_token_hash = $1, expires_at = $2, last_used_at = NOW()
              WHERE id = $3`,
-            [newHash, newExpiresAt, session.id]
+            [await argon2.hash(refreshToken), expiresAt, session.id],
         );
         await client.query('COMMIT');
 
         return {
-            access_token: accessToken,
-            refresh_token: newRefreshToken,
+            access_token: app.jwt.sign(
+                {
+                    userId: session.account_id,
+                    email: session.email,
+                    tokenVersion: session.token_version,
+                },
+                { expiresIn: env.JWT_EXPIRES_IN },
+            ),
+            refresh_token: refreshToken,
             session_id: session.id,
         };
-    } catch (err) {
+    } catch (error) {
         await client.query('ROLLBACK');
-        throw err;
+        throw error;
     } finally {
         client.release();
     }
@@ -183,36 +156,49 @@ export async function logoutSession(app: FastifyInstance, input: {
         const result = await client.query(
             `SELECT id, refresh_token_hash
              FROM user_sessions
-             WHERE id = $1 AND is_active = true
+             WHERE id = $1 AND status = 'active'
              FOR UPDATE`,
-            [input.session_id]
+            [input.session_id],
         );
-
-        if (result.rows.length === 0) {
-            const err = new Error('Invalid session') as any;
-            err.statusCode = 401;
-            err.code = 'INVALID_SESSION';
-            throw err;
-        }
-
         const session = result.rows[0];
-        const valid = await argon2.verify(session.refresh_token_hash, input.refresh_token);
-
-        if (!valid) {
-            const err = new Error('Invalid refresh token') as any;
-            err.statusCode = 401;
-            err.code = 'INVALID_REFRESH_TOKEN';
-            throw err;
+        if (!session) throw authError('Invalid session', 'INVALID_SESSION');
+        if (!(await argon2.verify(session.refresh_token_hash, input.refresh_token))) {
+            throw authError('Invalid refresh token', 'INVALID_REFRESH_TOKEN');
         }
-
-        await client.query('UPDATE user_sessions SET is_active = false WHERE id = $1', [session.id]);
+        await client.query(
+            `UPDATE user_sessions SET status = 'revoked', last_used_at = NOW() WHERE id = $1`,
+            [session.id],
+        );
         await client.query('COMMIT');
-
         return { success: true };
-    } catch (err) {
+    } catch (error) {
         await client.query('ROLLBACK');
-        throw err;
+        throw error;
     } finally {
         client.release();
     }
+}
+
+export async function reauthenticateUser(
+    app: FastifyInstance,
+    accountId: string,
+    password: string,
+) {
+    const result = await app.pg.query(
+        `SELECT id, password_hash, status, token_version
+         FROM accounts WHERE id = $1`,
+        [accountId],
+    );
+    const account = result.rows[0];
+    if (!account || account.status !== 'active'
+        || !(await argon2.verify(account.password_hash, password))) {
+        throw authError('Invalid credentials', 'INVALID_CREDENTIALS');
+    }
+    return {
+        reauth_token: app.jwt.sign(
+            { userId: account.id, purpose: 'reauth', tokenVersion: account.token_version },
+            { expiresIn: 300 },
+        ),
+        expires_in: 300,
+    };
 }

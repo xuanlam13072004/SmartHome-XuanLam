@@ -23,8 +23,6 @@ const metrics = {
     dropped_retry_limit: 0,
 
     // Business Metrics
-    command_success: 0,
-    command_failure: 0,
     presence_transition_online: 0,
     presence_transition_offline: 0,
     catalog_reloads: 0,
@@ -58,14 +56,6 @@ function observeLatency(seconds) {
     if (!placed) {
         metrics.latency_inf_count++;
     }
-}
-
-function recordCommandSuccess() {
-    metrics.command_success++;
-}
-
-function recordCommandFailure() {
-    metrics.command_failure++;
 }
 
 function recordPresenceTransition(isOnline) {
@@ -172,9 +162,6 @@ function getPrometheusMetrics(telemetryWriter, shadowWriter) {
     // ==========================================
     lines.push('\n# === BUSINESS METRICS ===');
     
-    // Command Success Rate
-    lines.push(formatMetric('smarthome_commands_success_total', metrics.command_success, 'counter', 'Total successfully sent commands to MQTT broker'));
-    lines.push(formatMetric('smarthome_commands_failure_total', metrics.command_failure, 'counter', 'Total failed commands'));
     
     // Presence Transitions
     lines.push(`# HELP smarthome_presence_transitions_total Presence transitions count by state`);
@@ -191,8 +178,6 @@ function getPrometheusMetrics(telemetryWriter, shadowWriter) {
 module.exports = {
     recordSanitizerStats,
     observeLatency,
-    recordCommandSuccess,
-    recordCommandFailure,
     recordPresenceTransition,
     recordCatalogReload,
     recordTelemetryRetry,

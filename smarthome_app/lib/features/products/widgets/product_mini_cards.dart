@@ -5,9 +5,11 @@ import 'package:flutter/material.dart';
 import '../../../core/core.dart';
 import '../../../core/widgets/widgets.dart';
 import '../../../domain/models/device_model.dart';
+import '../../dashboard/models/capability_model.dart';
 import '../product_capability_query.dart';
 
-typedef ProductCapabilityChanged = void Function(String id, dynamic value);
+typedef ProductCapabilityChanged = void Function(
+    CapabilityModel capability, dynamic value);
 
 class GenericProductMiniCard extends StatelessWidget {
   const GenericProductMiniCard({
@@ -33,7 +35,7 @@ class GenericProductMiniCard extends StatelessWidget {
       actionWidget: power != null && online
           ? NeuToggle(
               value: power.value as bool? ?? false,
-              onChanged: (value) => onCapabilityChanged(power.id, value),
+              onChanged: (value) => onCapabilityChanged(power, value),
               width: 44,
               height: 24,
             )
@@ -81,7 +83,9 @@ class EntranceProductMiniCard extends StatelessWidget {
         ProductMiniMetric(
           icon: Icons.videocam_rounded,
           label: 'Camera',
-          value: camera?.value == true ? 'Đang xem' : 'Sẵn sàng',
+          value: '${camera?.value}'.toLowerCase() == 'streaming'
+              ? 'Đang xem'
+              : 'Sẵn sàng',
         ),
         const ProductMiniMetric(
           icon: Icons.password_rounded,
@@ -105,16 +109,12 @@ class RoofProductMiniCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final position = device.capabilityMatching(
-      ids: const ['current_position', 'target_position'],
-      capabilityIds: const ['cover_controller'],
-    );
     final rain = device.capabilityMatching(
-      ids: const ['rain_detected', 'rain_state'],
-      capabilityIds: const ['rain_sensor'],
+      ids: const ['rain_detected'],
+      capabilityIds: const ['rain_detection'],
     );
     final movement = device.capabilityMatching(
-      ids: const ['movement_status'],
+      ids: const ['movement'],
       capabilityIds: const ['cover_controller'],
     );
     final raining =
@@ -130,8 +130,8 @@ class RoofProductMiniCard extends StatelessWidget {
       metrics: [
         ProductMiniMetric(
           icon: Icons.open_in_full_rounded,
-          label: 'Độ mở',
-          value: productCapabilityValue(position, fallback: '—'),
+          label: 'Mái che',
+          value: productCapabilityValue(movement, fallback: 'Đã dừng'),
         ),
         ProductMiniMetric(
           icon: raining ? Icons.water_drop_rounded : Icons.cloud_outlined,
@@ -157,17 +157,18 @@ class HazardProductMiniCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final flame = device.capabilityMatching(
       ids: const ['flame_detected'],
-      capabilityIds: const ['flame_sensor'],
+      capabilityIds: const ['flame_detection'],
     );
     final gas = device.capabilityMatching(
-      ids: const ['gas_level', 'smoke_level', 'mq2_level'],
-      capabilityIds: const ['gas_sensor', 'smoke_sensor', 'mq2_sensor'],
+      ids: const ['gas_level', 'smoke_level'],
+      capabilityIds: const ['gas_measurement', 'smoke_measurement'],
     );
     final siren = device.capabilityMatching(
-      ids: const ['siren_active', 'audible_state'],
-      capabilityIds: const ['alarm_output', 'siren'],
+      ids: const ['audible_state'],
+      capabilityIds: const ['alarm_siren'],
     );
-    final alert = flame?.value == true || siren?.value == true;
+    final sirenState = '${siren?.value}'.toLowerCase();
+    final alert = flame?.value == true || sirenState == 'sounding';
     return ProductMiniCardFrame(
       device: device,
       onTap: onTap,
@@ -205,15 +206,15 @@ class IrrigationProductMiniCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final moisture = device.capabilityMatching(
       ids: const ['soil_moisture', 'moisture_level'],
-      capabilityIds: const ['soil_moisture'],
+      capabilityIds: const ['soil_moisture_measurement'],
     );
     final water = device.capabilityMatching(
-      ids: const ['water_level', 'water_availability'],
-      capabilityIds: const ['water_level'],
+      ids: const ['level_normalized', 'water_availability'],
+      capabilityIds: const ['water_level_measurement'],
     );
     final pump = device.capabilityMatching(
       ids: const ['pump_active', 'pump_state', 'pump_output_state'],
-      capabilityIds: const ['pump_controller', 'water_pump'],
+      capabilityIds: const ['irrigation_pump'],
     );
     final pumping =
         pump?.value == true || '${pump?.value}'.toLowerCase().contains('on');

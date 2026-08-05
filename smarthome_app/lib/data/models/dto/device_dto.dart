@@ -1,36 +1,18 @@
 class DeviceDto {
-  final String mac;
-  final String ownerId;
-  final String name;
-  final String productId;
-  final bool isActive;
-  final bool isOnline;
-  final Map<String, dynamic> state;
-  final Map<String, dynamic> diagnostics;
-  final String? lastSeen;
-  final int? rssi;
-  final int? battery;
-  final String? networkId;
-  final int? joinRank;
-  final String? topologyRole;
-  final int? topologyEpoch;
-  final String? topologyState;
-  final String? activeHubMac;
-  final String? transportMode;
-  final String? lastTransportChange;
-
-  DeviceDto({
+  const DeviceDto({
     required this.mac,
     required this.ownerId,
     required this.name,
     required this.productId,
+    required this.catalogRevision,
     required this.isActive,
     required this.isOnline,
-    required this.state,
+    required this.stateVersion,
+    required this.instances,
     required this.diagnostics,
+    required this.permissions,
+    this.membershipRole,
     this.lastSeen,
-    this.rssi,
-    this.battery,
     this.networkId,
     this.joinRank,
     this.topologyRole,
@@ -41,19 +23,46 @@ class DeviceDto {
     this.lastTransportChange,
   });
 
+  final String mac;
+  final String ownerId;
+  final String name;
+  final String productId;
+  final int catalogRevision;
+  final bool isActive;
+  final bool isOnline;
+  final int stateVersion;
+  final Map<String, dynamic> instances;
+  final Map<String, dynamic> diagnostics;
+  final List<String> permissions;
+  final String? membershipRole;
+  final String? lastSeen;
+  final String? networkId;
+  final int? joinRank;
+  final String? topologyRole;
+  final int? topologyEpoch;
+  final String? topologyState;
+  final String? activeHubMac;
+  final String? transportMode;
+  final String? lastTransportChange;
+
   factory DeviceDto.fromJson(Map<String, dynamic> json) {
+    final shadow = _map(json['shadow']);
     return DeviceDto(
-      mac: json['mac'] as String? ?? '',
-      ownerId: json['owner_id'] as String? ?? '',
-      name: json['name'] as String? ?? '',
-      productId: json['product_id'] as String? ?? '',
+      mac: json['mac']?.toString().toUpperCase() ?? '',
+      ownerId: json['owner_id']?.toString() ?? '',
+      name: json['name']?.toString() ?? '',
+      productId: json['product_id']?.toString() ?? '',
+      catalogRevision: _toInt(json['catalog_revision']) ?? 0,
       isActive: json['is_active'] as bool? ?? true,
-      isOnline: json['is_online'] as bool? ?? false,
-      state: json['state'] as Map<String, dynamic>? ?? {},
-      diagnostics: json['diagnostics'] as Map<String, dynamic>? ?? {},
-      lastSeen: json['last_seen'] as String?,
-      rssi: (json['rssi'] as num?)?.toInt(),
-      battery: (json['battery'] as num?)?.toInt(),
+      isOnline: shadow['is_online'] as bool? ?? false,
+      stateVersion: _toInt(shadow['state_version']) ?? 0,
+      instances: _map(shadow['instances']),
+      diagnostics: _map(shadow['diagnostics']),
+      permissions: (json['permissions'] as List? ?? const [])
+          .map((value) => value.toString())
+          .toList(growable: false),
+      membershipRole: json['role']?.toString(),
+      lastSeen: _dateString(shadow['last_seen']),
       networkId: json['network_id']?.toString(),
       joinRank: _toInt(json['join_rank']),
       topologyRole: json['topology_role']?.toString(),
@@ -64,6 +73,10 @@ class DeviceDto {
       lastTransportChange: _dateString(json['last_transport_change']),
     );
   }
+
+  static Map<String, dynamic> _map(dynamic value) => value is Map
+      ? Map<String, dynamic>.from(value)
+      : <String, dynamic>{};
 
   static int? _toInt(dynamic value) {
     if (value is num) return value.toInt();
