@@ -144,8 +144,6 @@ class AppL10nVi extends AppL10n {
   }
 
   @override
-
-  @override
   String get commandAcked => 'Thiết bị đã xác nhận';
 
   @override

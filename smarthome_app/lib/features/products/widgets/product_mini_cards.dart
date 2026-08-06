@@ -216,8 +216,7 @@ class IrrigationProductMiniCard extends StatelessWidget {
       ids: const ['pump_active', 'pump_state', 'pump_output_state'],
       capabilityIds: const ['irrigation_pump'],
     );
-    final pumping =
-        pump?.value == true || '${pump?.value}'.toLowerCase().contains('on');
+    final pumping = _isActiveState(pump?.value);
     return ProductMiniCardFrame(
       device: device,
       onTap: onTap,
@@ -239,6 +238,12 @@ class IrrigationProductMiniCard extends StatelessWidget {
       ],
     );
   }
+}
+
+bool _isActiveState(dynamic value) {
+  if (value is bool) return value;
+  return const {'on', 'active', 'running', 'true'}
+      .contains('$value'.toLowerCase());
 }
 
 class ProductMiniMetric {

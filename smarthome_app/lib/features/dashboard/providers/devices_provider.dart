@@ -24,6 +24,8 @@ IDeviceRepository deviceRepository(Ref ref) {
 class Devices extends _$Devices {
   StreamSubscription<WsEvent>? _realtimeSub;
   final Map<String, TopologyUpdatedEvent> _pendingTopologyEvents = {};
+  InitialStateEvent? _pendingInitialState;
+  int _initialStateRevision = 0;
 
   @override
   FutureOr<List<DeviceModel>> build() async {
@@ -46,20 +48,30 @@ class Devices extends _$Devices {
 
     ref.onDispose(() => _realtimeSub?.cancel());
 
-    final devices = await repo.getDevices();
+    var devices = await repo.getDevices();
+    while (_pendingInitialState != null) {
+      final pending = _pendingInitialState!;
+      _pendingInitialState = null;
+      devices = await repo.mergeInitialState(devices, pending.rawDevices);
+    }
     return _applyPendingTopology(devices);
   }
 
   void _handleInitialState(InitialStateEvent event) async {
-    final repo = ref.read(deviceRepositoryProvider);
-    final List<DeviceModel> updatedDevices = [];
-
-    for (final raw in event.rawDevices) {
-      // Delegate assembly to repository — no DTO imports in provider
-      final device = await repo.assembleFromWsJson(raw as Map<String, dynamic>);
-      updatedDevices.add(device);
+    final revision = ++_initialStateRevision;
+    final currentState = state.value;
+    if (currentState == null) {
+      // REST is still loading. Keep only the newest snapshot and merge it once
+      // PostgreSQL ownership/permission metadata is available.
+      _pendingInitialState = event;
+      return;
     }
 
+    final repo = ref.read(deviceRepositoryProvider);
+    final updatedDevices =
+        await repo.mergeInitialState(currentState, event.rawDevices);
+
+    if (revision != _initialStateRevision) return;
     state = AsyncData(_applyPendingTopology(updatedDevices));
   }
 
@@ -177,7 +189,8 @@ class Devices extends _$Devices {
       state = AsyncData(devices.map((device) {
         if (device.mac == mac) {
           final newCapabilities = device.capabilities.map((cap) {
-            if (cap.id == capability.id && cap.instance == capability.instance) {
+            if (cap.id == capability.id &&
+                cap.instance == capability.instance) {
               return cap.copyWith(value: value);
             }
             return cap;

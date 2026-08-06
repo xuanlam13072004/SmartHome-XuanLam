@@ -28,6 +28,13 @@ class _FakeDeviceRepository implements IDeviceRepository {
       throw UnsupportedError('Not used by this test');
 
   @override
+  Future<List<DeviceModel>> mergeInitialState(
+    List<DeviceModel> restDevices,
+    List<dynamic> rawDevices,
+  ) async =>
+      restDevices;
+
+  @override
   Future<DeviceModel> claimDevice(
     String mac,
     String secretKey, {

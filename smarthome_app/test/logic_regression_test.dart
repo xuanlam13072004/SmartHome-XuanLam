@@ -1,11 +1,14 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:smarthome_app/core/utils/app_error_mapper.dart';
+import 'package:smarthome_app/core/widgets/indicators/status_badge.dart';
 import 'package:smarthome_app/data/datasources/remote/device_remote_data_source.dart';
 import 'package:smarthome_app/data/models/dto/device_dto.dart';
 import 'package:smarthome_app/data/models/dto/product_dto.dart';
 import 'package:smarthome_app/domain/mappers/capability_assembler.dart';
 import 'package:smarthome_app/domain/mappers/product_mapper.dart';
+import 'package:smarthome_app/domain/models/device_model.dart';
 import 'package:smarthome_app/domain/models/ws_events.dart';
 import 'package:smarthome_app/features/dashboard/models/capability_model.dart';
 import 'package:smarthome_app/features/dashboard/repositories/device_repository.dart';
@@ -60,7 +63,8 @@ class _RecordingRemoteDataSource implements IDeviceRemoteDataSource {
   Future<List<DeviceDto>> getDevices() async => [];
 
   @override
-  Future<List<ProductDto>> getProducts() async => [];
+  Future<List<ProductDto>> getProducts() async =>
+      [ProductDto.fromJson(_productJson())];
 
   @override
   Future<DeviceDto> claimDevice(String mac, String secretKey, {String? name}) =>
@@ -242,6 +246,113 @@ void main() {
 
       expect(device.capabilities.single.isReadOnly, isTrue);
       expect(device.capabilities.single.operations, isEmpty);
+    });
+
+    test('realtime initial state preserves authoritative REST permissions',
+        () async {
+      final product =
+          ProductMapper.fromDto(ProductDto.fromJson(_productJson()));
+      final restDevice = CapabilityAssembler.assemble(
+        DeviceDto.fromJson(_deviceJson()),
+        product,
+      );
+      final realtime = _deviceJson()
+        ..['permissions'] = <String>[]
+        ..['role'] = 'member'
+        ..['shadow'] = {
+          'is_online': true,
+          'state_version': 8,
+          'instances': {
+            'main_lock': {
+              'reported': {'lock_state': 'unlocked'},
+            },
+          },
+          'diagnostics': <String, dynamic>{},
+        };
+      final repository = ApiDeviceRepository(_RecordingRemoteDataSource());
+
+      final merged =
+          await repository.mergeInitialState([restDevice], [realtime]);
+
+      expect(merged.single.permissions, ['door.control']);
+      expect(merged.single.membershipRole, 'owner');
+      expect(merged.single.stateVersion, 8);
+      expect(merged.single.capabilities.single.value, 'unlocked');
+      expect(merged.single.capabilities.single.isReadOnly, isFalse);
+    });
+  });
+
+  group('Primary activity semantics', () {
+    DeviceModel deviceWith(List<CapabilityModel> capabilities) => DeviceModel(
+          mac: 'AA:BB:CC:DD:EE:FF',
+          ownerId: 'owner-1',
+          name: 'Device',
+          productId: 'product-1',
+          icon: Icons.devices,
+          status: DeviceStatus.online,
+          rawState: const {},
+          diagnostics: const {},
+          capabilities: capabilities,
+        );
+
+    test('combines multiple safety signals instead of returning first false',
+        () {
+      final device = deviceWith(const [
+        CapabilityModel(
+          id: 'flame_detected',
+          type: 'sensor',
+          name: 'Flame',
+          value: false,
+          capabilityId: 'flame_detection',
+          section: CapabilitySection.sensor,
+        ),
+        CapabilityModel(
+          id: 'audible_state',
+          type: 'sensor',
+          name: 'Siren',
+          value: 'sounding',
+          capabilityId: 'alarm_siren',
+          section: CapabilitySection.control,
+        ),
+      ]);
+
+      expect(device.isPrimaryOn, isTrue);
+    });
+
+    test('recognizes the catalog V2 pump output running state', () {
+      final device = deviceWith(const [
+        CapabilityModel(
+          id: 'pump_output_state',
+          type: 'sensor',
+          name: 'Pump',
+          value: 'running',
+          capabilityId: 'irrigation_pump',
+          section: CapabilitySection.control,
+        ),
+      ]);
+
+      expect(device.isPrimaryOn, isTrue);
+    });
+
+    test('boolean fallback checks every control capability', () {
+      final device = deviceWith(const [
+        CapabilityModel(
+          id: 'first',
+          type: 'on_off',
+          name: 'First',
+          value: false,
+          section: CapabilitySection.control,
+        ),
+        CapabilityModel(
+          id: 'second',
+          type: 'on_off',
+          name: 'Second',
+          value: true,
+          section: CapabilitySection.control,
+        ),
+      ]);
+
+      expect(device.isPrimaryOn, isTrue);
     });
   });
 

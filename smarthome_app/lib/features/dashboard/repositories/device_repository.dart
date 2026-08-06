@@ -27,6 +27,12 @@ abstract class IDeviceRepository {
   /// Assemble a DeviceModel from raw WS JSON data.
   Future<DeviceModel> assembleFromWsJson(Map<String, dynamic> rawJson);
 
+  /// Merge realtime shadow state into the authoritative REST device list.
+  Future<List<DeviceModel>> mergeInitialState(
+    List<DeviceModel> restDevices,
+    List<dynamic> rawDevices,
+  );
+
   /// Build updated DeviceModel from telemetry event payload merge.
   Future<DeviceModel> mergeDeviceTelemetry(
       DeviceModel device, Map<String, dynamic> newPayload);
@@ -84,6 +90,47 @@ class ApiDeviceRepository implements IDeviceRepository {
     final dto = DeviceDto.fromJson(rawJson);
     final product = await getProduct(dto.productId);
     return CapabilityAssembler.assemble(dto, product);
+  }
+
+  @override
+  Future<List<DeviceModel>> mergeInitialState(
+    List<DeviceModel> restDevices,
+    List<dynamic> rawDevices,
+  ) async {
+    final rawByMac = <String, Map<String, dynamic>>{};
+    for (final raw in rawDevices) {
+      if (raw is! Map) continue;
+      final json = Map<String, dynamic>.from(raw);
+      final mac = json['mac']?.toString().toUpperCase() ?? '';
+      if (mac.isNotEmpty) rawByMac[mac] = json;
+    }
+
+    return Future.wait(restDevices.map((device) async {
+      final realtime = rawByMac[device.mac];
+      if (realtime == null) return device;
+
+      // Membership and permissions come from PostgreSQL through REST. They
+      // must not be downgraded by an old/eventually-consistent Mongo snapshot.
+      final merged = Map<String, dynamic>.from(realtime)
+        ..['mac'] = device.mac
+        ..['owner_id'] = device.ownerId
+        ..['name'] = device.name
+        ..['product_id'] = device.productId
+        ..['permissions'] = device.permissions
+        ..['role'] = device.membershipRole
+        ..['is_active'] = true
+        ..['network_id'] = device.topology?.networkId
+        ..['join_rank'] = device.topology?.joinRank
+        ..['topology_role'] = device.topology?.role.name
+        ..['topology_epoch'] = device.topology?.epoch
+        ..['topology_state'] = _topologyStateWire(device.topology?.state)
+        ..['active_hub_mac'] = device.topology?.activeHubMac
+        ..['transport_mode'] =
+            _transportModeWire(device.topology?.transportMode)
+        ..['last_transport_change'] = device.topology?.lastTransportChange;
+
+      return assembleFromWsJson(merged);
+    }));
   }
 
   @override
@@ -197,14 +244,31 @@ class ApiDeviceRepository implements IDeviceRepository {
         reauthToken: reauthToken,
       );
 
-  static Map<String, dynamic> _map(dynamic value) => value is Map
-      ? Map<String, dynamic>.from(value)
-      : <String, dynamic>{};
+  static Map<String, dynamic> _map(dynamic value) =>
+      value is Map ? Map<String, dynamic>.from(value) : <String, dynamic>{};
 
   static int? _toInt(dynamic value) {
     if (value is num) return value.toInt();
     return int.tryParse(value?.toString() ?? '');
   }
+
+  static String? _topologyStateWire(DeviceTopologyState? state) =>
+      switch (state) {
+        DeviceTopologyState.degradedDirect => 'degraded_direct',
+        DeviceTopologyState.stable => 'stable',
+        DeviceTopologyState.electing => 'electing',
+        DeviceTopologyState.empty => 'empty',
+        _ => null,
+      };
+
+  static String? _transportModeWire(DeviceTransportMode? mode) =>
+      switch (mode) {
+        DeviceTransportMode.directFallback => 'direct_fallback',
+        DeviceTransportMode.hub => 'hub',
+        DeviceTransportMode.relay => 'relay',
+        DeviceTransportMode.offline => 'offline',
+        _ => null,
+      };
 
   static Map<String, dynamic> _deepMerge(
     Map<String, dynamic> current,

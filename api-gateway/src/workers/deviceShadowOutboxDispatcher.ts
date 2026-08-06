@@ -16,6 +16,16 @@ type ShadowEvent = {
     payload: Record<string, any>;
 };
 
+type CatalogReader = {
+    getProduct: (productId: string) => { permissions?: string[] } | null;
+};
+
+type ShadowAccessGrant = {
+    account_id: string;
+    role: string;
+    permissions: string[];
+};
+
 async function applyGuardedUpdate(
     mongoDb: Db,
     event: ShadowEvent,
@@ -63,6 +73,15 @@ async function applyEvent(mongoDb: Db, event: ShadowEvent) {
                 owner_permissions: Array.isArray(payload.owner_permissions)
                     ? payload.owner_permissions
                     : [],
+                access_grants: Array.isArray(payload.access_grants)
+                    ? payload.access_grants
+                    : [{
+                        account_id: payload.owner_id,
+                        role: 'owner',
+                        permissions: Array.isArray(payload.owner_permissions)
+                            ? payload.owner_permissions
+                            : [],
+                    }],
                 is_active: true,
                 state_version: 0,
                 instances: {},
@@ -89,6 +108,116 @@ async function applyEvent(mongoDb: Db, event: ShadowEvent) {
         mongoDb.collection<any>(env.MONGO_DEVICE_INCIDENTS_COLLECTION).deleteMany({ device_id: event.mac }),
         mongoDb.collection<any>(env.MONGO_INGEST_RECEIPTS_COLLECTION).deleteMany({ device_id: event.mac }),
     ]);
+}
+
+/**
+ * Rebuild the access projection stored alongside device shadows.
+ *
+ * PostgreSQL remains authoritative for ownership and membership. MongoDB keeps
+ * this projection only so the realtime service can build an initial snapshot
+ * without opening a PostgreSQL connection. Running this at startup also
+ * backfills shadows created before access metadata was introduced.
+ */
+export async function synchronizeDeviceShadowAccessProjection(
+    pgPool: Pool,
+    mongoDb: Db,
+    catalog: CatalogReader,
+    logger: Logger,
+) {
+    const result = await pgPool.query(
+        `SELECT device.id AS device_id, device.mac, device.owner_id,
+                device.product_id, device.catalog_revision, device.name,
+                membership.account_id, membership.role,
+                COALESCE(
+                    ARRAY_AGG(permission.permission_scope)
+                        FILTER (WHERE permission.permission_scope IS NOT NULL),
+                    ARRAY[]::text[]
+                ) AS granted_permissions
+         FROM device_metadata AS device
+         JOIN device_memberships AS membership
+           ON membership.device_id = device.id
+          AND membership.status = 'active'
+          AND (membership.expires_at IS NULL OR membership.expires_at > NOW())
+         LEFT JOIN device_membership_permissions AS permission
+           ON permission.device_id = membership.device_id
+          AND permission.account_id = membership.account_id
+         WHERE device.is_active = true
+         GROUP BY device.id, membership.account_id, membership.role
+         ORDER BY device.mac, membership.account_id`,
+    );
+
+    const projections = new Map<string, {
+        device_id: string;
+        owner_id: string;
+        product_id: string;
+        catalog_revision: number;
+        name: string;
+        owner_permissions: string[];
+        access_grants: ShadowAccessGrant[];
+    }>();
+
+    for (const row of result.rows) {
+        let projection = projections.get(row.mac);
+        if (!projection) {
+            const product = catalog.getProduct(row.product_id);
+            projection = {
+                device_id: row.device_id,
+                owner_id: row.owner_id,
+                product_id: row.product_id,
+                catalog_revision: Number(row.catalog_revision),
+                name: row.name,
+                owner_permissions: Array.isArray(product?.permissions)
+                    ? product.permissions
+                    : [],
+                access_grants: [],
+            };
+            projections.set(row.mac, projection);
+        }
+
+        const isOwner = row.role === 'owner' || row.account_id === row.owner_id;
+        projection.access_grants.push({
+            account_id: row.account_id,
+            role: isOwner ? 'owner' : row.role,
+            permissions: isOwner
+                ? projection.owner_permissions
+                : (Array.isArray(row.granted_permissions)
+                    ? row.granted_permissions
+                    : []),
+        });
+    }
+
+    if (projections.size === 0) {
+        logger.debug({}, 'No active device shadow access projections to synchronize');
+        return;
+    }
+
+    const collection = mongoDb.collection<any>(env.MONGO_DEVICE_SHADOWS_COLLECTION);
+    const writeResult = await collection.bulkWrite(
+        Array.from(projections.entries()).map(([mac, projection]) => ({
+            updateOne: {
+                filter: { _id: mac },
+                update: {
+                    $set: {
+                        ...projection,
+                        access_account_ids: projection.access_grants
+                            .map(grant => grant.account_id),
+                        is_active: true,
+                    },
+                },
+                upsert: false,
+            },
+        })),
+        { ordered: false },
+    );
+
+    logger.debug(
+        {
+            projected: projections.size,
+            matched: writeResult.matchedCount,
+            modified: writeResult.modifiedCount,
+        },
+        'Device shadow access projections synchronized from PostgreSQL',
+    );
 }
 
 export async function dispatchDeviceShadowOutboxEvent(

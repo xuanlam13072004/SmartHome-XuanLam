@@ -105,48 +105,49 @@ class DeviceModel {
   /// the actual capability values to determine an "active" state, which drives
   /// glow effects, icon tinting, and status labels in the UI.
   bool get isPrimaryOn {
+    var hasPrimarySignal = false;
+
     for (final cap in capabilities) {
       final capId = cap.capabilityId.toLowerCase();
       final id = cap.id.toLowerCase();
-      final role = cap.semanticRole.toLowerCase();
       final value = cap.value;
+      final normalised = '$value'.toLowerCase();
 
-      // Door lock: active (unlocked) when lock_state != 'locked'
-      if (capId == 'door_lock' || id == 'lock_state') {
-        final v = '$value'.toLowerCase();
-        return v == 'unlocked' || v == 'open';
+      if (id == 'lock_state' && capId == 'door_lock') {
+        hasPrimarySignal = true;
+        if (const {'unlocked', 'unlocking', 'open'}.contains(normalised)) {
+          return true;
+        }
       }
 
-      // Cover: active when moving or open
-      if (capId == 'cover_controller' || id == 'movement' || role == 'cover') {
-        final v = '$value'.toLowerCase();
-        return v == 'open' || v == 'opening' || v == 'running';
+      if (id == 'movement' && capId == 'cover_controller') {
+        hasPrimarySignal = true;
+        if (const {'opening', 'closing', 'running'}.contains(normalised)) {
+          return true;
+        }
       }
 
-      // Alarm siren: active when sounding
-      if (capId == 'alarm_siren' || id == 'audible_state') {
-        return '$value'.toLowerCase() == 'sounding';
+      if (id == 'audible_state' && capId == 'alarm_siren') {
+        hasPrimarySignal = true;
+        if (normalised == 'sounding') return true;
       }
 
-      // Pump: active when running
-      if (capId == 'irrigation_pump' || id == 'pump_state' || id == 'pump_active') {
-        final v = '$value'.toLowerCase();
-        return v == 'running' || v == 'true' || v == 'on';
+      if (capId == 'irrigation_pump' &&
+          const {'pump_output_state', 'pump_state', 'pump_active'}
+              .contains(id)) {
+        hasPrimarySignal = true;
+        if (const {'running', 'true', 'on'}.contains(normalised)) return true;
       }
 
-      // Flame / hazard detection: active when detected
-      if (capId == 'flame_detection' || id == 'flame_detected') {
-        return value == true;
-      }
-    }
-
-    // Fallback: any boolean control capability that is true
-    for (final cap in capabilities) {
-      if (cap.section == CapabilitySection.control && cap.value is bool) {
-        return cap.value as bool;
+      if (id == 'flame_detected' && capId == 'flame_detection') {
+        hasPrimarySignal = true;
+        if (value == true) return true;
       }
     }
 
-    return false;
+    if (hasPrimarySignal) return false;
+
+    return capabilities.any(
+        (cap) => cap.section == CapabilitySection.control && cap.value == true);
   }
 }

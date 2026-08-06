@@ -4,7 +4,10 @@ import { buildApp } from './app';
 import { syncOwnershipToRedis } from './modules/device/service';
 import { OperationStatusConsumer } from './workers/operationStatusConsumer';
 import { OperationOutboxDispatcher } from './workers/operationOutboxDispatcher';
-import { DeviceShadowOutboxDispatcher } from './workers/deviceShadowOutboxDispatcher';
+import {
+    DeviceShadowOutboxDispatcher,
+    synchronizeDeviceShadowAccessProjection,
+} from './workers/deviceShadowOutboxDispatcher';
 import {
     synchronizeTopologyCache,
     TopologyOutboxDispatcher,
@@ -62,6 +65,13 @@ const start = async () => {
         const catalog = new RuntimeCatalog({ log: app.log });
         await catalog.start();
         (app as any).catalog = catalog;
+
+        await synchronizeDeviceShadowAccessProjection(
+            app.pg,
+            app.mongo.db,
+            catalog,
+            app.log,
+        );
 
         // Đồng bộ vòng đời operation bất đồng bộ từ MQTT Worker.
         statusConsumer = new OperationStatusConsumer(app.pg, app.redis, app.log, app.mongo.db);

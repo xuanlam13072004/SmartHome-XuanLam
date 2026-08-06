@@ -37,18 +37,28 @@ export async function sendInitialState(accountId: string, socket: WebSocket): Pr
             .find({ access_account_ids: accountId, is_active: { $ne: false } })
             .toArray();
         const devices = shadows.map(shadow => {
-            const isOwner = shadow.owner_id === accountId;
+            const ownerId = shadow.owner_id?.toString() || '';
+            const isOwner = ownerId === accountId;
+            const accessGrant = Array.isArray(shadow.access_grants)
+                ? shadow.access_grants.find(
+                    (grant: any) => grant?.account_id?.toString() === accountId,
+                )
+                : null;
+            const ownerPermissions = Array.isArray(shadow.owner_permissions)
+                ? shadow.owner_permissions
+                : [];
+            const grantedPermissions = Array.isArray(accessGrant?.permissions)
+                ? accessGrant.permissions
+                : [];
             return {
                 mac: shadow._id.toString(),
                 name: shadow.name || null,
-                owner_id: shadow.owner_id || null,
+                owner_id: ownerId || null,
                 product_id: shadow.product_id,
                 catalog_revision: shadow.catalog_revision,
                 // Role: owner if the connecting user owns the device, otherwise member.
-                role: isOwner ? 'owner' : 'member',
-                // Permissions: owners get full catalog permissions stored at claim time.
-                // Members would need a separate REST call to get their granted permissions.
-                permissions: isOwner ? (shadow.owner_permissions || []) : [],
+                role: isOwner ? 'owner' : (accessGrant?.role || 'member'),
+                permissions: isOwner ? ownerPermissions : grantedPermissions,
                 is_active: shadow.is_active !== false,
                 shadow: {
                     schema: 'device.state.v2',

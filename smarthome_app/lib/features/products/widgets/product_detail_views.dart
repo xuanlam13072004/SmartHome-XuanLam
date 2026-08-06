@@ -416,8 +416,7 @@ class IrrigationProductDetail extends StatelessWidget {
       hints: const ['moisture', 'water', 'flow', 'rain'],
       section: CapabilitySection.sensor,
     );
-    final pumping =
-        _truthy(pump?.value) || '${pump?.value}'.toLowerCase().contains('on');
+    final pumping = _truthy(pump?.value);
     return ProductDetailWorkbench(
       device: device,
       heroIcon: pumping ? Icons.water_rounded : Icons.grass_rounded,
@@ -779,8 +778,7 @@ bool _truthy(dynamic value) {
     'detected',
     'sounding',
     'running',
-  }
-      .contains(normalised);
+  }.contains(normalised);
 }
 
 bool _isLocked(CapabilityModel? capability) {

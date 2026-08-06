@@ -357,11 +357,6 @@ abstract class AppL10n {
   /// **'Lần cuối: {time}'**
   String deviceLastSeen(String time);
 
-  /// Thông báo lệnh đã gửi
-  ///
-  /// In vi, this message translates to:
-  /// **'Lệnh đã được gửi'**
-
   /// Thông báo thiết bị xác nhận lệnh
   ///
   /// In vi, this message translates to:

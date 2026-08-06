@@ -43,9 +43,9 @@ extension ProductCapabilityQuery on DeviceModel {
   /// Returns the primary toggleable capability for this device, or null if none.
   ///
   /// In Catalog v2, devices do not have an explicit `on_off` capability type.
-  /// Instead, this getter searches for a control-section capability that:
-  ///   1. Has a boolean value (true/false directly toggleable), or
-  ///   2. Has an enum value with clearly on/off-like entries (e.g. locked/unlocked).
+  /// Instead, this getter searches for a writable boolean control capability.
+  /// Enum/action products use their dedicated product view because mapping a
+  /// boolean switch back to an enum or zero-input operation is ambiguous.
   ///
   /// Returns null for devices with no toggleable primary state (e.g. pure sensors).
   CapabilityModel? get primaryOnOff {
