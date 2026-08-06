@@ -78,12 +78,14 @@ abstract final class AppPalette {
   static const Color deviceError   = Color(0xFFE53935);
 
   // ── Category accent colors (dùng cho device card) ─────────────────────────
-  static const Color catLight     = Color(0xFFFFF176); // Đèn
-  static const Color catClimate   = Color(0xFF81D4FA); // Điều hòa
-  static const Color catSecurity  = Color(0xFFCE93D8); // Bảo mật
-  static const Color catOutlet    = Color(0xFFA5D6A7); // Ổ cắm
-  static const Color catSensor    = Color(0xFF80DEEA); // Cảm biến
-  static const Color catGeneric   = Color(0xFFBCAAA4); // Khác
+  static const Color catLight      = Color(0xFFFFF176); // Đèn
+  static const Color catClimate    = Color(0xFF81D4FA); // Điều hòa
+  static const Color catSecurity   = Color(0xFFCE93D8); // Bảo mật
+  static const Color catOutlet     = Color(0xFFA5D6A7); // Ổ cắm
+  static const Color catSensor     = Color(0xFF80DEEA); // Cảm biến
+  static const Color catSafety     = Color(0xFFFFCC80); // An toàn (cam nhạt)
+  static const Color catAgriculture = Color(0xFFA5D6A7); // Nông nghiệp (xanh lá)
+  static const Color catGeneric    = Color(0xFFBCAAA4); // Khác
 
   // ── Glow colors (Hallmark Premium — cho active/ON state) ──────────────────
   // Dùng làm BoxShadow color với blur lớn để tạo hiệu ứng ánh sáng lan tỏa.
@@ -92,12 +94,14 @@ abstract final class AppPalette {
   static const Color glowPrimaryLight = Color(0x2600B4A6); // teal 15%
 
   /// Glow theo category thiết bị (opacity thấp, blur lớn → mềm mại)
-  static const Color glowLight     = Color(0x33FFD54F); // vàng ấm 20%
-  static const Color glowClimate   = Color(0x3342A5F5); // xanh dương 20%
-  static const Color glowSecurity  = Color(0x33AB47BC); // tím 20%
-  static const Color glowSensor    = Color(0x3326C6DA); // cyan 20%
-  static const Color glowFan       = Color(0x3366BB6A); // xanh lá 20%
-  static const Color glowGeneric   = Color(0x339E9E9E); // xám 20%
+  static const Color glowLight       = Color(0x33FFD54F); // vàng ấm 20%
+  static const Color glowClimate     = Color(0x3342A5F5); // xanh dương 20%
+  static const Color glowSecurity    = Color(0x33AB47BC); // tím 20%
+  static const Color glowSensor      = Color(0x3326C6DA); // cyan 20%
+  static const Color glowFan         = Color(0x3366BB6A); // xanh lá 20%
+  static const Color glowSafety      = Color(0x33FF8F00); // cam đậm 20%
+  static const Color glowAgriculture = Color(0x3343A047); // xanh lá đậm 20%
+  static const Color glowGeneric     = Color(0x339E9E9E); // xám 20%
 
   // ── Sensor value color coding ─────────────────────────────────────────────
   /// Giá trị bình thường
@@ -123,6 +127,10 @@ abstract final class AppPalette {
         return glowSensor;
       case 'fan':
         return glowFan;
+      case 'safety':
+        return glowSafety;
+      case 'agriculture':
+        return glowAgriculture;
       default:
         return glowGeneric;
     }
@@ -144,6 +152,10 @@ abstract final class AppPalette {
         return catSensor;
       case 'fan':
         return catOutlet;
+      case 'safety':
+        return catSafety;
+      case 'agriculture':
+        return catAgriculture;
       default:
         return catGeneric;
     }

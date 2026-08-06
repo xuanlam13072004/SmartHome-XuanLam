@@ -11,6 +11,7 @@ class DeviceModel {
   final String productId;
   final String uiProfile;
   final int uiProfileVersion;
+  final String category;
   final IconData icon;
   final DeviceStatus status; // online, offline
   final int stateVersion;
@@ -34,6 +35,7 @@ class DeviceModel {
     required this.productId,
     this.uiProfile = 'generic',
     this.uiProfileVersion = 1,
+    this.category = '',
     required this.icon,
     required this.status,
     this.stateVersion = 0,
@@ -56,6 +58,7 @@ class DeviceModel {
     String? productId,
     String? uiProfile,
     int? uiProfileVersion,
+    String? category,
     IconData? icon,
     DeviceStatus? status,
     int? stateVersion,
@@ -78,6 +81,7 @@ class DeviceModel {
       productId: productId ?? this.productId,
       uiProfile: uiProfile ?? this.uiProfile,
       uiProfileVersion: uiProfileVersion ?? this.uiProfileVersion,
+      category: category ?? this.category,
       icon: icon ?? this.icon,
       status: status ?? this.status,
       stateVersion: stateVersion ?? this.stateVersion,
@@ -94,12 +98,55 @@ class DeviceModel {
     );
   }
 
+  /// Returns true if the device's primary state is considered "active/on".
+  ///
+  /// Catalog v2 does not have an `on_off` capability — devices express their
+  /// primary state through domain-specific capabilities. This getter examines
+  /// the actual capability values to determine an "active" state, which drives
+  /// glow effects, icon tinting, and status labels in the UI.
   bool get isPrimaryOn {
-    final onOffCap = capabilities.firstWhere(
-      (c) => c.type == 'on_off',
-      orElse: () =>
-          const CapabilityModel(id: '', type: '', name: '', value: false),
-    );
-    return onOffCap.value as bool? ?? false;
+    for (final cap in capabilities) {
+      final capId = cap.capabilityId.toLowerCase();
+      final id = cap.id.toLowerCase();
+      final role = cap.semanticRole.toLowerCase();
+      final value = cap.value;
+
+      // Door lock: active (unlocked) when lock_state != 'locked'
+      if (capId == 'door_lock' || id == 'lock_state') {
+        final v = '$value'.toLowerCase();
+        return v == 'unlocked' || v == 'open';
+      }
+
+      // Cover: active when moving or open
+      if (capId == 'cover_controller' || id == 'movement' || role == 'cover') {
+        final v = '$value'.toLowerCase();
+        return v == 'open' || v == 'opening' || v == 'running';
+      }
+
+      // Alarm siren: active when sounding
+      if (capId == 'alarm_siren' || id == 'audible_state') {
+        return '$value'.toLowerCase() == 'sounding';
+      }
+
+      // Pump: active when running
+      if (capId == 'irrigation_pump' || id == 'pump_state' || id == 'pump_active') {
+        final v = '$value'.toLowerCase();
+        return v == 'running' || v == 'true' || v == 'on';
+      }
+
+      // Flame / hazard detection: active when detected
+      if (capId == 'flame_detection' || id == 'flame_detected') {
+        return value == true;
+      }
+    }
+
+    // Fallback: any boolean control capability that is true
+    for (final cap in capabilities) {
+      if (cap.section == CapabilitySection.control && cap.value is bool) {
+        return cap.value as bool;
+      }
+    }
+
+    return false;
   }
 }

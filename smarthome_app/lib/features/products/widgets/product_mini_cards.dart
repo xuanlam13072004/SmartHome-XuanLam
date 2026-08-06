@@ -42,7 +42,7 @@ class GenericProductMiniCard extends StatelessWidget {
           : null,
       capabilities: device.capabilities,
       isPrimaryOn: device.isPrimaryOn,
-      glowColor: context.colorScheme.primary,
+      glowColor: AppPalette.colorForCategory(device.category),
       connectionIcon: _connectionIcon(device),
       connectionLabel: device.topology?.connectionLabel,
       onTap: onTap,

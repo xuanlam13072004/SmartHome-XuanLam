@@ -40,24 +40,34 @@ extension ProductCapabilityQuery on DeviceModel {
     }).toList();
   }
 
+  /// Returns the primary toggleable capability for this device, or null if none.
+  ///
+  /// In Catalog v2, devices do not have an explicit `on_off` capability type.
+  /// Instead, this getter searches for a control-section capability that:
+  ///   1. Has a boolean value (true/false directly toggleable), or
+  ///   2. Has an enum value with clearly on/off-like entries (e.g. locked/unlocked).
+  ///
+  /// Returns null for devices with no toggleable primary state (e.g. pure sensors).
   CapabilityModel? get primaryOnOff {
-    CapabilityModel? fallback;
+    // Prefer explicit boolean controls
+    CapabilityModel? boolFallback;
     for (final capability in capabilities) {
-      if (capability.section != CapabilitySection.control ||
-          capability.type != 'on_off') {
-        continue;
-      }
-      fallback ??= capability;
-      final hint = '${capability.semanticRole} ${capability.id} '
-              '${capability.capabilityId}'
-          .toLowerCase();
-      if (hint.contains('power') ||
-          hint.contains('switch') ||
-          hint.contains('light')) {
-        return capability;
+      if (capability.section != CapabilitySection.control) continue;
+      if (capability.isReadOnly) continue;
+      if (capability.value is bool) {
+        boolFallback ??= capability;
+        final hint = '${capability.semanticRole} ${capability.id} '
+                '${capability.capabilityId}'
+            .toLowerCase();
+        if (hint.contains('power') ||
+            hint.contains('switch') ||
+            hint.contains('pump') ||
+            hint.contains('siren')) {
+          return capability;
+        }
       }
     }
-    return fallback;
+    return boolFallback;
   }
 }
 

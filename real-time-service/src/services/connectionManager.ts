@@ -34,34 +34,44 @@ export async function sendInitialState(accountId: string, socket: WebSocket): Pr
         const db = getDb();
         const shadows = await db
             .collection(env.MONGO_DEVICE_SHADOWS_COLLECTION)
-            .find({ access_account_ids: accountId })
+            .find({ access_account_ids: accountId, is_active: { $ne: false } })
             .toArray();
-        const devices = shadows.map(shadow => ({
-            mac: shadow._id.toString(),
-            name: shadow.name || null,
-            product_id: shadow.product_id,
-            catalog_revision: shadow.catalog_revision,
-            shadow: {
-                schema: 'device.state.v2',
-                state_version: Number(shadow.state_version || 0),
-                instances: shadow.instances || {},
-                diagnostics: shadow.diagnostics || {},
-                is_online: Boolean(shadow.is_online),
-                last_seen: shadow.last_seen instanceof Date
-                    ? shadow.last_seen.toISOString()
-                    : shadow.last_seen || null,
-                updated_at: shadow.updated_at instanceof Date
-                    ? shadow.updated_at.toISOString()
-                    : shadow.updated_at || null,
-            },
-            network_id: shadow.network_id || null,
-            join_rank: shadow.join_rank ?? null,
-            topology_role: shadow.topology_role || null,
-            topology_epoch: shadow.topology_epoch ?? null,
-            topology_state: shadow.topology_state || null,
-            active_hub_mac: shadow.active_hub_mac || null,
-            transport_mode: shadow.transport_mode || null,
-        }));
+        const devices = shadows.map(shadow => {
+            const isOwner = shadow.owner_id === accountId;
+            return {
+                mac: shadow._id.toString(),
+                name: shadow.name || null,
+                owner_id: shadow.owner_id || null,
+                product_id: shadow.product_id,
+                catalog_revision: shadow.catalog_revision,
+                // Role: owner if the connecting user owns the device, otherwise member.
+                role: isOwner ? 'owner' : 'member',
+                // Permissions: owners get full catalog permissions stored at claim time.
+                // Members would need a separate REST call to get their granted permissions.
+                permissions: isOwner ? (shadow.owner_permissions || []) : [],
+                is_active: shadow.is_active !== false,
+                shadow: {
+                    schema: 'device.state.v2',
+                    state_version: Number(shadow.state_version || 0),
+                    instances: shadow.instances || {},
+                    diagnostics: shadow.diagnostics || {},
+                    is_online: Boolean(shadow.is_online),
+                    last_seen: shadow.last_seen instanceof Date
+                        ? shadow.last_seen.toISOString()
+                        : shadow.last_seen || null,
+                    updated_at: shadow.updated_at instanceof Date
+                        ? shadow.updated_at.toISOString()
+                        : shadow.updated_at || null,
+                },
+                network_id: shadow.network_id || null,
+                join_rank: shadow.join_rank ?? null,
+                topology_role: shadow.topology_role || null,
+                topology_epoch: shadow.topology_epoch ?? null,
+                topology_state: shadow.topology_state || null,
+                active_hub_mac: shadow.active_hub_mac || null,
+                transport_mode: shadow.transport_mode || null,
+            };
+        });
         safeSend(socket, JSON.stringify({ event: 'initial_state', devices }));
 
         const activeOperations = await db

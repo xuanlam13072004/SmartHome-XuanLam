@@ -64,6 +64,7 @@ export interface ProductCatalog {
     presentation: Record<string, unknown>;
     capability_instances: CapabilityInstance[];
     firmware_default_state: DeviceStateSeed;
+    firmware_compatibility?: { family?: string; [key: string]: unknown };
     operations: Record<string, CapabilityOperation & {
         instance_id: string;
         capability_id: string;

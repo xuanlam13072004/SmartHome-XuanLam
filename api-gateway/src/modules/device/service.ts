@@ -123,6 +123,9 @@ export async function claimDevice(app: FastifyInstance, input: {
                     catalog_revision: factory.catalog_revision,
                     name,
                     access_account_ids: [ownerId],
+                    // Include full catalog permissions snapshot for the owner.
+                    // Stored in MongoDB shadow so Real-Time Service can read without Postgres.
+                    owner_permissions: product.permissions || [],
                 }),
             ],
         );

@@ -31,15 +31,7 @@ class DeviceHeroCard extends StatelessWidget {
             ? context.colorScheme.primary
             : CapabilityVisuals.accentFor(context, primaryPower!));
 
-    final glowColor = AppPalette.colorForCategory(
-      device.productId.contains('light')
-          ? 'light'
-          : device.productId.contains('security')
-              ? 'security'
-              : device.productId.contains('roof')
-                  ? 'environment'
-                  : 'sensor',
-    );
+    final glowColor = AppPalette.colorForCategory(device.category);
 
     final background = isOn
         ? Color.alphaBlend(

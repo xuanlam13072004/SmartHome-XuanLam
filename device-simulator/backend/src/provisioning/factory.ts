@@ -33,16 +33,18 @@ export const createMockDeviceIdentity = async (
 };
 
 export const provisionMockDevice = async (
-    product: { product_id: string; catalog_revision: number },
+    product: { product_id: string; catalog_revision: number; firmware_compatibility?: { family?: string } },
     identity: MockDeviceIdentity,
 ): Promise<void> => {
     const secretHash = await argon2.hash(identity.rawSecret);
     const pool = getPgPool();
+    // Use the catalog's firmware family; fall back to a generic simulator family.
+    const firmwareFamily = product.firmware_compatibility?.family || 'simulator_generic';
     const query = `
         INSERT INTO factory_devices
             (mac, secret_key_hash, credential_public_key_pem, product_id, catalog_revision,
              firmware_family, hardware_revision, is_claimed)
-        VALUES ($1, $2, $3, $4, $5, 'simulator_esp32', 'virtual-v2', false)
+        VALUES ($1, $2, $3, $4, $5, $6, 'virtual-v2', false)
         ON CONFLICT (mac) DO NOTHING
         RETURNING mac
     `;
@@ -53,6 +55,7 @@ export const provisionMockDevice = async (
         identity.credentialPublicKeyPem,
         product.product_id,
         product.catalog_revision,
+        firmwareFamily,
     ]);
     if (result.rowCount === 1) return;
 

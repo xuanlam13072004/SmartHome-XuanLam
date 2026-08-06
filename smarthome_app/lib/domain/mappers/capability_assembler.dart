@@ -99,6 +99,7 @@ class CapabilityAssembler {
       productId: deviceDto.productId,
       uiProfile: product?.uiProfile ?? 'generic',
       uiProfileVersion: product?.uiProfileVersion ?? 1,
+      category: product?.category ?? '',
       icon: _resolveIcon(product?.category ?? ''),
       status: deviceDto.isOnline ? DeviceStatus.online : DeviceStatus.offline,
       stateVersion: deviceDto.stateVersion,

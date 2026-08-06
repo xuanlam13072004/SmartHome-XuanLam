@@ -58,6 +58,12 @@ async function applyEvent(mongoDb: Db, event: ShadowEvent) {
                 catalog_revision: Number(payload.catalog_revision),
                 name: payload.name,
                 access_account_ids: payload.access_account_ids || [payload.owner_id],
+                // Store permissions snapshot so Real-Time Service can serve initial_state
+                // without a Postgres join. Owner gets full catalog permissions.
+                owner_permissions: Array.isArray(payload.owner_permissions)
+                    ? payload.owner_permissions
+                    : [],
+                is_active: true,
                 state_version: 0,
                 instances: {},
                 diagnostics: {},
