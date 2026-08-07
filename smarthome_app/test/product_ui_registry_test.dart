@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:smarthome_app/core/core.dart';
 import 'package:smarthome_app/core/widgets/widgets.dart';
 import 'package:smarthome_app/domain/models/device_model.dart';
+import 'package:smarthome_app/features/dashboard/models/capability_model.dart';
 import 'package:smarthome_app/features/products/product_ui_profile.dart';
 import 'package:smarthome_app/features/products/product_ui_registry.dart';
 
@@ -35,7 +36,7 @@ void main() {
                     context,
                     device: device,
                     onTap: () {},
-                    onCapabilityChanged: (_, __) {},
+                    onCapabilityChanged: (_, __) async {},
                   ),
                 ),
               ),
@@ -66,7 +67,7 @@ void main() {
                 child: productUiRegistry.buildDetail(
                   context,
                   device: device,
-                  onCapabilityChanged: (_, __) {},
+                  onCapabilityChanged: (_, __) async {},
                 ),
               ),
             ),
@@ -80,7 +81,194 @@ void main() {
       expect(find.byType(Scrollable), findsOneWidget);
     });
   }
+
+  testWidgets(
+      'irrigation detail uses duration action and firmware notes without sliders',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final requests = <(String, dynamic)>[];
+
+    for (final width in [320.0, 375.0, 414.0, 768.0]) {
+      tester.view.physicalSize = Size(width, 1100);
+      requests.clear();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          key: ValueKey(width),
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                child: productUiRegistry.buildDetail(
+                  context,
+                  device: _irrigationDevice,
+                  onCapabilityChanged: (capability, value) async {
+                    requests.add(
+                      (capability.operations.single.operationName, value),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull, reason: 'width=$width');
+      expect(find.byType(Slider), findsNothing, reason: 'width=$width');
+      expect(find.text('Tưới thủ công'), findsOneWidget);
+      expect(find.text('Tự động tưới'), findsOneWidget);
+      expect(find.text('50/100'), findsOneWidget);
+      expect(find.text('5/100'), findsOneWidget);
+      expect(
+        find.textContaining('Vùng trễ chống bật/tắt bơm liên tục'),
+        findsOneWidget,
+      );
+
+      await tester.ensureVisible(find.text('Tưới nước'));
+      await tester.tap(find.text('Tưới nước'));
+      await tester.pump();
+
+      expect(requests, [('water_for_duration', 300)]);
+      expect(tester.takeException(), isNull, reason: 'width=$width');
+    }
+  });
 }
+
+final _irrigationDevice = DeviceModel(
+  mac: 'AA:BB:CC:DD:EE:40',
+  ownerId: 'owner-1',
+  name: 'Bơm vườn',
+  productId: 'prod_irrigation_manager',
+  uiProfile: ProductUiProfile.irrigationManager,
+  uiProfileVersion: 1,
+  category: 'agriculture',
+  icon: Icons.grass_rounded,
+  status: DeviceStatus.online,
+  rawState: const {},
+  diagnostics: const {},
+  capabilities: const [
+    CapabilityModel(
+      id: 'moisture_level',
+      type: 'sensor',
+      name: 'Độ ẩm đất',
+      value: 42,
+      properties: {'unit': 'normalized'},
+      isReadOnly: true,
+      instance: 'main_garden',
+      capabilityId: 'soil_moisture_measurement',
+      section: CapabilitySection.sensor,
+    ),
+    CapabilityModel(
+      id: 'water_availability',
+      type: 'sensor',
+      name: 'Nguồn nước',
+      value: 'available',
+      isReadOnly: true,
+      instance: 'reservoir',
+      capabilityId: 'water_level_measurement',
+      section: CapabilitySection.sensor,
+    ),
+    CapabilityModel(
+      id: 'level_normalized',
+      type: 'sensor',
+      name: 'Mực nước',
+      value: 80,
+      properties: {'unit': 'normalized'},
+      isReadOnly: true,
+      instance: 'reservoir',
+      capabilityId: 'water_level_measurement',
+      section: CapabilitySection.sensor,
+    ),
+    CapabilityModel(
+      id: 'pump_output_state',
+      type: 'enum',
+      name: 'Máy bơm',
+      value: 'stopped',
+      instance: 'irrigation_pump',
+      capabilityId: 'irrigation_pump',
+      section: CapabilitySection.control,
+      operations: [
+        CapabilityOperationDescriptor(
+          operationName: 'water_for_duration',
+          inputNames: ['duration_seconds'],
+        ),
+        CapabilityOperationDescriptor(operationName: 'stop'),
+      ],
+    ),
+    CapabilityModel(
+      id: 'control_mode',
+      type: 'enum',
+      name: 'Chế độ tưới',
+      value: 'automatic',
+      properties: {
+        'options': ['manual', 'automatic'],
+      },
+      instance: 'irrigation_automation',
+      capabilityId: 'irrigation_policy',
+      section: CapabilitySection.control,
+      operations: [
+        CapabilityOperationDescriptor(
+          operationName: 'set_control_mode',
+          inputNames: ['mode'],
+        ),
+      ],
+    ),
+    CapabilityModel(
+      id: 'target_moisture',
+      type: 'sensor',
+      name: 'Độ ẩm mục tiêu',
+      value: 50,
+      isReadOnly: true,
+      instance: 'irrigation_automation',
+      capabilityId: 'irrigation_policy',
+      section: CapabilitySection.sensor,
+    ),
+    CapabilityModel(
+      id: 'moisture_hysteresis',
+      type: 'sensor',
+      name: 'Vùng trễ độ ẩm',
+      value: 5,
+      isReadOnly: true,
+      instance: 'irrigation_automation',
+      capabilityId: 'irrigation_policy',
+      section: CapabilitySection.sensor,
+    ),
+    CapabilityModel(
+      id: 'default_cycle_duration_seconds',
+      type: 'sensor',
+      name: 'Thời lượng tưới tự động',
+      value: 300,
+      isReadOnly: true,
+      instance: 'irrigation_automation',
+      capabilityId: 'irrigation_policy',
+      section: CapabilitySection.sensor,
+    ),
+    CapabilityModel(
+      id: 'maximum_runtime_seconds',
+      type: 'sensor',
+      name: 'Giới hạn chạy an toàn',
+      value: 900,
+      isReadOnly: true,
+      instance: 'irrigation_automation',
+      capabilityId: 'irrigation_policy',
+      section: CapabilitySection.sensor,
+    ),
+    CapabilityModel(
+      id: 'cooldown_seconds',
+      type: 'sensor',
+      name: 'Thời gian nghỉ bảo vệ bơm',
+      value: 60,
+      isReadOnly: true,
+      instance: 'irrigation_automation',
+      capabilityId: 'irrigation_policy',
+      section: CapabilitySection.sensor,
+    ),
+  ],
+);
 
 DeviceModel _device(String profile) => DeviceModel(
       mac: 'AA:BB:CC:DD:EE:FF',

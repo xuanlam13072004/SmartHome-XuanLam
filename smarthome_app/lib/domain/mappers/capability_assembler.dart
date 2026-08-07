@@ -14,13 +14,19 @@ class CapabilityAssembler {
 
     if (product != null) {
       final orderedInstances = product.capabilityInstances.toList()
-        ..sort((left, right) => left.displayOrder.compareTo(right.displayOrder));
+        ..sort(
+            (left, right) => left.displayOrder.compareTo(right.displayOrder));
 
       for (final instance in orderedInstances) {
         final attachedOperations = <String>{};
+        final firmwareNoteProperties = instance.properties
+            .where((property) => _uiHint(property) == 'firmware_note')
+            .map((property) => property.id)
+            .toSet();
         for (final property in instance.properties) {
           if (property.channel == 'desired') continue;
-          final operations = property.channel == 'reported'
+          final isFirmwareNote = _uiHint(property) == 'firmware_note';
+          final operations = property.channel == 'reported' && !isFirmwareNote
               ? _operationsForProperty(
                   instance,
                   property,
@@ -38,6 +44,7 @@ class CapabilityAssembler {
             value: _propertyValue(deviceDto, instance.instance, property),
             properties: {
               ..._widgetProperties(property.schema),
+              'ui_hint': _uiHint(property),
               'state_version': deviceDto.stateVersion,
             },
             isReadOnly: isReadOnly,
@@ -59,6 +66,7 @@ class CapabilityAssembler {
         // Operations without a reported-state target remain visible as an
         // explicit action instead of disappearing from the Product UI.
         for (final operation in instance.operations) {
+          if (_targetsAnyProperty(operation, firmwareNoteProperties)) continue;
           if (operation.effects.any(
             (effect) => effect['type'] == 'create_resource_session',
           )) {
@@ -136,8 +144,8 @@ class CapabilityAssembler {
       credentials: deviceDto.membershipRole == 'owner'
           ? product?.capabilityInstances
                   .expand((instance) => instance.credentials
-                      .where((credential) => deviceDto.permissions
-                          .contains(credential.permission))
+                      .where((credential) =>
+                          deviceDto.permissions.contains(credential.permission))
                       .map((credential) => DeviceCredentialDefinition(
                             instanceId: instance.instance,
                             definition: credential,
@@ -153,17 +161,20 @@ class CapabilityAssembler {
     CapabilityProperty property,
     List<String> permissions,
   ) {
-    return instance.operations.where((operation) {
-      if (!_mayInvoke(operation, permissions)) return false;
-      if (operation.ackReference == property.id) return true;
-      for (final effect in operation.effects) {
-        final target = effect['property']?.toString();
-        if (target == property.id || target == 'target_${property.id}') {
-          return true;
-        }
-      }
-      return false;
-    }).map(_operationDescriptor).toList(growable: false);
+    return instance.operations
+        .where((operation) {
+          if (!_mayInvoke(operation, permissions)) return false;
+          if (operation.ackReference == property.id) return true;
+          for (final effect in operation.effects) {
+            final target = effect['property']?.toString();
+            if (target == property.id || target == 'target_${property.id}') {
+              return true;
+            }
+          }
+          return false;
+        })
+        .map(_operationDescriptor)
+        .toList(growable: false);
   }
 
   static bool _mayInvoke(
@@ -173,9 +184,27 @@ class CapabilityAssembler {
       operation.permission.isNotEmpty &&
       permissions.contains(operation.permission);
 
+  static bool _targetsAnyProperty(
+    CapabilityOperation operation,
+    Set<String> propertyIds,
+  ) {
+    if (propertyIds.isEmpty) return false;
+    if (operation.ackReference != null &&
+        propertyIds.contains(operation.ackReference)) {
+      return true;
+    }
+    return operation.effects.any((effect) {
+      final target = effect['property']?.toString();
+      if (target == null) return false;
+      return propertyIds.contains(target) ||
+          propertyIds.any((propertyId) => target == 'target_$propertyId');
+    });
+  }
+
   static CapabilityOperationDescriptor _operationDescriptor(
     CapabilityOperation operation,
-  ) => CapabilityOperationDescriptor(
+  ) =>
+      CapabilityOperationDescriptor(
         operationName: operation.id,
         inputNames: operation.input.keys.toList(growable: false),
         risk: operation.risk,
@@ -218,7 +247,9 @@ class CapabilityAssembler {
     final properties = <String, dynamic>{};
     if (schema.containsKey('minimum')) properties['min'] = schema['minimum'];
     if (schema.containsKey('maximum')) properties['max'] = schema['maximum'];
-    if (schema.containsKey('multiple_of')) properties['step'] = schema['multiple_of'];
+    if (schema.containsKey('multiple_of')) {
+      properties['step'] = schema['multiple_of'];
+    }
     if (schema.containsKey('enum')) properties['options'] = schema['enum'];
     if (schema.containsKey('unit')) properties['unit'] = schema['unit'];
     return properties;
@@ -235,27 +266,39 @@ class CapabilityAssembler {
 
   static List<CapabilityModel> _buildFromRawState(
     Map<String, dynamic> state,
-  ) => state.entries.map((entry) => CapabilityModel(
-        id: entry.key,
-        type: 'sensor',
-        name: _humaniseName(entry.key),
-        value: entry.value,
-        isReadOnly: true,
-        section: CapabilitySection.sensor,
-      )).toList(growable: false);
+  ) =>
+      state.entries
+          .map((entry) => CapabilityModel(
+                id: entry.key,
+                type: 'sensor',
+                name: _humaniseName(entry.key),
+                value: entry.value,
+                isReadOnly: true,
+                section: CapabilitySection.sensor,
+              ))
+          .toList(growable: false);
 
   static String _propertyDisplayName(
     CapabilityInstance instance,
     CapabilityProperty property,
   ) {
-    final visibleProperties = instance.properties
-        .where((value) => value.channel != 'desired')
-        .length;
+    final presentation = _map(property.schema['presentation']);
+    final configuredLabel = presentation['label']?.toString().trim() ?? '';
+    if (configuredLabel.isNotEmpty) return configuredLabel;
+
+    final visibleProperties =
+        instance.properties.where((value) => value.channel != 'desired').length;
     if (visibleProperties == 1 && instance.displayName.trim().isNotEmpty) {
       return instance.displayName.trim();
     }
     return _humaniseName(property.id);
   }
+
+  static String _uiHint(CapabilityProperty property) =>
+      _map(property.schema['presentation'])['ui_hint']?.toString() ?? '';
+
+  static Map<String, dynamic> _map(dynamic value) =>
+      value is Map ? Map<String, dynamic>.from(value) : <String, dynamic>{};
 
   static String _instanceDisplayName(CapabilityInstance instance) =>
       instance.displayName.trim().isNotEmpty
@@ -264,9 +307,9 @@ class CapabilityAssembler {
               ? instance.instance
               : instance.capabilityId);
 
-  static String _humaniseName(String key) => key
-      .replaceAll('_', ' ')
-      .replaceFirstMapped(RegExp(r'^.'), (match) => match.group(0)!.toUpperCase());
+  static String _humaniseName(String key) =>
+      key.replaceAll('_', ' ').replaceFirstMapped(
+          RegExp(r'^.'), (match) => match.group(0)!.toUpperCase());
 
   static IconData _resolveIcon(String category) => switch (category) {
         'security' => LucideIcons.shield,

@@ -98,10 +98,27 @@ abstract final class CapabilityVisuals {
       _ => value.toString(),
     };
     if (unit.isEmpty) return formatted;
+    final semanticUnit = switch (unit) {
+      'normalized' => '$formatted/100',
+      'percent' => '$formatted%',
+      'celsius' => '$formatted°C',
+      'dbm' => '$formatted dBm',
+      'second' => _durationText(value),
+      _ => null,
+    };
+    if (semanticUnit != null) return semanticUnit;
     const attachedUnits = {'%', '°C', '°F', 'dB', 'dBm'};
     return attachedUnits.contains(unit)
         ? '$formatted$unit'
         : '$formatted $unit';
+  }
+
+  static String _durationText(dynamic value) {
+    final seconds = value is num ? value.round() : int.tryParse('$value');
+    if (seconds == null) return '—';
+    if (seconds < 60) return '$seconds giây';
+    if (seconds % 60 == 0) return '${seconds ~/ 60} phút';
+    return '${seconds ~/ 60} phút ${seconds % 60} giây';
   }
 
   static String optionLabel(String option) {

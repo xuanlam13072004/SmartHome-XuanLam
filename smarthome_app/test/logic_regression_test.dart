@@ -9,6 +9,7 @@ import 'package:smarthome_app/data/models/dto/product_dto.dart';
 import 'package:smarthome_app/domain/mappers/capability_assembler.dart';
 import 'package:smarthome_app/domain/mappers/product_mapper.dart';
 import 'package:smarthome_app/domain/models/device_model.dart';
+import 'package:smarthome_app/domain/models/product_model.dart';
 import 'package:smarthome_app/domain/models/ws_events.dart';
 import 'package:smarthome_app/features/dashboard/models/capability_model.dart';
 import 'package:smarthome_app/features/dashboard/repositories/device_repository.dart';
@@ -246,6 +247,97 @@ void main() {
 
       expect(device.capabilities.single.isReadOnly, isTrue);
       expect(device.capabilities.single.operations, isEmpty);
+    });
+
+    test('firmware note stays read-only even if a setter is published', () {
+      final product = ProductModel(
+        id: 'prod_irrigation_manager',
+        catalogRevision: 2,
+        uiProfile: 'irrigation_manager',
+        uiProfileVersion: 1,
+        manufacturer: 'SmartHome XuanLam Ltd.',
+        modelName: 'Irrigation Manager',
+        displayName: 'Bộ tưới',
+        firmwareFamily: 'irrigation_controller',
+        connectivityProfiles: const ['wifi'],
+        category: 'agriculture',
+        icon: 'water_drop',
+        description: 'Bộ tưới kiểm thử',
+        firmwareDefaultState: const {},
+        capabilityInstances: [
+          CapabilityInstance.fromJson({
+            'capability_id': 'irrigation_policy',
+            'instance_id': 'irrigation_automation',
+            'semantic_role': 'irrigation_policy',
+            'presentation': {
+              'display_name': 'Tự động tưới',
+              'icon': 'automation',
+              'section': 'controls',
+              'order': 40,
+            },
+            'properties': [
+              {
+                'id': 'target_moisture',
+                'channel': 'reported',
+                'path':
+                    'instances.irrigation_automation.reported.target_moisture',
+                'type': 'number',
+                'unit': 'normalized',
+                'presentation': {
+                  'ui_hint': 'firmware_note',
+                  'label': 'Độ ẩm mục tiêu',
+                },
+              },
+            ],
+            'operations': [
+              {
+                'id': 'set_target',
+                'permission': 'automation.manage',
+                'risk': 'normal',
+                'confirmation': 'none',
+                'input': {
+                  'target': {'type': 'number'},
+                },
+                'ack_policy': {'reference': 'target_moisture'},
+                'effects': [
+                  {
+                    'property': 'target_moisture',
+                    'value_from': 'input.target',
+                  },
+                ],
+                'presentation': {'label': 'Đặt ngưỡng'},
+              },
+            ],
+            'resources': <Map<String, dynamic>>[],
+            'credentials': <Map<String, dynamic>>[],
+          }),
+        ],
+      );
+      final raw = _deviceJson()
+        ..['product_id'] = 'prod_irrigation_manager'
+        ..['permissions'] = ['automation.manage']
+        ..['shadow'] = {
+          'is_online': true,
+          'state_version': 8,
+          'instances': {
+            'irrigation_automation': {
+              'reported': {'target_moisture': 50},
+            },
+          },
+          'diagnostics': <String, dynamic>{},
+        };
+
+      final device = CapabilityAssembler.assemble(
+        DeviceDto.fromJson(raw),
+        product,
+      );
+      final target = device.capabilities.single;
+
+      expect(target.name, 'Độ ẩm mục tiêu');
+      expect(target.type, 'sensor');
+      expect(target.isReadOnly, isTrue);
+      expect(target.operations, isEmpty);
+      expect(target.properties['ui_hint'], 'firmware_note');
     });
 
     test('realtime initial state preserves authoritative REST permissions',

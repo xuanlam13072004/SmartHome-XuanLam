@@ -78,8 +78,28 @@ String productCapabilityValue(CapabilityModel? capability,
     {String fallback = 'Chưa có dữ liệu'}) {
   if (capability == null || capability.value == null) return fallback;
   final value = capability.value;
-  final unit = capability.properties['unit']?.toString() ?? '';
   if (value is bool) return value ? 'Đang bật' : 'Đang tắt';
-  if (value is double) return '${value.toStringAsFixed(1)}$unit';
-  return '$value$unit';
+  final formatted = value is double
+      ? value == value.roundToDouble()
+          ? value.toInt().toString()
+          : value.toStringAsFixed(1)
+      : '$value';
+  return _withUnit(formatted, capability.properties['unit']?.toString() ?? '');
+}
+
+String _withUnit(String value, String unit) => switch (unit.toLowerCase()) {
+      'normalized' => '$value/100',
+      'percent' => '$value%',
+      'celsius' => '$value°C',
+      'dbm' => '$value dBm',
+      'second' => _durationLabel(int.tryParse(value)),
+      '' => value,
+      _ => '$value $unit',
+    };
+
+String _durationLabel(int? seconds) {
+  if (seconds == null) return '—';
+  if (seconds < 60) return '$seconds giây';
+  if (seconds % 60 == 0) return '${seconds ~/ 60} phút';
+  return '${seconds ~/ 60} phút ${seconds % 60} giây';
 }

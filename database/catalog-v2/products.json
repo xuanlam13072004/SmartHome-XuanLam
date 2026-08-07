@@ -97,7 +97,7 @@
     "product_id": "prod_irrigation_manager",
     "ui_profile": "irrigation_manager",
     "ui_profile_version": 1,
-    "catalog_revision": 1,
+    "catalog_revision": 2,
     "lifecycle": "published",
     "contract_maturity": "edge_reviewed",
     "manufacturer": "SmartHome XuanLam Ltd.",
@@ -111,7 +111,7 @@
       { "instance_id": "main_garden", "capability_id": "soil_moisture_measurement", "capability_revision": 1, "availability": "active", "semantic_role": "soil_sensor", "presentation": { "display_name": "Độ ẩm đất vườn", "description": "Giá trị tương đối cho đến khi model cảm biến và quy trình hiệu chuẩn được xác nhận.", "icon": "grass", "section": "measurements", "order": 10 } },
       { "instance_id": "reservoir", "capability_id": "water_level_measurement", "capability_revision": 1, "availability": "active", "semantic_role": "water_reservoir", "presentation": { "display_name": "Bể chứa nước", "description": "Khả dụng nguồn nước; giá trị normalized có thể để trống tùy loại cảm biến.", "icon": "water", "section": "measurements", "order": 20 } },
       { "instance_id": "irrigation_pump", "capability_id": "irrigation_pump", "capability_revision": 1, "availability": "active", "semantic_role": "water_pump", "presentation": { "display_name": "Bơm tưới", "description": "Đầu ra bơm theo chu kỳ hữu hạn; chưa khẳng định bơm vật lý đang chạy nếu chưa có feedback.", "icon": "water_pump", "section": "controls", "order": 30 } },
-      { "instance_id": "irrigation_automation", "capability_id": "irrigation_policy", "capability_revision": 1, "availability": "active", "semantic_role": "irrigation_policy", "presentation": { "display_name": "Tự động tưới", "description": "Chế độ và độ ẩm mục tiêu.", "icon": "automation", "section": "controls", "order": 40 } },
+      { "instance_id": "irrigation_automation", "capability_id": "irrigation_policy", "capability_revision": 2, "availability": "active", "semantic_role": "irrigation_policy", "presentation": { "display_name": "Tự động tưới", "description": "Chế độ tưới và các giới hạn cố định trong firmware.", "icon": "automation", "section": "controls", "order": 40 } },
       { "instance_id": "manual_button", "capability_id": "local_button", "capability_revision": 1, "availability": "active", "semantic_role": "local_watering_input", "presentation": { "display_name": "Nút tưới tại chỗ", "description": "Khởi động chu kỳ tưới cục bộ có thời lượng giới hạn.", "icon": "play_arrow", "section": "diagnostics", "order": 50 } },
       { "instance_id": "system", "capability_id": "system_diagnostics", "capability_revision": 1, "availability": "active", "semantic_role": "system_diagnostics", "presentation": { "display_name": "Chẩn đoán", "description": "Kết nối và tình trạng firmware.", "icon": "monitor_heart", "section": "diagnostics", "order": 1000 } }
     ],
@@ -119,6 +119,7 @@
       { "id": "dry_run_protection", "priority": 10, "enforced_locally": true, "description": "Không chạy bơm khi hết nước hoặc trạng thái bể không đáng tin cậy." },
       { "id": "maximum_runtime", "priority": 20, "enforced_locally": true, "description": "Mọi chu kỳ tưới phải tự dừng khi đạt thời gian tối đa." },
       { "id": "pump_cooldown", "priority": 30, "enforced_locally": true, "description": "Giới hạn khởi động liên tiếp để bảo vệ bơm." },
+      { "id": "firmware_owned_irrigation_policy", "priority": 35, "enforced_locally": true, "description": "Ngưỡng độ ẩm, vùng trễ, thời lượng tự động, thời gian chạy tối đa và thời gian nghỉ là hằng số firmware; người dùng chỉ được bật hoặc tắt chế độ tự động." },
       { "id": "sensor_fault_fallback", "priority": 40, "enforced_locally": true, "description": "Không tự tưới khi cảm biến đất lỗi hoặc trạng thái nguồn nước không đáng tin cậy." },
       { "id": "bounded_local_cycle", "priority": 50, "enforced_locally": true, "description": "Nút tại chỗ chỉ được khởi động một chu kỳ dùng thời lượng mặc định và vẫn chịu mọi interlock an toàn." },
       { "id": "safe_boot_output", "priority": 60, "enforced_locally": true, "description": "Khi boot hoặc reset, đầu ra bơm phải tắt; firmware không tự tiếp tục chu kỳ cũ." }

@@ -336,8 +336,11 @@ test('irrigation cannot start an unbounded pump operation', () => {
     assert.deepEqual(waterAvailability.enum, ['unknown', 'available', 'low', 'empty']);
 
     assert.equal(policy.runtime.configuration_persistence, 'device_nvs');
+    assert.equal(
+        policy.properties.find(property => property.id === 'control_mode').persistence,
+        'device_nvs',
+    );
     for (const propertyId of [
-        'control_mode',
         'target_moisture',
         'moisture_hysteresis',
         'default_cycle_duration_seconds',
@@ -346,9 +349,16 @@ test('irrigation cannot start an unbounded pump operation', () => {
     ]) {
         assert.equal(
             policy.properties.find(property => property.id === propertyId).persistence,
-            'device_nvs',
+            'none',
+        );
+        assert.equal(
+            policy.properties.find(property => property.id === propertyId).presentation.ui_hint,
+            'firmware_note',
         );
     }
+    assert.deepEqual(policy.operations.map(operation => operation.id), ['set_control_mode']);
+    assert.equal(irrigation.operations['irrigation_automation.set_moisture_policy'], undefined);
+    assert.equal(irrigation.operations['irrigation_automation.set_cycle_configuration'], undefined);
     assert.equal(policy.events.some(event => event.id === 'schedule_executed'), false);
 });
 
@@ -371,13 +381,10 @@ test('active irrigation capabilities remain device-authoritative and safe offlin
     const policy = irrigation.capability_instances.find(
         instance => instance.instance_id === 'irrigation_automation',
     );
-    const cycleConfiguration = policy.operations.find(
-        operation => operation.id === 'set_cycle_configuration',
-    );
-    assert.equal(cycleConfiguration.ack_policy.success_condition, 'persisted');
+    assert.deepEqual(policy.operations.map(operation => operation.id), ['set_control_mode']);
     assert.equal(
-        cycleConfiguration.safety_constraints.includes(
-            'default_duration_not_greater_than_maximum_runtime',
+        irrigation.local_policies.some(
+            localPolicy => localPolicy.id === 'firmware_owned_irrigation_policy',
         ),
         true,
     );

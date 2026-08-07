@@ -11,6 +11,7 @@ import '../../dashboard/widgets/capabilities/capability_section_panel.dart';
 import '../../dashboard/widgets/device_hero_card.dart';
 import '../../dashboard/widgets/device_topology_panel.dart';
 import '../product_capability_query.dart';
+import 'irrigation_control_panel.dart';
 import 'product_mini_cards.dart';
 
 class GenericProductDetail extends StatelessWidget {
@@ -386,36 +387,68 @@ class IrrigationProductDetail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final used = <CapabilityModel>{};
-    final moisture = device.capabilityMatching(
-      ids: const ['moisture_level'],
-      capabilityIds: const ['soil_moisture_measurement'],
-    );
-    final water = device.capabilityMatching(
-      ids: const ['level_normalized', 'water_availability'],
-      capabilityIds: const ['water_level_measurement'],
-    );
-    final pump = device.capabilityMatching(
-      ids: const ['pump_output_state'],
-      capabilityIds: const ['irrigation_pump'],
-    );
-    final waterControls = _take(
+    final moisture = _productProperty(
       device,
-      used,
-      hints: const ['pump', 'valve', 'water_output'],
-      section: CapabilitySection.control,
+      capabilityId: 'soil_moisture_measurement',
+      propertyId: 'moisture_level',
     );
-    final automation = _take(
+    final waterLevel = _productProperty(
       device,
-      used,
-      hints: const ['auto', 'schedule', 'threshold', 'irrigation', 'mode'],
-      section: CapabilitySection.control,
+      capabilityId: 'water_level_measurement',
+      propertyId: 'level_normalized',
     );
-    final sensors = _take(
+    final waterAvailability = _productProperty(
       device,
-      used,
-      hints: const ['moisture', 'water', 'flow', 'rain'],
-      section: CapabilitySection.sensor,
+      capabilityId: 'water_level_measurement',
+      propertyId: 'water_availability',
     );
+    final pump = _productProperty(
+      device,
+      capabilityId: 'irrigation_pump',
+      propertyId: 'pump_output_state',
+    );
+    final controlMode = _productProperty(
+      device,
+      capabilityId: 'irrigation_policy',
+      propertyId: 'control_mode',
+    );
+    final targetMoisture = _productProperty(
+      device,
+      capabilityId: 'irrigation_policy',
+      propertyId: 'target_moisture',
+    );
+    final moistureHysteresis = _productProperty(
+      device,
+      capabilityId: 'irrigation_policy',
+      propertyId: 'moisture_hysteresis',
+    );
+    final defaultCycleDuration = _productProperty(
+      device,
+      capabilityId: 'irrigation_policy',
+      propertyId: 'default_cycle_duration_seconds',
+    );
+    final maximumRuntime = _productProperty(
+      device,
+      capabilityId: 'irrigation_policy',
+      propertyId: 'maximum_runtime_seconds',
+    );
+    final cooldown = _productProperty(
+      device,
+      capabilityId: 'irrigation_policy',
+      propertyId: 'cooldown_seconds',
+    );
+
+    used.addAll(
+      device.capabilities.where(
+        (capability) => const {
+          'soil_moisture_measurement',
+          'water_level_measurement',
+          'irrigation_pump',
+          'irrigation_policy',
+        }.contains(capability.capabilityId),
+      ),
+    );
+
     final pumping = _truthy(pump?.value);
     return ProductDetailWorkbench(
       device: device,
@@ -430,7 +463,7 @@ class IrrigationProductDetail extends StatelessWidget {
         ProductStatusFact(
           icon: Icons.water_drop_outlined,
           label: 'Nguồn nước',
-          value: productCapabilityValue(water, fallback: '—'),
+          value: _reservoirSummary(waterAvailability, waterLevel),
         ),
         ProductStatusFact(
           icon: Icons.water_rounded,
@@ -438,30 +471,55 @@ class IrrigationProductDetail extends StatelessWidget {
           value: pumping ? 'Đang tưới' : 'Đang nghỉ',
         ),
       ],
+      customSections: [
+        IrrigationControlPanel(
+          device: device,
+          pumpState: pump,
+          controlMode: controlMode,
+          targetMoisture: targetMoisture,
+          moistureHysteresis: moistureHysteresis,
+          defaultCycleDuration: defaultCycleDuration,
+          maximumRuntime: maximumRuntime,
+          cooldown: cooldown,
+          onCapabilityChanged: onCapabilityChanged,
+        ),
+      ],
       groups: [
-        ProductCapabilityGroup(
-          title: 'Bơm & van nước',
-          description: 'Điều khiển đường nước khi cần tưới thủ công',
-          icon: Icons.water_drop_rounded,
-          capabilities: waterControls,
-        ),
-        ProductCapabilityGroup(
-          title: 'Tưới tự động',
-          description: 'Chế độ và ngưỡng mà bộ điều khiển dùng tại chỗ',
-          icon: Icons.auto_mode_rounded,
-          capabilities: automation,
-        ),
-        ProductCapabilityGroup(
-          title: 'Đất & nguồn nước',
-          description: 'Căn cứ để thiết bị quyết định thời điểm tưới',
-          icon: Icons.sensors_rounded,
-          capabilities: sensors,
-          useGrid: true,
-        ),
         ..._remainingGroups(device, used),
       ],
     );
   }
+}
+
+CapabilityModel? _productProperty(
+  DeviceModel device, {
+  required String capabilityId,
+  required String propertyId,
+}) {
+  for (final capability in device.capabilities) {
+    if (capability.capabilityId == capabilityId &&
+        capability.id == propertyId) {
+      return capability;
+    }
+  }
+  return null;
+}
+
+String _reservoirSummary(
+  CapabilityModel? availability,
+  CapabilityModel? level,
+) {
+  final availabilityValue = '${availability?.value}'.toLowerCase();
+  final availabilityLabel = switch (availabilityValue) {
+    'available' => 'Sẵn sàng',
+    'low' => 'Sắp hết',
+    'empty' => 'Đã hết',
+    _ => 'Chưa xác định',
+  };
+  final levelValue = productCapabilityValue(level, fallback: '');
+  return levelValue.isEmpty
+      ? availabilityLabel
+      : '$availabilityLabel · $levelValue';
 }
 
 class ProductDetailWorkbench extends StatelessWidget {

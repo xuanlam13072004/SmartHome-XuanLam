@@ -36,6 +36,7 @@ export function CapabilityControl({
 
   const controlDisabled = disabled || status === 'saving'
   const label = propertyLabel(property)
+  const firmwareOwned = property.presentation?.ui_hint === 'firmware_note'
 
   return (
     <div
@@ -45,12 +46,12 @@ export function CapabilityControl({
       <div className="physical-control__heading">
         <div>
           <strong>{label}</strong>
-          <small>{property.channel === 'diagnostic' ? 'Tín hiệu chẩn đoán' : 'Trạng thái thiết bị báo cáo'}</small>
+          <small>{firmwareOwned ? 'Thiết lập cố định trong firmware' : property.channel === 'diagnostic' ? 'Tín hiệu chẩn đoán' : 'Trạng thái thiết bị báo cáo'}</small>
         </div>
         <output aria-live="polite">{formatValue(value, property)}</output>
       </div>
 
-      {property.nullable && (
+      {!firmwareOwned && property.nullable && (
         <label className="nullable-toggle">
           <input
             checked={value === null || value === undefined}
@@ -62,7 +63,11 @@ export function CapabilityControl({
         </label>
       )}
 
-      {value !== null && value !== undefined && renderControl({
+      {firmwareOwned ? (
+        <p className="control-unavailable">
+          Chỉ hiển thị giá trị thiết bị đang báo; không thể chỉnh từ Simulator.
+        </p>
+      ) : value !== null && value !== undefined && renderControl({
         property,
         draft,
         disabled: controlDisabled,
@@ -70,9 +75,11 @@ export function CapabilityControl({
         commit,
       })}
 
-      <p className="control-feedback" role={status === 'error' ? 'alert' : 'status'}>
-        {status === 'saving' ? 'Đang cập nhật và gửi telemetry…' : message}
-      </p>
+      {!firmwareOwned && (
+        <p className="control-feedback" role={status === 'error' ? 'alert' : 'status'}>
+          {status === 'saving' ? 'Đang cập nhật và gửi telemetry…' : message}
+        </p>
+      )}
     </div>
   )
 }

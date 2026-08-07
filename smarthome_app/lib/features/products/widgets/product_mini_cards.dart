@@ -8,7 +8,7 @@ import '../../../domain/models/device_model.dart';
 import '../../dashboard/models/capability_model.dart';
 import '../product_capability_query.dart';
 
-typedef ProductCapabilityChanged = void Function(
+typedef ProductCapabilityChanged = Future<void> Function(
     CapabilityModel capability, dynamic value);
 
 class GenericProductMiniCard extends StatelessWidget {

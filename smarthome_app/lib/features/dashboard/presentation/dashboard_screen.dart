@@ -224,8 +224,10 @@ class DashboardScreen extends ConsumerWidget {
                           context,
                           device: device,
                           onTap: () => context.push('/device/${device.mac}'),
-                          onCapabilityChanged: (capability, value) {
-                            ref.read(devicesProvider.notifier).updateCapability(
+                          onCapabilityChanged: (capability, value) async {
+                            await ref
+                                .read(devicesProvider.notifier)
+                                .updateCapability(
                                   device.mac,
                                   capability,
                                   value,

@@ -137,7 +137,8 @@ export const loadCatalog = async (): Promise<ProductCatalog[]> => {
         for (const product of data.products) {
             if (
                 product.schema !== 'compiled.product.v2'
-                || product.catalog_revision !== data.catalog_revision
+                || !Number.isInteger(product.catalog_revision)
+                || product.catalog_revision < 1
                 || !Array.isArray(product.capability_instances)
             ) {
                 throw new Error(`Product ${product.product_id || '<unknown>'} has an invalid compiled contract`);

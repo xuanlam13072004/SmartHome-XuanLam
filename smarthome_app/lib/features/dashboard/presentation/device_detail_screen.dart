@@ -117,8 +117,8 @@ class DeviceDetailScreen extends ConsumerWidget {
           child: productUiRegistry.buildDetail(
             context,
             device: device,
-            onCapabilityChanged: (capability, value) {
-              _applyCapabilityChange(
+            onCapabilityChanged: (capability, value) async {
+              await _applyCapabilityChange(
                 context,
                 ref,
                 device,
@@ -152,12 +152,11 @@ class DeviceDetailScreen extends ConsumerWidget {
   ) async {
     final messenger = ScaffoldMessenger.of(context);
     try {
-      final session = await ref
-          .read(devicesProvider.notifier)
-          .createResourceSession(
-            device.mac,
-            resource,
-          );
+      final session =
+          await ref.read(devicesProvider.notifier).createResourceSession(
+                device.mac,
+                resource,
+              );
       final status = session['status']?.toString() ?? 'requested';
       if (!context.mounted) return;
       if (status != 'ready') {
@@ -218,7 +217,8 @@ class DeviceDetailScreen extends ConsumerWidget {
           );
       messenger.showSnackBar(
         const SnackBar(
-          content: Text('Đã gửi yêu cầu. PIN chỉ có hiệu lực sau khi thiết bị xác nhận.'),
+          content: Text(
+              'Đã gửi yêu cầu. PIN chỉ có hiệu lực sau khi thiết bị xác nhận.'),
         ),
       );
     } catch (error) {
@@ -299,9 +299,8 @@ class DeviceDetailScreen extends ConsumerWidget {
       } else if (operation.confirmation == 'reauthenticate') {
         final password = await _requestPassword(context, operation);
         if (password == null) return;
-        reauthToken = await ref
-            .read(authRepositoryProvider)
-            .reauthenticate(password);
+        reauthToken =
+            await ref.read(authRepositoryProvider).reauthenticate(password);
       }
 
       await ref.read(devicesProvider.notifier).updateCapability(
