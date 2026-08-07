@@ -5,6 +5,7 @@ import type { FastifyBaseLogger } from 'fastify';
 let pool: Pool | null = null;
 
 export const initPostgres = async (logger: FastifyBaseLogger): Promise<void> => {
+    await closePostgres();
     pool = new Pool({
         user: env.POSTGRES_USER,
         password: env.POSTGRES_PASSWORD,
@@ -19,6 +20,7 @@ export const initPostgres = async (logger: FastifyBaseLogger): Promise<void> => 
         client.release();
     } catch (err) {
         logger.error({ err }, 'Failed to connect to PostgreSQL database');
+        await closePostgres().catch(() => undefined);
         throw err;
     }
 };

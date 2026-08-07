@@ -37,7 +37,7 @@ export default function StatsOverview({ enabled }: { enabled: boolean }) {
       })
       setError('')
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not load simulator totals')
+      setError(caught instanceof Error ? caught.message : 'Không tải được thống kê Simulator.')
     } finally {
       setLoading(false)
     }
@@ -58,16 +58,16 @@ export default function StatsOverview({ enabled }: { enabled: boolean }) {
     <section aria-labelledby="overview-title">
       <div className="section-heading">
         <div>
-          <h2 id="overview-title">Current registry</h2>
-          <p>Counts are read from DeviceSimulatorDB. No values are estimated.</p>
+          <h2 id="overview-title">Registry hiện tại</h2>
+          <p>Số liệu được đọc trực tiếp từ DeviceSimulatorDB, không dùng giá trị ước lượng.</p>
         </div>
       </div>
       {error && <p className="notice notice--error" role="alert">{error}</p>}
       <div className={`stat-sheet${loading ? ' is-loading' : ''}`} aria-live="polite">
-        <StatRow icon="runs" label="Active runs" value={stats.activeRuns} />
-        <StatRow icon="user" label="Generated users" value={stats.totalUsers} emphasis />
-        <StatRow icon="device" label="Virtual devices" value={stats.totalDevices} />
-        <StatRow icon="signal" label="MQTT online" value={stats.onlineDevices} />
+        <StatRow icon="runs" label="Lần chạy đang hoạt động" value={stats.activeRuns} />
+        <StatRow icon="user" label="Người dùng ảo" value={stats.totalUsers} emphasis />
+        <StatRow icon="device" label="Thiết bị ảo" value={stats.totalDevices} />
+        <StatRow icon="signal" label="MQTT trực tuyến" value={stats.onlineDevices} />
       </div>
     </section>
   )
@@ -88,7 +88,7 @@ function StatRow({
     <article className={`stat-row${emphasis ? ' stat-row--wide' : ''}`}>
       <Icon name={icon} />
       <span>{label}</span>
-      <strong>{new Intl.NumberFormat().format(value)}</strong>
+      <strong>{new Intl.NumberFormat('vi-VN').format(value)}</strong>
     </article>
   )
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Icon } from './Icon'
 
-export function CopyButton({ value, label = 'Copy' }: { value: string; label?: string }) {
+export function CopyButton({ value, label = 'Sao chép' }: { value: string; label?: string }) {
   const [copied, setCopied] = useState(false)
 
   useEffect(() => {
@@ -18,7 +18,7 @@ export function CopyButton({ value, label = 'Copy' }: { value: string; label?: s
   return (
     <button className="button button--quiet button--compact" data-state={copied ? 'success' : 'default'} onClick={() => void copy()} type="button">
       <Icon name="copy" size={15} />
-      {copied ? 'Copied' : label}
+      {copied ? 'Đã sao chép' : label}
     </button>
   )
 }

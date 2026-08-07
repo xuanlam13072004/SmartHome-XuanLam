@@ -199,11 +199,33 @@ export const patchDeviceState = (
     product: ProductCatalog,
     patch: DeviceStatePatch,
 ): DeviceState => {
+    validateDeviceStatePatch(product, patch);
     const next = clone(state);
+    for (const [instanceId, envelope] of Object.entries(patch.instances || {})) {
+        next.instances[instanceId] ||= { reported: {}, desired: {} };
+        for (const channel of ['reported', 'desired'] as const) {
+            for (const [propertyId, value] of Object.entries(envelope[channel] || {})) {
+                next.instances[instanceId][channel][propertyId] = value;
+            }
+        }
+    }
+    for (const [instanceId, values] of Object.entries(patch.diagnostics || {})) {
+        next.diagnostics[instanceId] ||= {};
+        for (const [propertyId, value] of Object.entries(values)) {
+            next.diagnostics[instanceId][propertyId] = value;
+        }
+    }
+    next.state_version += 1;
+    return next;
+};
+
+export const validateDeviceStatePatch = (
+    product: ProductCatalog,
+    patch: DeviceStatePatch,
+): void => {
     for (const [instanceId, envelope] of Object.entries(patch.instances || {})) {
         const definition = product.capability_instances.find(item => item.instance_id === instanceId);
         if (!definition) throw new Error(`Unknown capability instance ${instanceId}`);
-        next.instances[instanceId] ||= { reported: {}, desired: {} };
         for (const channel of ['reported', 'desired'] as const) {
             for (const [propertyId, value] of Object.entries(envelope[channel] || {})) {
                 const property = definition.properties.find(item => (
@@ -213,24 +235,18 @@ export const patchDeviceState = (
                     `Unknown ${channel} property ${instanceId}.${propertyId}`,
                 );
                 validateValueAgainstSchema(value, property, `${instanceId}.${channel}.${propertyId}`);
-                next.instances[instanceId][channel][propertyId] = value;
             }
         }
     }
     for (const [instanceId, values] of Object.entries(patch.diagnostics || {})) {
-        if (!product.capability_instances.some(item => item.instance_id === instanceId)) {
-            throw new Error(`Unknown diagnostic instance ${instanceId}`);
-        }
-        next.diagnostics[instanceId] ||= {};
+        const definition = product.capability_instances.find(item => item.instance_id === instanceId);
+        if (!definition) throw new Error(`Unknown diagnostic instance ${instanceId}`);
         for (const [propertyId, value] of Object.entries(values)) {
-            const property = product.capability_instances
-                .find(item => item.instance_id === instanceId)
-                ?.properties.find(item => item.id === propertyId && item.channel === 'diagnostic');
+            const property = definition.properties.find(item => (
+                item.id === propertyId && item.channel === 'diagnostic'
+            ));
             if (!property) throw new Error(`Unknown diagnostic property ${instanceId}.${propertyId}`);
             validateValueAgainstSchema(value, property, `${instanceId}.diagnostic.${propertyId}`);
-            next.diagnostics[instanceId][propertyId] = value;
         }
     }
-    next.state_version += 1;
-    return next;
 };

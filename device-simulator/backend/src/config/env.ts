@@ -32,6 +32,8 @@ const envSchema = z.object({
 
     API_GATEWAY_URL: z.string().url(),
     API_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120000).default(15000),
+    STARTUP_RETRY_ATTEMPTS: z.coerce.number().int().min(1).max(120).default(30),
+    STARTUP_RETRY_DELAY_MS: z.coerce.number().int().min(100).max(60000).default(2000),
     REGISTRATION_DELAY_MS: z.coerce.number().int().min(0).max(120000).default(12500),
     CLAIM_DELAY_MS: z.coerce.number().int().min(0).max(120000).default(6500),
     MAX_USERS_PER_RUN: z.coerce.number().int().min(1).max(100000).default(10000),

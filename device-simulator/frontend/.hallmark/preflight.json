@@ -1,10 +1,17 @@
 {
-  "date": "2026-07-27",
-  "mode": "full-rebuild-authorized-by-user",
-  "framework": "React 19 + Vite 8",
-  "styling": "Plain CSS with semantic tokens; unused Tailwind/PostCSS stack removed",
-  "font_stack": "Geist + Geist Mono",
-  "palette": "Coral warm-light semantic OKLCH tokens",
-  "motion": "motion-cut; no motion library",
-  "spacing": "Named 4px-derived scale in tokens.css"
+  "timestamp": "2026-08-06T00:00:00+07:00",
+  "scope": "device-simulator/frontend",
+  "framework": "React 19.2 + Vite 8.1",
+  "styling": "Plain CSS with semantic tokens",
+  "fonts": ["Geist", "Geist Mono"],
+  "theme": {
+    "name": "Coral",
+    "color_space": "OKLCH",
+    "mode": "warm light"
+  },
+  "macrostructure": "Workbench",
+  "motion_library": "none",
+  "spacing_grid_px": 4,
+  "enrichment": "none",
+  "locale": "vi-VN"
 }

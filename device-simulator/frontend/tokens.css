@@ -19,10 +19,18 @@
   --color-warning-soft: oklch(94% 0.045 71);
   --color-error: oklch(47% 0.18 25);
   --color-error-soft: oklch(93.5% 0.04 25);
+  --color-info: oklch(47% 0.11 244);
+  --color-info-soft: oklch(94% 0.025 244);
+  --color-neutral-soft: oklch(93.5% 0.012 55);
   --color-graphite: oklch(22% 0.014 38);
   --color-graphite-2: oklch(29% 0.018 39);
   --color-graphite-ink: oklch(94% 0.012 60);
   --color-overlay: oklch(18% 0.016 38 / 0.5);
+  --color-lcd-bezel: oklch(20% 0.018 158);
+  --color-lcd-surface: oklch(30% 0.055 148);
+  --color-lcd-grid: oklch(37% 0.065 148);
+  --color-lcd-ink: oklch(91% 0.17 127);
+  --color-lcd-muted: oklch(67% 0.105 133);
 
   --font-display: "Geist", "Segoe UI", sans-serif;
   --font-body: "Geist", "Segoe UI", sans-serif;
@@ -62,6 +70,7 @@
   --radius-md: 0.625rem;
   --radius-lg: 0.875rem;
   --shadow-whisper: 0 1px 2px oklch(24% 0.02 38 / 0.05);
+  --shadow-raised: 0 0.75rem 2.5rem oklch(22% 0.018 38 / 0.1);
   --shadow-modal: 0 1.5rem 5rem oklch(20% 0.02 38 / 0.22);
 
   --z-base: 1;

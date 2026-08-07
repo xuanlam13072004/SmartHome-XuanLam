@@ -65,6 +65,7 @@ export class DeviceRuntime {
     private isPaused = false;
     private desiredOnline = false;
     private isPublishing = false;
+    private pendingImmediateTelemetry = false;
     private connectPromise: Promise<void> | null = null;
     private lastRegistrySyncAt = 0;
     private lastTelemetryAt: Date | null = null;
@@ -455,7 +456,15 @@ export class DeviceRuntime {
     }
 
     private async publishTelemetry(evolve: boolean): Promise<void> {
-        if (!this.connected || this.isPublishing) return;
+        if (!this.connected) return;
+        if (this.isPublishing) {
+            // A physical state change, operation or credential update must not
+            // disappear when it overlaps the scheduler's in-flight publish.
+            // Coalesce repeated immediate requests; the follow-up packet reads
+            // the latest complete state after the current packet finishes.
+            if (!evolve) this.pendingImmediateTelemetry = true;
+            return;
+        }
         this.isPublishing = true;
         try {
             const product = getProduct(this.productId);
@@ -497,6 +506,10 @@ export class DeviceRuntime {
             });
         } finally {
             this.isPublishing = false;
+            if (this.pendingImmediateTelemetry) {
+                this.pendingImmediateTelemetry = false;
+                await this.publishTelemetry(false);
+            }
         }
     }
 

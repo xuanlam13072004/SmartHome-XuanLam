@@ -59,7 +59,7 @@ export function CommandPalette({
     <>
       <button className="command-trigger" onClick={open} type="button">
         <Icon name="search" />
-        <span>Search or jump</span>
+        <span>Tìm hoặc chuyển nhanh</span>
         <kbd>Ctrl K</kbd>
       </button>
 
@@ -76,7 +76,7 @@ export function CommandPalette({
             <Icon name="search" />
             <input
               aria-controls={listId}
-              aria-label="Search simulator destinations"
+              aria-label="Tìm màn hình trong simulator"
               onChange={(event) => {
                 setQuery(event.target.value)
                 setActiveIndex(0)
@@ -95,17 +95,17 @@ export function CommandPalette({
                   choose(results[activeIndex])
                 }
               }}
-              placeholder="Search registry, create, infrastructure or events"
+              placeholder="Tìm thiết bị, người dùng, phiên hoặc hệ thống"
               ref={inputRef}
               value={query}
             />
-            <button aria-label="Close command palette" onClick={close} type="button">Esc</button>
+            <button aria-label="Đóng bảng điều hướng" onClick={close} type="button">Esc</button>
           </header>
           <div className="command-context">
             <span className={`status-mark status-mark--${infrastructureReady ? 'ok' : 'warning'}`} />
-            {infrastructureReady ? 'Infrastructure ready' : 'Preflight required'}
+            {infrastructureReady ? 'Hạ tầng sẵn sàng' : 'Cần kiểm tra hệ thống'}
           </div>
-          <p className="visually-hidden" id={`${listId}-title`}>Simulator navigation</p>
+          <p className="visually-hidden" id={`${listId}-title`}>Điều hướng Simulator</p>
           <ul id={listId} role="listbox">
             {results.map((item, index) => (
               <li key={item.id}>
@@ -124,7 +124,7 @@ export function CommandPalette({
             ))}
           </ul>
           {results.length === 0 && (
-            <p className="command-empty">No destination matches “{query}”.</p>
+            <p className="command-empty">Không có màn hình phù hợp với “{query}”.</p>
           )}
         </div>
       </dialog>

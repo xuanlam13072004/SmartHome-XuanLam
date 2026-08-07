@@ -41,7 +41,7 @@ export function UserDetail({
       setOperations(result.operations)
       setError('')
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not load simulated user')
+      setError(caught instanceof Error ? caught.message : 'Không thể tải người dùng mô phỏng')
     } finally {
       setLoading(false)
     }
@@ -57,7 +57,7 @@ export function UserDetail({
       const result = await revealUserCredential(accountId)
       setCredential(result.credential)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not reveal login credential')
+      setError(caught instanceof Error ? caught.message : 'Không thể giải mã thông tin đăng nhập')
     }
   }
 
@@ -69,7 +69,7 @@ export function UserDetail({
       await userAction(accountId, action)
       await load()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : `Could not ${action}`)
+      setError(caught instanceof Error ? caught.message : 'Không thể thực hiện thao tác người dùng')
     } finally {
       setActing('')
     }
@@ -81,74 +81,74 @@ export function UserDetail({
       await extendUser(accountId, 24)
       await load()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not extend retention')
+      setError(caught instanceof Error ? caught.message : 'Không thể gia hạn dữ liệu')
     } finally {
       setActing('')
     }
   }
 
   const cleanup = async () => {
-    if (!window.confirm('Delete this simulated user, their account, devices and telemetry?')) return
+    if (!window.confirm('Xóa người dùng mô phỏng này cùng tài khoản, thiết bị và telemetry?')) return
     setActing('cleanup')
     try {
       await userAction(accountId, 'cleanup')
       onBack()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not clean simulated user')
+      setError(caught instanceof Error ? caught.message : 'Không thể dọn người dùng mô phỏng')
       setActing('')
     }
   }
 
   return (
     <section aria-labelledby="user-title">
-      <DetailHeading id="user-title" label="Back to runs" onBack={onBack} title={user?.full_name || 'Simulated user'} />
+      <DetailHeading id="user-title" label="Quay lại" onBack={onBack} title={user?.full_name || 'Người dùng mô phỏng'} />
       {error && <p className="notice notice--error" role="alert">{error}</p>}
       {loading && <div className="skeleton-list" />}
       {user && (
         <>
           <div className="device-toolbar">
-            <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void act('relogin')} type="button">Login again</button>
-            <button className="button button--quiet" disabled={Boolean(acting) || !user.auth_session} onClick={() => void act('refresh-session')} type="button">Refresh session</button>
-            <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void extend()} type="button">Extend 24 h</button>
+            <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void act('relogin')} type="button">Đăng nhập lại</button>
+            <button className="button button--quiet" disabled={Boolean(acting) || !user.auth_session} onClick={() => void act('refresh-session')} type="button">Làm mới phiên</button>
+            <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void extend()} type="button">Gia hạn 24 giờ</button>
             {user.retention_policy !== 'permanent' && (
-              <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void act('make-permanent')} type="button">Keep permanently</button>
+              <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void act('make-permanent')} type="button">Lưu vĩnh viễn</button>
             )}
-            <button className="button button--danger" disabled={Boolean(acting)} onClick={() => void cleanup()} type="button">Cleanup user</button>
+            <button className="button button--danger" disabled={Boolean(acting)} onClick={() => void cleanup()} type="button">Dọn người dùng</button>
           </div>
 
           <dl className="detail-spec">
-            <Spec label="Account ID" value={user.account_id || 'Registration pending'} mono />
+            <Spec label="ID tài khoản" value={user.account_id || 'Đang chờ đăng ký'} mono />
             <Spec label="Email" value={user.email} />
-            <Spec label="Generation" value={user.generation_state} />
+            <Spec label="Trạng thái tạo" value={user.generation_state} />
             <Spec
-              label="Account ownership"
+              label="Nguồn tài khoản"
               value={user.account_created_by_simulator
-                ? `Verified (${formatProvenance(user.account_provenance)})`
-                : 'Unverified — cleanup blocked'}
+                ? `Đã xác minh (${formatProvenance(user.account_provenance)})`
+                : 'Chưa xác minh — không được phép tự dọn'}
             />
-            <Spec label="Retention" value={user.retention_policy === 'ttl' ? `Until ${formatDate(user.expires_at)}` : 'Permanent'} />
-            <Spec label="Login session" value={user.auth_session ? `${user.auth_session.session_id} · ${formatDate(user.auth_session.updated_at)}` : 'Not stored'} mono />
-            <Spec label="Target devices" value={String(user.target_device_count)} />
+            <Spec label="Lưu giữ" value={user.retention_policy === 'ttl' ? `Đến ${formatDate(user.expires_at)}` : 'Vĩnh viễn'} />
+            <Spec label="Phiên đăng nhập" value={user.auth_session ? `${user.auth_session.session_id} · ${formatDate(user.auth_session.updated_at)}` : 'Chưa lưu'} mono />
+            <Spec label="Số thiết bị mục tiêu" value={String(user.target_device_count)} />
           </dl>
 
           <section className="credential-panel" aria-labelledby="credential-title">
             <div>
-              <h3 id="credential-title">Flutter login credential</h3>
-              <p>The password is decrypted only after an explicit admin action. Reveals are written to simulator events.</p>
+              <h3 id="credential-title">Tài khoản đăng nhập Flutter</h3>
+              <p>Mật khẩu chỉ được giải mã khi quản trị viên chủ động yêu cầu; mỗi lần xem đều được ghi vào nhật ký.</p>
             </div>
             {credential
               ? (
                 <dl className="secret-sheet">
                   <div><dt>Email</dt><dd>{credential.email}<CopyButton value={credential.email} /></dd></div>
-                  <div><dt>Password</dt><dd><code>{credential.password}</code><CopyButton value={credential.password} /></dd></div>
+                  <div><dt>Mật khẩu</dt><dd><code>{credential.password}</code><CopyButton value={credential.password} /></dd></div>
                 </dl>
               )
-              : <button className="button button--quiet" onClick={() => void reveal()} type="button">Reveal login</button>}
+              : <button className="button button--quiet" onClick={() => void reveal()} type="button">Hiện thông tin đăng nhập</button>}
           </section>
 
           <section className="detail-section">
             <div className="section-heading section-heading--compact">
-              <div><h3>Owned devices</h3><p>{devices.length} registry-tracked device{devices.length === 1 ? '' : 's'}.</p></div>
+              <div><h3>Thiết bị sở hữu</h3><p>{devices.length} thiết bị đang được registry quản lý.</p></div>
             </div>
             <div className="entity-list entity-list--full">
               {devices.map((device) => (
@@ -162,8 +162,8 @@ export function UserDetail({
           </section>
 
           <div className="device-data-grid">
-            <HistoryPanel title="Recent telemetry" count={telemetry.length} value={telemetry[0]} />
-            <HistoryPanel title="Recent operations" count={operations.length} value={operations[0]} />
+            <HistoryPanel title="Telemetry gần nhất" count={telemetry.length} value={telemetry[0]} />
+            <HistoryPanel title="Thao tác gần nhất" count={operations.length} value={operations[0]} />
           </div>
         </>
       )}
@@ -182,10 +182,10 @@ function HistoryPanel({
 }) {
   return (
     <section className="data-panel">
-      <div className="section-heading section-heading--compact"><div><h3>{title}</h3><p>{count} records loaded.</p></div></div>
+      <div className="section-heading section-heading--compact"><div><h3>{title}</h3><p>Đã tải {count} bản ghi.</p></div></div>
       {value
         ? <pre>{JSON.stringify(value, null, 2)}</pre>
-        : <p className="empty-inline">No matching history yet.</p>}
+        : <p className="empty-inline">Chưa có lịch sử phù hợp.</p>}
     </section>
   )
 }
@@ -217,10 +217,10 @@ function Spec({ label, value, mono = false }: { label: string; value: string; mo
 }
 
 const formatDate = (value?: string) => value
-  ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
-  : 'Run has not completed'
+  ? new Intl.DateTimeFormat('vi-VN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+  : 'Phiên chưa hoàn tất'
 
 const formatProvenance = (value?: SimulatedUser['account_provenance']) => {
-  if (value === 'recovered_after_register') return 'recovered registration'
-  return 'registered by simulator'
+  if (value === 'recovered_after_register') return 'khôi phục sau đăng ký'
+  return 'do simulator đăng ký'
 }

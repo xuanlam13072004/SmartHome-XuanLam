@@ -6,8 +6,11 @@ const catalogRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         success: true,
         products: getCachedCatalog().map((product) => ({
             id: product.product_id,
-            display_name: product.model_name,
+            display_name: product.presentation?.display_name || product.model_name,
             category: product.category,
+            description: product.presentation?.description || product.description || '',
+            icon: product.presentation?.icon || 'device_unknown',
+            ui_profile: product.ui_profile || 'generic',
             capability_count: product.capability_instances.length,
         })),
     }));

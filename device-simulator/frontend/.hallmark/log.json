@@ -1,5 +1,19 @@
 [
   {
+    "date": "2026-08-06",
+    "macrostructure": "Workbench",
+    "theme": "Coral",
+    "enrichment": "none",
+    "nav": "N3 Side-rail",
+    "footer": "Ft2 Inline single line",
+    "brief": "Device-first physical controls, live telemetry and LCD simulator workbench",
+    "pre_emit": "P5 H5 E5 S5 R5 V4",
+    "slop_test": "pass 58/58",
+    "responsive_viewports": [320, 375, 414, 768, 1280],
+    "contrast": "pass semantic OKLCH pairs",
+    "diversification": "Index-First/command-led -> Workbench/device-first dual-pane; older Workbench changed from overview-led Cobalt to physical-device Coral"
+  },
+  {
     "date": "2026-07-27",
     "macrostructure": "Index-First",
     "theme": "Coral",

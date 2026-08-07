@@ -184,7 +184,111 @@ export interface CatalogProduct {
   id: string
   display_name: string
   category: string
+  description: string
+  icon: string
+  ui_profile: string
   capability_count: number
+}
+
+export interface ValueSchema {
+  type: 'boolean' | 'number' | 'integer' | 'string' | 'array' | string
+  nullable?: boolean
+  enum?: unknown[]
+  minimum?: number
+  maximum?: number
+  min_length?: number
+  max_length?: number
+  min_items?: number
+  max_items?: number
+  items?: ValueSchema
+  default?: unknown
+  unit?: string
+  precision?: number
+  required?: boolean
+  presentation?: PresentationMetadata
+}
+
+export interface PresentationMetadata {
+  display_name?: string
+  label?: string
+  description?: string
+  icon?: string
+  section?: string
+  order?: number
+  ui_hint?: string
+  [key: string]: unknown
+}
+
+export interface CapabilityProperty extends ValueSchema {
+  id: string
+  channel: 'reported' | 'desired' | 'diagnostic'
+  path: string
+}
+
+export interface CapabilityOperation {
+  id: string
+  input: Record<string, ValueSchema>
+  permission: string
+  risk: 'normal' | 'sensitive' | 'dangerous'
+  presentation?: PresentationMetadata
+}
+
+export interface CapabilityEvent {
+  id: string
+  producer?: string
+  severity?: string
+  retention?: string
+  data?: Record<string, ValueSchema>
+  presentation?: PresentationMetadata
+}
+
+export interface CapabilityInstance {
+  instance_id: string
+  capability_id: string
+  semantic_role?: string
+  availability?: string
+  presentation?: PresentationMetadata
+  runtime?: Record<string, unknown>
+  properties: CapabilityProperty[]
+  operations: CapabilityOperation[]
+  events: CapabilityEvent[]
+  resources: Array<Record<string, unknown>>
+}
+
+export interface ProductContract {
+  schema: 'compiled.product.v2'
+  product_id: string
+  catalog_revision: number
+  model_name: string
+  category: string
+  description?: string
+  ui_profile?: string
+  presentation: PresentationMetadata
+  capability_instances: CapabilityInstance[]
+  local_policies?: Array<Record<string, unknown>>
+}
+
+export interface DeviceStatePatch {
+  instances?: Record<string, {
+    reported?: Record<string, unknown>
+    desired?: Record<string, unknown>
+  }>
+  diagnostics?: Record<string, Record<string, unknown>>
+}
+
+export interface DeviceDetailPayload {
+  device: SimulatedDevice
+  product: ProductContract
+  backend_shadow: Record<string, unknown> | null
+  telemetry: Record<string, unknown>[]
+  operations: DeviceOperation[]
+  events: SimulatorEvent[]
+}
+
+export interface DeviceLivePayload {
+  device: SimulatedDevice
+  backend_shadow: Record<string, unknown> | null
+  latest_telemetry: Record<string, unknown> | null
 }
 
 export interface PreflightCheck {

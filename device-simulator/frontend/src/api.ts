@@ -1,6 +1,9 @@
 import type {
   CatalogProduct,
+  DeviceDetailPayload,
+  DeviceLivePayload,
   DeviceOperation,
+  DeviceStatePatch,
   Preflight,
   RunMetrics,
   RunConfig,
@@ -32,12 +35,21 @@ export class ApiError extends Error {
 export const getAdminToken = (): string => sessionStorage.getItem(TOKEN_KEY) || ''
 
 export const setAdminToken = (token: string): void => {
-  const normalized = token.trim()
+  const normalized = token
+    .trim()
+    .replace(/^ADMIN_TOKEN\s*=\s*/i, '')
+    .replace(/^Bearer\s+/i, '')
+    .replace(/^["']|["']$/g, '')
+    .trim()
   if (normalized) sessionStorage.setItem(TOKEN_KEY, normalized)
   else sessionStorage.removeItem(TOKEN_KEY)
 }
 
-const request = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
+const request = async <T>(
+  path: string,
+  init: RequestInit = {},
+  acceptedErrorStatuses: readonly number[] = [],
+): Promise<T> => {
   const token = getAdminToken()
   const hasBody = init.body !== undefined && init.body !== null
   const response = await fetch(`${API_BASE}${path}`, {
@@ -51,7 +63,7 @@ const request = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
   const data = await response.json().catch(() => null) as {
     error?: string | { code?: string; message?: string }
   } | null
-  if (!response.ok) {
+  if (!response.ok && !acceptedErrorStatuses.includes(response.status)) {
     const message = typeof data?.error === 'string'
       ? data.error
       : data?.error?.message || `Simulator API returned HTTP ${response.status}`
@@ -61,7 +73,10 @@ const request = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
   return data as T
 }
 
-export const fetchPreflight = () => request<Preflight>('/preflight')
+// A valid token can still produce 503 while one infrastructure dependency is
+// unavailable. Preserve that response so the UI can show individual checks;
+// authentication failures such as 401 still throw.
+export const fetchPreflight = () => request<Preflight>('/preflight', {}, [503])
 
 export const fetchRuns = async (): Promise<SimulationRun[]> =>
   (await request<{ runs: SimulationRun[] }>('/simulation-runs')).runs
@@ -118,13 +133,10 @@ export const fetchDevices = async (
 }
 
 export const fetchDevice = async (mac: string) =>
-  request<{
-    device: SimulatedDevice
-    backend_shadow: Record<string, unknown> | null
-    telemetry: Record<string, unknown>[]
-    operations: DeviceOperation[]
-    events: SimulatorEvent[]
-  }>(`/devices/${encodeURIComponent(mac)}`)
+  request<DeviceDetailPayload>(`/devices/${encodeURIComponent(mac)}`)
+
+export const fetchDeviceLive = async (mac: string) =>
+  request<DeviceLivePayload>(`/devices/${encodeURIComponent(mac)}/live`)
 
 export const setDeviceConnection = (mac: string, online: boolean) =>
   request(`/devices/${encodeURIComponent(mac)}/${online ? 'connect' : 'disconnect'}`, {
@@ -141,14 +153,11 @@ export const deviceAction = (
 
 export const updateDeviceState = (
   mac: string,
-  state: {
-    instances?: Record<string, {
-      reported?: Record<string, unknown>
-      desired?: Record<string, unknown>
-    }>
-    diagnostics?: Record<string, Record<string, unknown>>
-  },
-) => request(`/devices/${encodeURIComponent(mac)}/state`, {
+  state: DeviceStatePatch,
+) => request<{
+  state: NonNullable<SimulatedDevice['state_snapshot']>
+  delivery: 'publish_requested' | 'stored_offline'
+}>(`/devices/${encodeURIComponent(mac)}/state`, {
   method: 'PATCH',
   body: JSON.stringify(state),
 })

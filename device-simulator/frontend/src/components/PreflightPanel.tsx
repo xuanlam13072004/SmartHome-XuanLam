@@ -28,7 +28,7 @@ export function PreflightPanel({
     } catch (caught) {
       setPreflight(null)
       onReadyChange(false)
-      setError(caught instanceof Error ? caught.message : 'Could not check simulator infrastructure')
+      setError(caught instanceof Error ? caught.message : 'Không kiểm tra được hạ tầng Simulator.')
     } finally {
       setLoading(false)
     }
@@ -48,8 +48,8 @@ export function PreflightPanel({
     <section className="preflight" aria-labelledby="preflight-title">
       <div className="section-heading">
         <div>
-          <h2 id="preflight-title">Infrastructure</h2>
-          <p>Five checks must pass before the simulator can create real accounts and devices.</p>
+          <h2 id="preflight-title">Kiểm tra hạ tầng</h2>
+          <p>Năm dependency phải sẵn sàng trước khi Simulator tạo tài khoản và thiết bị thật trong hệ thống.</p>
         </div>
         <button
           className="button button--quiet"
@@ -59,29 +59,40 @@ export function PreflightPanel({
           type="button"
         >
           <Icon name="refresh" />
-          {loading ? 'Checking…' : 'Check again'}
+          {loading ? 'Đang kiểm tra…' : 'Kiểm tra lại'}
         </button>
       </div>
 
       <form className="token-form" onSubmit={saveToken}>
-        <label htmlFor="admin-token">Simulator admin token</label>
+        <label htmlFor="admin-token">Admin token của Simulator</label>
         <div className="field-row">
           <input
             autoComplete="off"
             id="admin-token"
             onChange={(event) => setToken(event.target.value)}
-            placeholder="Paste the token from device-simulator/.env"
+            placeholder="Dán giá trị ADMIN_TOKEN từ .env.docker"
             type="password"
             value={token}
           />
           <button className="button button--primary" disabled={token.trim().length < 16} type="submit">
-            Verify token
+            Xác thực token
           </button>
         </div>
-        <p className="field-help">Stored only in this browser tab’s session storage.</p>
+        <p className="field-help">Chỉ lưu trong session storage của tab trình duyệt này. Có thể dán cả `ADMIN_TOKEN=` hoặc `Bearer`.</p>
       </form>
 
       {error && <p className="notice notice--error" role="alert">{error}</p>}
+
+      {!error && preflight && (
+        <p
+          className={`notice ${preflight.success ? 'notice--success' : 'notice--warning'}`}
+          role="status"
+        >
+          {preflight.success
+            ? 'Token hợp lệ. Toàn bộ hạ tầng Simulator đã sẵn sàng.'
+            : 'Token hợp lệ, nhưng một hoặc nhiều dependency chưa sẵn sàng.'}
+        </p>
+      )}
 
       <div className="check-grid" aria-live="polite">
         {preflight
@@ -89,13 +100,21 @@ export function PreflightPanel({
               <article className="check-row" key={name}>
                 <span className={`status-mark status-mark--${check.status}`} aria-hidden="true" />
                 <div>
-                  <strong>{name.replaceAll('_', ' ')}</strong>
+                  <strong>{dependencyName(name)}</strong>
                   <span>{check.status === 'ok' ? `${check.latency_ms} ms` : check.message}</span>
                 </div>
               </article>
             ))
-          : <p className="empty-inline">Enter the admin token to run preflight checks.</p>}
+          : <p className="empty-inline">Nhập admin token để chạy preflight.</p>}
       </div>
     </section>
   )
 }
+
+const dependencyName = (value: string): string => ({
+  api_gateway: 'API Gateway',
+  postgres: 'PostgreSQL',
+  mongodb: 'MongoDB',
+  mqtt: 'MQTT Broker',
+  catalog: 'Product Catalog',
+}[value] || value.replaceAll('_', ' '))

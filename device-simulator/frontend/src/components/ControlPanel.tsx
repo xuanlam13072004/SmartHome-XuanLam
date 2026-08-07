@@ -39,7 +39,7 @@ export default function ControlPanel({
         ? current
         : { ...current, products: [{ product_id: products[0].id, weight: 100 }] })
     }).catch((caught) => {
-      setError(caught instanceof Error ? caught.message : 'Could not load product catalog')
+      setError(caught instanceof Error ? caught.message : 'Không tải được Product Catalog.')
     })
   }, [enabled])
 
@@ -89,19 +89,19 @@ export default function ControlPanel({
 
   const validate = (): string => {
     if (config.devices_min > config.devices_max) {
-      return 'Maximum devices must be greater than or equal to minimum devices.'
+      return 'Số thiết bị tối đa phải lớn hơn hoặc bằng số tối thiểu.'
     }
     if (config.networks_min > config.networks_max) {
-      return 'Maximum networks must be greater than or equal to minimum networks.'
+      return 'Số mạng Wi-Fi tối đa phải lớn hơn hoặc bằng số tối thiểu.'
     }
     if (config.devices_max > 0 && config.networks_min > config.devices_max) {
-      return 'Minimum networks cannot exceed maximum devices per user.'
+      return 'Số mạng Wi-Fi tối thiểu không được vượt quá số thiết bị tối đa của một user.'
     }
     if (config.products.length === 0) {
-      return 'Select at least one product. The simulator needs a real catalog template.'
+      return 'Chọn ít nhất một Product. Simulator cần contract thật từ Catalog.'
     }
     if (config.products.some((product) => product.weight <= 0)) {
-      return 'Every selected product needs a weight greater than zero.'
+      return 'Trọng số của mỗi Product phải lớn hơn 0.'
     }
     return ''
   }
@@ -119,7 +119,7 @@ export default function ControlPanel({
       const result = await createRun(config)
       onCreated(result.run_id)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not create simulation run')
+      setError(caught instanceof Error ? caught.message : 'Không tạo được lần chạy mô phỏng.')
     } finally {
       setLoading(false)
     }
@@ -129,70 +129,70 @@ export default function ControlPanel({
     <section aria-labelledby="create-title">
       <div className="section-heading">
         <div>
-          <h2 id="create-title">Create a simulation run</h2>
-          <p>Accounts register through API Gateway. Devices provision in PostgreSQL, claim through the public API, then connect to MQTT.</p>
+          <h2 id="create-title">Tạo dữ liệu mô phỏng</h2>
+          <p>User được đăng ký qua API Gateway; thiết bị được provision trong PostgreSQL, claim qua API công khai rồi kết nối MQTT.</p>
         </div>
       </div>
 
       {!enabled && (
-        <p className="notice notice--warning">Complete infrastructure preflight before creating a run.</p>
+        <p className="notice notice--warning">Hoàn tất preflight ở màn hình Hệ thống trước khi tạo dữ liệu.</p>
       )}
       {error && <p className="notice notice--error" role="alert">{error}</p>}
 
       <form className="run-form" onSubmit={handleSubmit}>
         <fieldset className="form-section" disabled={!enabled || loading}>
-          <legend>Accounts and ownership</legend>
+          <legend>Tài khoản và quyền sở hữu</legend>
           <div className="form-grid form-grid--uneven">
-            <Field label="Number of users" help="1–10,000 per run">
+            <Field label="Số người dùng" help="1–10.000 user mỗi lần chạy">
               <input min="1" max="10000" onChange={(event) => updateNumber('user_count', event.target.value)} required type="number" value={config.user_count} />
             </Field>
-            <Field label="Email prefix" help="Letters, numbers, dash or underscore">
+            <Field label="Tiền tố email" help="Chữ, số, dấu gạch ngang hoặc gạch dưới">
               <input maxLength={24} onChange={(event) => setConfig({ ...config, email_prefix: event.target.value })} pattern="[a-zA-Z0-9_-]+" required value={config.email_prefix} />
             </Field>
-            <Field label="Email domain" help="Used only for generated accounts">
+            <Field label="Tên miền email" help="Chỉ dùng cho tài khoản được tự động sinh">
               <input onChange={(event) => setConfig({ ...config, email_domain: event.target.value })} required value={config.email_domain} />
             </Field>
           </div>
         </fieldset>
 
         <fieldset className="form-section" disabled={!enabled || loading}>
-          <legend>Device distribution</legend>
+          <legend>Phân bổ thiết bị</legend>
           <div className="form-grid">
-            <Field label="Minimum per user">
+            <Field label="Thiết bị tối thiểu mỗi user">
               <input min="0" max="100" onChange={(event) => updateNumber('devices_min', event.target.value)} required type="number" value={config.devices_min} />
             </Field>
-            <Field label="Maximum per user">
+            <Field label="Thiết bị tối đa mỗi user">
               <input min="0" max="100" onChange={(event) => updateNumber('devices_max', event.target.value)} required type="number" value={config.devices_max} />
             </Field>
-            <Field label="Minimum Wi-Fi networks" help="Each network elects its own Hub">
+            <Field label="Số mạng Wi-Fi tối thiểu" help="Mỗi mạng tự bầu một Hub">
               <input min="1" max="100" onChange={(event) => updateNumber('networks_min', event.target.value)} required type="number" value={config.networks_min} />
             </Field>
-            <Field label="Maximum Wi-Fi networks" help="Devices are spread deterministically">
+            <Field label="Số mạng Wi-Fi tối đa" help="Thiết bị được phân bổ ổn định theo seed">
               <input min="1" max="100" onChange={(event) => updateNumber('networks_max', event.target.value)} required type="number" value={config.networks_max} />
             </Field>
-            <Field label="Telemetry interval" help="Seconds; minimum 5">
+            <Field label="Chu kỳ telemetry" help="Đơn vị giây; tối thiểu 5">
               <input min="5" max="86400" onChange={(event) => updateNumber('telemetry_interval', event.target.value)} required type="number" value={config.telemetry_interval} />
             </Field>
-            <Field label="Interval jitter" help="0–50%; spreads recurring telemetry">
+            <Field label="Jitter chu kỳ" help="0–50%; giãn thời điểm gửi lặp lại">
               <input min="0" max="50" onChange={(event) => updateNumber('telemetry_jitter_percent', event.target.value)} required type="number" value={config.telemetry_jitter_percent} />
             </Field>
-            <Field label="Startup ramp" help="Seconds; spreads the first telemetry burst">
+            <Field label="Startup ramp" help="Đơn vị giây; giãn đợt telemetry đầu tiên">
               <input min="0" max="3600" onChange={(event) => updateNumber('startup_ramp_seconds', event.target.value)} required type="number" value={config.startup_ramp_seconds} />
             </Field>
-            <Field label="Initial offline rate" help="Percent of devices kept offline">
+            <Field label="Tỷ lệ offline ban đầu" help="Phần trăm thiết bị được giữ ngoại tuyến">
               <input min="0" max="100" onChange={(event) => updateNumber('initial_offline_rate', event.target.value)} required type="number" value={config.initial_offline_rate} />
             </Field>
           </div>
 
-          <div className="load-preview" aria-label="Projected maximum workload">
-            <div><span>Max devices</span><strong>{formatNumber(workloadEstimate.maximumDevices)}</strong></div>
-            <div><span>Expected online</span><strong>{formatNumber(workloadEstimate.expectedOnlineDevices)}</strong></div>
-            <div><span>Projected telemetry</span><strong>{formatRate(workloadEstimate.telemetryPerSecond)} msg/s</strong></div>
+          <div className="load-preview" aria-label="Tải tối đa dự kiến">
+            <div><span>Thiết bị tối đa</span><strong>{formatNumber(workloadEstimate.maximumDevices)}</strong></div>
+            <div><span>Dự kiến online</span><strong>{formatNumber(workloadEstimate.expectedOnlineDevices)}</strong></div>
+            <div><span>Telemetry dự kiến</span><strong>{formatRate(workloadEstimate.telemetryPerSecond)} msg/s</strong></div>
           </div>
 
           <div className="product-selector">
-            <h3>Product templates</h3>
-            <p>Weights are relative. A 70 / 30 split produces roughly that distribution for large runs.</p>
+            <h3>Product được sử dụng</h3>
+            <p>Trọng số là tương đối; tỷ lệ 70/30 sẽ tạo phân bố gần tương ứng khi số lượng đủ lớn.</p>
             <div className="product-list">
               {catalog.map((product) => {
                 const selected = selectedProducts.has(product.id)
@@ -206,11 +206,11 @@ export default function ControlPanel({
                       />
                       <span>
                         <strong>{product.display_name}</strong>
-                        <small>{product.id} · {product.capability_count} capabilities</small>
+                        <small>{product.id} · {product.capability_count} capability</small>
                       </span>
                     </label>
                     <input
-                      aria-label={`Weight for ${product.display_name}`}
+                      aria-label={`Trọng số của ${product.display_name}`}
                       disabled={!selected}
                       min="1"
                       onChange={(event) => updateWeight(product.id, Number(event.target.value))}
@@ -225,9 +225,9 @@ export default function ControlPanel({
         </fieldset>
 
         <fieldset className="form-section" disabled={!enabled || loading}>
-          <legend>Runtime and retention</legend>
+          <legend>Runtime và lưu trữ</legend>
           <div className="form-grid">
-            <Field label="Cleanup policy" help="The 24-hour timer begins only after the run finishes.">
+            <Field label="Chính sách dọn dẹp" help="Bộ đếm 24 giờ chỉ bắt đầu sau khi lần chạy hoàn tất.">
               <select
                 onChange={(event) => setConfig({
                   ...config,
@@ -235,14 +235,14 @@ export default function ControlPanel({
                 })}
                 value={config.cleanup_policy}
               >
-                <option value="auto_24h">Clean 24 hours after completion</option>
-                <option value="manual">Keep until manual cleanup</option>
+                <option value="auto_24h">Dọn sau 24 giờ kể từ lúc hoàn tất</option>
+                <option value="manual">Giữ đến khi dọn thủ công</option>
               </select>
             </Field>
-            <Field label="Random seed" help="Optional; reproduces counts and product choices">
+            <Field label="Random seed" help="Không bắt buộc; tái tạo số lượng và lựa chọn Product">
               <input
                 onChange={(event) => setConfig({ ...config, random_seed: event.target.value || undefined })}
-                placeholder="Example: regression-2026-07"
+                placeholder="Ví dụ: regression-2026-07"
                 value={config.random_seed || ''}
               />
             </Field>
@@ -253,7 +253,7 @@ export default function ControlPanel({
               onChange={(event) => setConfig({ ...config, auto_start: event.target.checked })}
               type="checkbox"
             />
-            Connect eligible devices to MQTT as soon as they are claimed
+            Kết nối MQTT ngay sau khi thiết bị được claim
           </label>
         </fieldset>
 
@@ -264,17 +264,17 @@ export default function ControlPanel({
             disabled={!enabled || loading}
             type="submit"
           >
-            {loading ? 'Creating run…' : 'Create run'}
+            {loading ? 'Đang tạo dữ liệu…' : 'Tạo lần chạy'}
           </button>
-          <p>Registration is throttled to respect the real auth rate limit.</p>
+          <p>Tốc độ đăng ký được giới hạn để tuân thủ rate limit thật của Auth API.</p>
         </div>
       </form>
     </section>
   )
 }
 
-const formatNumber = (value: number) => new Intl.NumberFormat().format(value)
-const formatRate = (value: number) => new Intl.NumberFormat(undefined, {
+const formatNumber = (value: number) => new Intl.NumberFormat('vi-VN').format(value)
+const formatRate = (value: number) => new Intl.NumberFormat('vi-VN', {
   maximumFractionDigits: 2,
 }).format(value)
 

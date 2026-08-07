@@ -9,6 +9,7 @@ import {
     generateInitialState,
     patchDeviceState,
     type DeviceState,
+    validateDeviceStatePatch,
 } from '../../generation/telemetry-generator';
 import {
     getMainMongoDb,
@@ -70,10 +71,29 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         return {
             success: true,
             device,
+            product: getProduct(device.product_id),
             backend_shadow: backendShadow,
             telemetry,
             operations,
             events,
+        };
+    });
+
+    app.get('/api/devices/:mac/live', async (request, reply) => {
+        const mac = normalizeMac((request.params as { mac: string }).mac);
+        const device = await getMongoDb().collection<SimulatedDeviceRecord>('simulated_devices')
+            .findOne({ mac }, { projection: deviceProjection });
+        if (!device) return reply.status(404).send({ success: false, error: 'Device not found' });
+
+        const [backendShadow, latestTelemetry] = await Promise.all([
+            loadBackendShadow(mac),
+            loadTelemetry(mac, 1),
+        ]);
+        return {
+            success: true,
+            device,
+            backend_shadow: backendShadow,
+            latest_telemetry: latestTelemetry[0] || null,
         };
     });
 
@@ -239,12 +259,24 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         }
         const context = await getDeviceContext(mac);
         if (!context) return reply.status(404).send({ success: false, error: 'Device not found' });
+        const product = getProduct(context.device.product_id);
+        try {
+            validateDeviceStatePatch(product, parsed.data);
+        } catch (error) {
+            return reply.status(400).send({
+                success: false,
+                error: {
+                    code: 'INVALID_DEVICE_STATE',
+                    message: error instanceof Error ? error.message : 'Device state is invalid',
+                },
+            });
+        }
         const runtime = runtimeManager.getDevice(mac);
         const baseState = context.device.state_snapshot
-            || generateInitialState(getProduct(context.device.product_id));
+            || generateInitialState(product);
         const state = runtime
             ? await runtime.patchState(parsed.data)
-            : patchDeviceState(baseState, getProduct(context.device.product_id), parsed.data);
+            : patchDeviceState(baseState, product, parsed.data);
         if (!runtime) await persistOfflineState(mac, state);
         await recordDeviceAction(
             context.device,
@@ -252,7 +284,11 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
             'Virtual device state manually updated',
             parsed.data,
         );
-        return { success: true, state };
+        return {
+            success: true,
+            state,
+            delivery: runtime?.connected ? 'publish_requested' : 'stored_offline',
+        };
     });
 
     app.post('/api/devices/:mac/reveal-secret', async (request, reply) => {

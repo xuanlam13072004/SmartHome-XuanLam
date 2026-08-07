@@ -1,16 +1,39 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   deviceAction,
   fetchDevice,
+  fetchDeviceLive,
   revealDeviceSecret,
   sendDeviceTelemetry,
   setDeviceConnection,
   updateDeviceState,
 } from '../api'
-import type { DeviceOperation, SimulatedDevice, SimulatorEvent } from '../types'
+import type {
+  CapabilityInstance,
+  DeviceDetailPayload,
+  DeviceOperation,
+  DeviceStatePatch,
+  SimulatedDevice,
+  SimulatorEvent,
+} from '../types'
 import { CopyButton } from './CopyButton'
-import { DetailHeading } from './UserDetail'
-import { StatusBadge } from './RunsList'
+import { CapabilityControl } from './device/CapabilityControl'
+import { DeviceTelemetryPanel } from './device/DeviceTelemetryPanel'
+import { LcdSimulator } from './device/LcdSimulator'
+import {
+  formatValue,
+  humanize,
+  instanceLabel,
+  isCameraInstance,
+  isHiddenProperty,
+  isLcdInstance,
+  mergeDevicePatch,
+  patchForProperty,
+  propertyLabel,
+  readPropertyValue,
+} from './device/device-utils'
+
+type DeviceTab = 'controls' | 'data' | 'history' | 'technical'
 
 export function DeviceDetail({
   mac,
@@ -19,45 +42,87 @@ export function DeviceDetail({
   mac: string
   onBack: () => void
 }) {
-  const [device, setDevice] = useState<SimulatedDevice | null>(null)
-  const [telemetry, setTelemetry] = useState<Record<string, unknown>[]>([])
-  const [operations, setOperations] = useState<DeviceOperation[]>([])
-  const [backendShadow, setBackendShadow] = useState<Record<string, unknown> | null>(null)
-  const [events, setEvents] = useState<SimulatorEvent[]>([])
-  const [stateDraft, setStateDraft] = useState('')
+  const [payload, setPayload] = useState<DeviceDetailPayload | null>(null)
+  const [latestTelemetry, setLatestTelemetry] = useState<Record<string, unknown> | null>(null)
+  const [tab, setTab] = useState<DeviceTab>('controls')
   const [secret, setSecret] = useState('')
   const [error, setError] = useState('')
   const [acting, setActing] = useState('')
+  const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
     try {
       const result = await fetchDevice(mac)
-      setDevice(result.device)
-      setTelemetry(result.telemetry)
-      setOperations(result.operations)
-      setBackendShadow(result.backend_shadow)
-      setEvents(result.events)
-      const state = result.device.state_snapshot
-      setStateDraft(JSON.stringify(state
-        ? { instances: state.instances, diagnostics: state.diagnostics }
-        : { instances: {}, diagnostics: {} }, null, 2))
+      setPayload(result)
+      setLatestTelemetry(result.telemetry[0] || null)
       setError('')
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not load virtual device')
+      setError(readError(caught, 'Không tải được thiết bị ảo. Kiểm tra backend Simulator rồi thử lại.'))
+    } finally {
+      setLoading(false)
+    }
+  }, [mac])
+
+  const refreshLive = useCallback(async () => {
+    try {
+      const live = await fetchDeviceLive(mac)
+      setPayload((current) => current ? {
+        ...current,
+        device: live.device,
+        backend_shadow: live.backend_shadow,
+      } : current)
+      setLatestTelemetry(live.latest_telemetry)
+    } catch {
+      // The full load surface already owns visible errors. A transient polling
+      // failure must not replace usable device data with an error screen.
     }
   }, [mac])
 
   useEffect(() => {
+    setLoading(true)
     void load()
   }, [load])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void refreshLive()
+    }, 2500)
+    return () => window.clearInterval(timer)
+  }, [refreshLive])
+
+  const applyPatch = async (patch: DeviceStatePatch) => {
+    const previous = payload?.device
+    if (previous?.state_snapshot) {
+      setPayload((current) => current ? {
+        ...current,
+        device: {
+          ...current.device,
+          state_snapshot: mergeDevicePatch(current.device.state_snapshot!, patch),
+        },
+      } : current)
+    }
+    try {
+      const result = await updateDeviceState(mac, patch)
+      setPayload((current) => current ? {
+        ...current,
+        device: { ...current.device, state_snapshot: result.state },
+      } : current)
+      window.setTimeout(() => void refreshLive(), 350)
+    } catch (caught) {
+      if (previous) {
+        setPayload((current) => current ? { ...current, device: previous } : current)
+      }
+      throw new Error(readError(caught, 'Không thể cập nhật trạng thái vật lý.'))
+    }
+  }
 
   const setConnection = async (online: boolean) => {
     setActing(online ? 'connect' : 'disconnect')
     try {
       await setDeviceConnection(mac, online)
-      await load()
+      await refreshLive()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not change MQTT connection')
+      setError(readError(caught, 'Không đổi được kết nối MQTT.'))
     } finally {
       setActing('')
     }
@@ -67,20 +132,11 @@ export function DeviceDetail({
     setActing('telemetry')
     try {
       await sendDeviceTelemetry(mac)
-      window.setTimeout(() => void load(), 700)
+      window.setTimeout(() => void refreshLive(), 450)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not publish telemetry')
+      setError(readError(caught, 'Không gửi được telemetry. Thiết bị phải trực tuyến và không bị tạm dừng.'))
     } finally {
       setActing('')
-    }
-  }
-
-  const reveal = async () => {
-    try {
-      const result = await revealDeviceSecret(mac)
-      setSecret(result.device.secret_key)
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not reveal factory secret')
     }
   }
 
@@ -92,114 +148,367 @@ export function DeviceDetail({
       await deviceAction(mac, action)
       await load()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : `Could not ${action}`)
+      setError(readError(caught, `Không thực hiện được thao tác ${action}.`))
     } finally {
       setActing('')
     }
   }
 
-  const saveState = async () => {
-    setActing('state')
+  const reveal = async () => {
     try {
-      const parsed = JSON.parse(stateDraft) as {
-        instances?: Record<string, {
-          reported?: Record<string, unknown>
-          desired?: Record<string, unknown>
-        }>
-        diagnostics?: Record<string, Record<string, unknown>>
-      }
-      await updateDeviceState(mac, parsed)
-      await load()
+      const result = await revealDeviceSecret(mac)
+      setSecret(result.device.secret_key)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not update device state')
-    } finally {
-      setActing('')
+      setError(readError(caught, 'Không đọc được factory secret.'))
     }
   }
 
-  const latestTelemetry = telemetry[0]
+  if (loading) {
+    return <DeviceDetailSkeleton onBack={onBack} />
+  }
+
+  if (!payload) {
+    return (
+      <section>
+        <BackButton onBack={onBack} />
+        <p className="notice notice--error" role="alert">{error || 'Không tìm thấy thiết bị.'}</p>
+      </section>
+    )
+  }
+
+  const { device, product, backend_shadow: backendShadow, operations, events } = payload
+  const online = device.runtime_state === 'online'
 
   return (
-    <section aria-labelledby="device-title">
-      <DetailHeading id="device-title" label="Back to runs" onBack={onBack} title={device?.name || mac} />
+    <section className="device-workbench" aria-labelledby="device-title">
+      <BackButton onBack={onBack} />
+
+      <header className="device-hero">
+        <div className="device-hero__identity">
+          <div className="product-symbol" aria-hidden="true">{productSymbol(product.category)}</div>
+          <div>
+            <p>{product.presentation?.display_name || product.model_name}</p>
+            <h2 id="device-title">{device.name || device.mac}</h2>
+            <code>{device.mac}</code>
+          </div>
+        </div>
+        <div className="device-hero__status">
+          <RuntimeBadge status={device.runtime_state} />
+          <span>{device.topology_role === 'hub' ? 'Hub' : device.topology_role === 'node' ? 'Node' : 'Chưa phân vai'}</span>
+          <span>{device.transport_mode ? humanize(device.transport_mode) : 'Direct'}</span>
+        </div>
+      </header>
+
       {error && <p className="notice notice--error" role="alert">{error}</p>}
-      {device && (
-        <>
-          <div className="device-toolbar">
-            <StatusBadge status={device.runtime_state} />
-            <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void setConnection(device.runtime_state !== 'online')} type="button">
-              {device.runtime_state === 'online' ? 'Disconnect device' : 'Connect device'}
-            </button>
-            <button className="button button--primary" disabled={Boolean(acting) || device.runtime_state !== 'online'} onClick={() => void sendNow()} type="button">
-              {acting === 'telemetry' ? 'Publishing…' : 'Send telemetry now'}
-            </button>
-            {device.runtime_state === 'paused'
-              ? <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void act('resume')} type="button">Resume telemetry</button>
-              : <button className="button button--quiet" disabled={Boolean(acting) || device.runtime_state !== 'online'} onClick={() => void act('pause')} type="button">Pause telemetry</button>}
-            <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void act('force-offline')} type="button">Force offline</button>
-            <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void act('reconnect')} type="button">Reconnect</button>
-            <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void act('reset-state')} type="button">Reset state</button>
-          </div>
 
-          <dl className="detail-spec">
-            <Spec label="MAC address" value={device.mac} mono />
-            <Spec label="Product" value={device.product_id} />
-            <Spec label="Provisioning" value={device.provisioning_state} />
-            <Spec label="Desired runtime" value={device.desired_state} />
-            <Spec label="Topology role" value={device.topology_role || 'legacy / unassigned'} />
-            <Spec label="Transport" value={device.transport_mode || 'direct'} />
-            <Spec label="Network" value={device.network_id || 'Not assigned'} mono />
-            <Spec label="Topology epoch" value={device.topology_epoch === undefined ? '—' : String(device.topology_epoch)} />
-            <Spec label="Active Hub" value={device.active_hub_mac || '—'} mono />
-            <Spec label="Join rank" value={device.join_rank === undefined ? '—' : String(device.join_rank)} />
-            <Spec label="Sequence" value={String(device.seq)} />
-            <Spec label="Last telemetry" value={formatDate(device.last_telemetry)} />
-          </dl>
+      <div className="device-actions" aria-label="Điều khiển runtime">
+        <button
+          className="button button--primary"
+          disabled={Boolean(acting)}
+          onClick={() => void setConnection(!online)}
+          type="button"
+        >
+          {acting === 'connect' || acting === 'disconnect'
+            ? 'Đang đổi kết nối…'
+            : online ? 'Ngắt kết nối' : 'Kết nối thiết bị'}
+        </button>
+        <button
+          className="button button--quiet"
+          disabled={Boolean(acting) || !online}
+          onClick={() => void sendNow()}
+          type="button"
+        >
+          {acting === 'telemetry' ? 'Đang gửi…' : 'Gửi telemetry'}
+        </button>
+        {device.runtime_state === 'paused' ? (
+          <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void act('resume')} type="button">Tiếp tục tự gửi</button>
+        ) : (
+          <button className="button button--quiet" disabled={Boolean(acting) || !online} onClick={() => void act('pause')} type="button">Dừng tự gửi</button>
+        )}
+      </div>
 
-          <section className="credential-panel">
-            <div><h3>Factory identity</h3><p>The raw secret is encrypted in the registry and never returned by list endpoints.</p></div>
-            {secret
-              ? <div className="secret-line"><code>{secret}</code><CopyButton value={secret} /></div>
-              : <button className="button button--quiet" onClick={() => void reveal()} type="button">Reveal secret</button>}
-          </section>
+      <nav aria-label="Nội dung thiết bị" className="detail-tabs">
+        <DetailTab active={tab === 'controls'} label="Thiết bị vật lý" onClick={() => setTab('controls')} />
+        <DetailTab active={tab === 'data'} label="Dữ liệu đang gửi" onClick={() => setTab('data')} />
+        <DetailTab active={tab === 'history'} label="Lịch sử" onClick={() => setTab('history')} />
+        <DetailTab active={tab === 'technical'} label="Kỹ thuật" onClick={() => setTab('technical')} />
+      </nav>
 
-          <div className="device-data-grid">
-            <section className="data-panel">
-              <div className="section-heading section-heading--compact"><div><h3>Editable device state</h3><p>Values are validated against the product catalog.</p></div></div>
-              <textarea className="state-editor" onChange={(event) => setStateDraft(event.target.value)} rows={12} spellCheck={false} value={stateDraft} />
-              <button className="button button--primary" disabled={Boolean(acting)} onClick={() => void saveState()} type="button">Apply state</button>
-            </section>
-            <section className="data-panel">
-              <div className="section-heading section-heading--compact"><div><h3>Backend shadow</h3><p>Current state stored by SmartHomeDB.</p></div></div>
-              {backendShadow
-                ? <pre>{JSON.stringify(backendShadow, null, 2)}</pre>
-                : <p className="empty-inline">No backend shadow is available.</p>}
-            </section>
-            <section className="data-panel">
-              <div className="section-heading section-heading--compact"><div><h3>Latest telemetry</h3><p>{telemetry.length} stored packets loaded.</p></div></div>
-              {latestTelemetry
-                ? <pre>{JSON.stringify(latestTelemetry, null, 2)}</pre>
-                : <p className="empty-inline">No telemetry has reached SmartHomeDB yet.</p>}
-            </section>
-            <section className="data-panel">
-              <div className="section-heading section-heading--compact"><div><h3>Operation history</h3><p>{operations.length} backend operations loaded.</p></div></div>
-              {operations[0]
-                ? <pre>{JSON.stringify(operations[0], null, 2)}</pre>
-                : <p className="empty-inline">No operation has been sent to this device.</p>}
-            </section>
-            <section className="data-panel">
-              <div className="section-heading section-heading--compact"><div><h3>Recent events</h3><p>Operation, runtime and security events.</p></div></div>
-              <EventRows events={events} />
-            </section>
-          </div>
-        </>
+      {tab === 'controls' && (
+        <PhysicalWorkbench device={device} instances={product.capability_instances} onPatch={applyPatch} />
+      )}
+
+      {tab === 'data' && (
+        <DeviceTelemetryPanel
+          backendShadow={backendShadow}
+          device={device}
+          latestTelemetry={latestTelemetry}
+        />
+      )}
+
+      {tab === 'history' && (
+        <HistoryView events={events} operations={operations} />
+      )}
+
+      {tab === 'technical' && (
+        <TechnicalView
+          acting={acting}
+          device={device}
+          onAction={act}
+          onReveal={reveal}
+          productRevision={product.catalog_revision}
+          secret={secret}
+        />
       )}
     </section>
   )
 }
 
+function PhysicalWorkbench({
+  device,
+  instances,
+  onPatch,
+}: {
+  device: SimulatedDevice
+  instances: CapabilityInstance[]
+  onPatch: (patch: DeviceStatePatch) => Promise<void>
+}) {
+  const ordered = useMemo(() => [...instances].sort((left, right) => (
+    Number(left.presentation?.order || 0) - Number(right.presentation?.order || 0)
+  )), [instances])
+  const lcd = ordered.find(isLcdInstance)
+  const camera = ordered.find(isCameraInstance)
+  const standard = ordered.filter((instance) => !isLcdInstance(instance) && !isCameraInstance(instance))
+
+  return (
+    <div className="physical-workbench">
+      <div className="physical-workbench__main">
+        <header className="work-panel__heading work-panel__heading--page">
+          <div>
+            <h3>Trạng thái và tín hiệu vật lý</h3>
+            <p>Giá trị thay đổi ở đây được ghi vào thiết bị ảo và publish qua MQTT khi thiết bị trực tuyến.</p>
+          </div>
+          <span className="state-version">State v{device.state_snapshot?.state_version ?? 0}</span>
+        </header>
+
+        <div className="capability-stack">
+          {standard.map((instance) => (
+            <CapabilitySection
+              device={device}
+              instance={instance}
+              key={instance.instance_id}
+              onPatch={onPatch}
+            />
+          ))}
+        </div>
+      </div>
+
+      <aside className="physical-workbench__side">
+        {lcd && (
+          <LcdSimulator
+            disabled={false}
+            instance={lcd}
+            onPatch={onPatch}
+            state={device.state_snapshot}
+          />
+        )}
+        {camera && <CameraPlaceholder device={device} instance={camera} />}
+        {!lcd && !camera && (
+          <section className="device-note">
+            <h3>Phần cứng đặc biệt</h3>
+            <p>Model này không khai báo LCD hoặc camera trong Product Catalog.</p>
+          </section>
+        )}
+      </aside>
+    </div>
+  )
+}
+
+function CapabilitySection({
+  device,
+  instance,
+  onPatch,
+}: {
+  device: SimulatedDevice
+  instance: CapabilityInstance
+  onPatch: (patch: DeviceStatePatch) => Promise<void>
+}) {
+  const editable = instance.properties.filter((property) => (
+    property.channel !== 'desired' && !isHiddenProperty(property)
+  ))
+  const desired = instance.properties.filter((property) => (
+    property.channel === 'desired' && !isHiddenProperty(property)
+  ))
+  const eventOnly = editable.length === 0 && instance.events.length > 0
+
+  if (editable.length === 0 && desired.length === 0 && !eventOnly) return null
+
+  return (
+    <section className="capability-section">
+      <header>
+        <div>
+          <h4>{instanceLabel(instance)}</h4>
+          {instance.presentation?.description && <p>{instance.presentation.description}</p>}
+        </div>
+        <code>{instance.instance_id}</code>
+      </header>
+
+      {editable.length > 0 && (
+        <div className="capability-controls">
+          {editable.map((property) => (
+            <CapabilityControl
+              disabled={false}
+              key={`${property.channel}:${property.id}`}
+              onCommit={(value) => onPatch(patchForProperty(instance.instance_id, property, value))}
+              property={property}
+              value={readPropertyValue(device.state_snapshot, instance.instance_id, property)}
+            />
+          ))}
+        </div>
+      )}
+
+      {desired.length > 0 && (
+        <dl className="desired-state">
+          {desired.map((property) => (
+            <div key={property.id}>
+              <dt>Backend yêu cầu · {propertyLabel(property)}</dt>
+              <dd>{formatValue(readPropertyValue(device.state_snapshot, instance.instance_id, property), property)}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+
+      {eventOnly && (
+        <div className="event-transport-gap">
+          <strong>{instance.events.map((event) => humanize(event.id)).join(' · ')}</strong>
+          <p>Catalog đã khai báo sự kiện vật lý, nhưng hệ thống chính chưa có MQTT event transport để nhận sự kiện này.</p>
+          <button disabled type="button">Mô phỏng nút vật lý — chưa hỗ trợ</button>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function CameraPlaceholder({
+  device,
+  instance,
+}: {
+  device: SimulatedDevice
+  instance: CapabilityInstance
+}) {
+  const stateProperty = instance.properties.find((property) => property.id === 'camera_state')
+  const value = stateProperty
+    ? readPropertyValue(device.state_snapshot, instance.instance_id, stateProperty)
+    : 'offline'
+  return (
+    <section className="camera-placeholder">
+      <div className="camera-placeholder__screen" aria-hidden="true">
+        <span>ESP32-CAM</span>
+        <strong>STREAM TẠM HOÃN</strong>
+      </div>
+      <div>
+        <h3>{instanceLabel(instance)}</h3>
+        <p>Trạng thái catalog: <strong>{formatValue(value, stateProperty)}</strong></p>
+        <p>Chưa mô phỏng video stream hoặc snapshot trong giai đoạn này.</p>
+      </div>
+    </section>
+  )
+}
+
+function HistoryView({
+  operations,
+  events,
+}: {
+  operations: DeviceOperation[]
+  events: SimulatorEvent[]
+}) {
+  return (
+    <div className="history-grid">
+      <section className="history-panel">
+        <header className="work-panel__heading"><div><h3>Lệnh từ backend</h3><p>{operations.length} lệnh gần nhất được tải.</p></div></header>
+        {operations.length > 0 ? (
+          <ol className="operation-list">
+            {operations.map((operation) => (
+              <li key={operation.id}>
+                <div><strong>{humanize(operation.operation_name)}</strong><small>{operation.instance_id}</small></div>
+                <span className={`record-status record-status--${operation.status}`}>{humanize(operation.status)}</span>
+                <time>{formatDate(operation.accepted_at)}</time>
+                {Object.keys(operation.input || {}).length > 0 && <code>{JSON.stringify(operation.input)}</code>}
+              </li>
+            ))}
+          </ol>
+        ) : <EmptyHistory label="Chưa có lệnh nào được gửi tới thiết bị." />}
+      </section>
+      <section className="history-panel">
+        <header className="work-panel__heading"><div><h3>Sự kiện Simulator</h3><p>Thao tác runtime, bảo mật và cập nhật thủ công.</p></div></header>
+        <EventRows events={events} />
+      </section>
+    </div>
+  )
+}
+
+function TechnicalView({
+  device,
+  productRevision,
+  secret,
+  acting,
+  onReveal,
+  onAction,
+}: {
+  device: SimulatedDevice
+  productRevision: number
+  secret: string
+  acting: string
+  onReveal: () => Promise<void>
+  onAction: (action: 'pause' | 'resume' | 'force-offline' | 'reconnect' | 'reset-state') => Promise<void>
+}) {
+  return (
+    <div className="technical-layout">
+      <section className="technical-panel">
+        <header className="work-panel__heading"><div><h3>Định danh và topology</h3><p>Thông tin được dùng khi kết nối với hệ thống chính.</p></div></header>
+        <dl className="spec-sheet">
+          <Spec label="MAC address" value={device.mac} mono />
+          <Spec label="Product ID" value={device.product_id} mono />
+          <Spec label="Catalog revision" value={String(productRevision)} />
+          <Spec label="Provisioning" value={humanize(device.provisioning_state)} />
+          <Spec label="Desired runtime" value={humanize(device.desired_state)} />
+          <Spec label="Topology role" value={device.topology_role ? humanize(device.topology_role) : 'Chưa phân vai'} />
+          <Spec label="Transport" value={device.transport_mode ? humanize(device.transport_mode) : 'Direct'} />
+          <Spec label="Network ID" value={device.network_id || 'Chưa gán'} mono />
+          <Spec label="Active Hub" value={device.active_hub_mac || '—'} mono />
+          <Spec label="Topology epoch" value={String(device.topology_epoch ?? '—')} />
+          <Spec label="Join rank" value={String(device.join_rank ?? '—')} />
+          <Spec label="MQTT sequence" value={String(device.seq)} />
+        </dl>
+      </section>
+
+      <section className="technical-panel">
+        <header className="work-panel__heading"><div><h3>Factory identity</h3><p>Secret chỉ được giải mã khi bạn chủ động yêu cầu.</p></div></header>
+        {secret ? (
+          <div className="secret-line"><code>{secret}</code><CopyButton value={secret} /></div>
+        ) : (
+          <button className="button button--quiet" onClick={() => void onReveal()} type="button">Hiện factory secret</button>
+        )}
+      </section>
+
+      <section className="technical-panel technical-panel--full">
+        <header className="work-panel__heading"><div><h3>Khôi phục runtime</h3><p>Các thao tác này dành cho kiểm thử lỗi kết nối và state.</p></div></header>
+        <div className="technical-actions">
+          <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void onAction('reconnect')} type="button">Kết nối lại MQTT</button>
+          <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void onAction('force-offline')} type="button">Ép ngoại tuyến</button>
+          <button className="button button--danger" disabled={Boolean(acting)} onClick={() => void onAction('reset-state')} type="button">Đặt lại state</button>
+        </div>
+        <details className="raw-disclosure">
+          <summary>Xem state JSON trong registry</summary>
+          <pre>{JSON.stringify(device.state_snapshot, null, 2)}</pre>
+        </details>
+      </section>
+    </div>
+  )
+}
+
 export function EventRows({ events }: { events: SimulatorEvent[] }) {
-  if (events.length === 0) return <p className="empty-inline">No matching simulator events.</p>
+  if (events.length === 0) return <EmptyHistory label="Chưa có sự kiện Simulator phù hợp." />
   return (
     <ol className="event-list">
       {events.map((event, index) => (
@@ -212,10 +521,48 @@ export function EventRows({ events }: { events: SimulatorEvent[] }) {
   )
 }
 
+function DetailTab({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
+  return <button aria-current={active ? 'page' : undefined} onClick={onClick} type="button">{label}</button>
+}
+
+function RuntimeBadge({ status }: { status: string }) {
+  const tone = status === 'online' ? 'online' : status === 'paused' ? 'paused' : 'offline'
+  return <span className={`runtime-badge runtime-badge--${tone}`}><i aria-hidden="true" />{humanize(status)}</span>
+}
+
+function BackButton({ onBack }: { onBack: () => void }) {
+  return <button className="back-link" onClick={onBack} type="button">← Danh sách thiết bị</button>
+}
+
+function DeviceDetailSkeleton({ onBack }: { onBack: () => void }) {
+  return (
+    <section className="device-workbench" aria-busy="true">
+      <BackButton onBack={onBack} />
+      <div className="device-skeleton"><span /><span /><span /></div>
+      <p className="visually-hidden">Đang tải thiết bị…</p>
+    </section>
+  )
+}
+
+function EmptyHistory({ label }: { label: string }) {
+  return <div className="empty-state empty-state--compact"><strong>{label}</strong><p>Dữ liệu sẽ xuất hiện ở đây khi thiết bị hoạt động.</p></div>
+}
+
 function Spec({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return <div><dt>{label}</dt><dd className={mono ? 'mono' : undefined}>{value}</dd></div>
 }
 
+const productSymbol = (category: string): string => ({
+  security: 'SEC',
+  environment: 'ENV',
+  safety: 'SAFE',
+  agriculture: 'WTR',
+}[category] || 'DEV')
+
 const formatDate = (value?: string) => value
-  ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(value))
-  : 'Not sent'
+  ? new Intl.DateTimeFormat('vi-VN', { dateStyle: 'short', timeStyle: 'medium' }).format(new Date(value))
+  : 'Chưa có thời gian'
+
+const readError = (value: unknown, fallback: string): string => value instanceof Error
+  ? `${value.message} ${fallback}`
+  : fallback

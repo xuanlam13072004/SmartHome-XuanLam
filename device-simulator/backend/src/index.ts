@@ -1,6 +1,9 @@
 import crypto from 'node:crypto';
 import cors from '@fastify/cors';
-import fastify, { type FastifyInstance } from 'fastify';
+import fastify, {
+    type FastifyBaseLogger,
+    type FastifyInstance,
+} from 'fastify';
 import { env } from './config/env';
 import {
     closePostgres,
@@ -26,6 +29,7 @@ import { RecoveryService } from './recovery/service';
 import { getRuntimeManager } from './runtime/manager';
 import { getRunMetricsService } from './metrics/service';
 import { getTelemetryScheduler } from './runtime/telemetry-scheduler';
+import { retryStartupDependency } from './startup/retry';
 
 interface PreflightCheck {
     status: 'ok' | 'error';
@@ -57,6 +61,27 @@ const runCheck = async (operation: () => Promise<unknown>): Promise<PreflightChe
         };
     }
 };
+
+const startDependency = <T>(
+    name: string,
+    operation: () => Promise<T>,
+    logger: FastifyBaseLogger,
+): Promise<T> => retryStartupDependency(name, operation, {
+    attempts: env.STARTUP_RETRY_ATTEMPTS,
+    delayMs: env.STARTUP_RETRY_DELAY_MS,
+    onRetry: ({ attempt, attempts, delayMs, error }) => {
+        logger.warn(
+            {
+                err: error,
+                dependency: name,
+                attempt,
+                attempts,
+                retry_in_ms: delayMs,
+            },
+            'Simulator dependency is unavailable; retrying startup',
+        );
+    },
+});
 
 export const buildApp = async (): Promise<{
     app: FastifyInstance;
@@ -152,14 +177,14 @@ export const buildApp = async (): Promise<{
         });
     });
 
-    await initPostgres(app.log);
-    await initMongo(app.log);
-    const metricsService = getRunMetricsService(app.log);
-    metricsService.start();
-    await loadCatalog();
+    await startDependency('PostgreSQL', () => initPostgres(app.log), app.log);
+    await startDependency('MongoDB', () => initMongo(app.log), app.log);
+    await startDependency('API Gateway Product Catalog', loadCatalog, app.log);
     app.log.info({ productCount: getCachedCatalog().length }, 'Product catalog loaded');
     const runtimeManager = getRuntimeManager(app.log);
-    await runtimeManager.start();
+    await startDependency('MQTT broker', () => runtimeManager.start(), app.log);
+    const metricsService = getRunMetricsService(app.log);
+    metricsService.start();
 
     const cleanupJob = new CleanupCronjob(app.log);
     await app.register(createRunsRoutes(cleanupJob));
@@ -189,8 +214,9 @@ export const start = async (): Promise<void> => {
 };
 
 if (require.main === module) {
-    start().catch((error) => {
+    start().catch(async (error) => {
         console.error('Device Simulator failed to start:', error);
-        process.exitCode = 1;
+        await Promise.allSettled([closeMongo(), closePostgres()]);
+        process.exit(1);
     });
 }

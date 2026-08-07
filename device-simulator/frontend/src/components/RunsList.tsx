@@ -43,7 +43,7 @@ export default function RunsList({
       setRuns(await fetchRuns())
       setError('')
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not load simulation runs')
+      setError(caught instanceof Error ? caught.message : 'Không thể tải các phiên mô phỏng')
     } finally {
       setLoading(false)
     }
@@ -90,7 +90,7 @@ export default function RunsList({
     try {
       await loadChildren(runId)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not load run details')
+      setError(caught instanceof Error ? caught.message : 'Không thể tải chi tiết phiên')
     }
   }
 
@@ -104,7 +104,7 @@ export default function RunsList({
       await runAction(run.id, action)
       await loadRuns()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : `Could not ${action} run`)
+      setError(caught instanceof Error ? caught.message : 'Không thể cập nhật trạng thái phiên')
     } finally {
       setActing('')
     }
@@ -116,7 +116,7 @@ export default function RunsList({
       await setRunPermanent(run.id, permanent)
       await loadRuns()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not update retention')
+      setError(caught instanceof Error ? caught.message : 'Không thể cập nhật chính sách lưu giữ')
     } finally {
       setActing('')
     }
@@ -128,7 +128,7 @@ export default function RunsList({
       await extendRun(run.id, 24)
       await loadRuns()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not extend retention')
+      setError(caught instanceof Error ? caught.message : 'Không thể gia hạn dữ liệu')
     } finally {
       setActing('')
     }
@@ -149,7 +149,7 @@ export default function RunsList({
       setExpandedRun(null)
       await loadRuns()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not clean simulation data')
+      setError(caught instanceof Error ? caught.message : 'Không thể dọn dữ liệu mô phỏng')
       dialogRef.current?.close()
     } finally {
       setActing('')
@@ -160,22 +160,22 @@ export default function RunsList({
     <section aria-labelledby="runs-title">
       <div className="section-heading">
         <div>
-          <h2 id="runs-title">Simulation runs</h2>
-          <p>Expand a run to inspect every registered account and claimed device.</p>
+          <h2 id="runs-title">Phiên mô phỏng</h2>
+          <p>Mở một phiên để xem toàn bộ tài khoản và thiết bị đã được tạo.</p>
         </div>
         <button className="button button--quiet" disabled={!enabled || loading} onClick={() => void loadRuns()} type="button">
           <Icon name="refresh" />
-          Refresh
+          Làm mới
         </button>
       </div>
 
       {error && <p className="notice notice--error" role="alert">{error}</p>}
-      {loading && <div className="skeleton-list" aria-label="Loading simulation runs" />}
+      {loading && <div className="skeleton-list" aria-label="Đang tải các phiên mô phỏng" />}
       {!loading && runs.length === 0 && (
         <div className="empty-state">
           <Icon name="runs" size={24} />
-          <h3>No simulation runs yet</h3>
-          <p>Create one run to register users, provision devices and start MQTT telemetry.</p>
+          <h3>Chưa có phiên mô phỏng</h3>
+          <p>Tạo một phiên để đăng ký người dùng, cấp phát thiết bị và bắt đầu gửi MQTT.</p>
         </div>
       )}
 
@@ -200,40 +200,40 @@ export default function RunsList({
                   <span>{formatDate(run.created_at)}</span>
                 </div>
                 <div className="run-progress">
-                  <span>{run.progress.users_created}/{run.progress.users_requested} users</span>
-                  <span>{run.progress.devices_claimed}/{run.progress.devices_requested} devices</span>
-                  <progress aria-label={`${progress}% of users generated`} max="100" value={progress} />
+                  <span>{run.progress.users_created}/{run.progress.users_requested} người dùng</span>
+                  <span>{run.progress.devices_claimed}/{run.progress.devices_requested} thiết bị</span>
+                  <progress aria-label={`Đã tạo ${progress}% người dùng`} max="100" value={progress} />
                 </div>
                 <Icon name="arrow" />
               </button>
 
               {expanded && (
                 <div className="run-detail">
-                  <div className="run-actions" aria-label={`Actions for ${run.id}`}>
+                  <div className="run-actions" aria-label={`Thao tác cho ${run.id}`}>
                     {['queued', 'running'].includes(run.status) && (
-                      <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void act(run, 'pause')} type="button">Pause</button>
+                      <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void act(run, 'pause')} type="button">Tạm dừng</button>
                     )}
                     {['paused', 'failed'].includes(run.status) && (
-                      <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void act(run, 'resume')} type="button">Resume</button>
+                      <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void act(run, 'resume')} type="button">Tiếp tục</button>
                     )}
                     {!['completed', 'partial', 'failed', 'cancelled', 'cleaned', 'cleaning'].includes(run.status) && (
-                      <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void act(run, 'cancel')} type="button">Cancel</button>
+                      <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void act(run, 'cancel')} type="button">Hủy</button>
                     )}
                     {!['cleaning', 'cleaned', 'cleanup_blocked'].includes(run.status) && (
                       <>
-                        <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void act(run, 'stop-runtime')} type="button">Stop devices</button>
-                        <button className="button button--quiet" disabled={Boolean(acting) || run.status === 'paused'} onClick={() => void act(run, 'restart-runtime')} type="button">Restart devices</button>
+                        <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void act(run, 'stop-runtime')} type="button">Dừng thiết bị</button>
+                        <button className="button button--quiet" disabled={Boolean(acting) || run.status === 'paused'} onClick={() => void act(run, 'restart-runtime')} type="button">Khởi động lại</button>
                       </>
                     )}
                     {run.status !== 'cleaned' && (
                       <>
                         <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void retain(run, !retainedPermanently)} type="button">
-                          {retainedPermanently ? 'Restore 24 h cleanup' : 'Keep permanently'}
+                          {retainedPermanently ? 'Khôi phục dọn sau 24 giờ' : 'Lưu vĩnh viễn'}
                         </button>
                         {!retainedPermanently && run.completed_at && (
-                          <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void addDay(run)} type="button">Extend 24 h</button>
+                          <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void addDay(run)} type="button">Gia hạn 24 giờ</button>
                         )}
-                        <button className="button button--danger" disabled={Boolean(acting)} onClick={() => openCleanup(run)} type="button">Cleanup now</button>
+                        <button className="button button--danger" disabled={Boolean(acting)} onClick={() => openCleanup(run)} type="button">Dọn ngay</button>
                       </>
                     )}
                   </div>
@@ -241,13 +241,13 @@ export default function RunsList({
                   <RunMetricsPanel runId={run.id} />
 
                   <dl className="run-spec">
-                    <div><dt>Cleanup</dt><dd>{retainedPermanently ? 'Manual' : run.cleanup_after ? formatDate(run.cleanup_after) : 'Starts after completion'}</dd></div>
-                    <div><dt>Telemetry</dt><dd>Every {run.config.telemetry_interval} s</dd></div>
-                    <div><dt>Errors</dt><dd>{run.total_errors}</dd></div>
+                    <div><dt>Dọn dữ liệu</dt><dd>{retainedPermanently ? 'Thủ công' : run.cleanup_after ? formatDate(run.cleanup_after) : 'Bắt đầu sau khi hoàn tất'}</dd></div>
+                    <div><dt>Telemetry</dt><dd>Mỗi {run.config.telemetry_interval} giây</dd></div>
+                    <div><dt>Lỗi</dt><dd>{run.total_errors}</dd></div>
                   </dl>
 
                   <div className="entity-columns">
-                    <EntityList title="Generated users" empty="No account has registered yet.">
+                    <EntityList title="Người dùng đã tạo" empty="Chưa có tài khoản nào được đăng ký.">
                       {users.map((user) => (
                         <button
                           className="entity-row"
@@ -262,7 +262,7 @@ export default function RunsList({
                         </button>
                       ))}
                     </EntityList>
-                    <EntityList title="Virtual devices" empty="No device has been provisioned yet.">
+                    <EntityList title="Thiết bị ảo" empty="Chưa có thiết bị nào được cấp phát.">
                       {devices.map((device) => (
                         <button className="entity-row" key={device.mac} onClick={() => onSelectDevice(device.mac)} type="button">
                           <Icon name="device" />
@@ -326,17 +326,17 @@ function CleanupDialog({
   return (
     <dialog className="confirm-dialog" onClose={onClose} ref={dialogRef}>
       <form onSubmit={(event) => { event.preventDefault(); onConfirm(typedId) }}>
-        <h2>Delete this run’s generated data?</h2>
-        <p>This removes only registry-tracked accounts, devices, shadows and telemetry. The action cannot be undone.</p>
+        <h2>Xóa dữ liệu do phiên này tạo?</h2>
+        <p>Chỉ tài khoản, thiết bị, shadow và telemetry có trong registry bị xóa. Thao tác này không thể hoàn tác.</p>
         <label className="field">
-          <span>Type the run ID to confirm</span>
+          <span>Nhập ID phiên để xác nhận</span>
           <input onChange={(event) => setTypedId(event.target.value)} value={typedId} />
           <small>{run?.id || '\u00a0'}</small>
         </label>
         <div className="dialog-actions">
-          <button className="button button--quiet" onClick={() => dialogRef.current?.close()} type="button">Keep data</button>
+          <button className="button button--quiet" onClick={() => dialogRef.current?.close()} type="button">Giữ dữ liệu</button>
           <button className="button button--danger" disabled={busy || typedId !== run?.id} type="submit">
-            {busy ? 'Cleaning…' : 'Delete generated data'}
+            {busy ? 'Đang dọn…' : 'Xóa dữ liệu đã tạo'}
           </button>
         </div>
       </form>
@@ -352,8 +352,16 @@ export function StatusBadge({ status }: { status: string }) {
       : ['partial', 'cleanup_blocked', 'paused'].includes(status)
         ? 'warning'
         : 'neutral'
-  return <span className={`status-badge status-badge--${tone}`}>{status.replaceAll('_', ' ')}</span>
+  return <span className={`status-badge status-badge--${tone}`}>{translateStatus(status)}</span>
 }
 
 const formatDate = (value: string) =>
-  new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+  new Intl.DateTimeFormat('vi-VN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+
+const translateStatus = (status: string) => ({
+  online: 'trực tuyến', offline: 'ngoại tuyến', completed: 'hoàn tất', ready: 'sẵn sàng',
+  cleaned: 'đã dọn', failed: 'thất bại', cleanup_failed: 'dọn thất bại', mqtt_error: 'lỗi MQTT',
+  partial: 'một phần', cleanup_blocked: 'bị chặn dọn', paused: 'tạm dừng', queued: 'đang chờ',
+  running: 'đang chạy', cancelled: 'đã hủy', cleaning: 'đang dọn', registered: 'đã đăng ký',
+  claimed: 'đã ghép', provisioned: 'đã cấp phát', stopped: 'đã dừng', error: 'lỗi',
+}[status] ?? status.replaceAll('_', ' '))

@@ -8,6 +8,7 @@ let registryDb: Db | null = null;
 let mainDb: Db | null = null;
 
 export const initMongo = async (logger: FastifyBaseLogger): Promise<void> => {
+    await closeMongo();
     registryClient = new MongoClient(env.MONGODB_URI);
     mainClient = new MongoClient(env.MAIN_MONGODB_URI || env.MONGODB_URI);
 
@@ -23,6 +24,7 @@ export const initMongo = async (logger: FastifyBaseLogger): Promise<void> => {
         await setupCollections(logger);
     } catch (err) {
         logger.error({ err }, 'Failed to connect to MongoDB');
+        await closeMongo().catch(() => undefined);
         throw err;
     }
 };

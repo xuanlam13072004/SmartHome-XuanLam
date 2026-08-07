@@ -12,9 +12,24 @@ export interface ValueSchema {
     max_items?: number;
     items?: ValueSchema;
     default?: unknown;
+    unit?: string;
+    precision?: number;
+    required?: boolean;
     channel?: 'reported' | 'desired' | 'diagnostic';
     id?: string;
     path?: string;
+    presentation?: PresentationMetadata;
+}
+
+export interface PresentationMetadata {
+    display_name?: string;
+    label?: string;
+    description?: string;
+    icon?: string;
+    section?: string;
+    order?: number;
+    ui_hint?: string;
+    [key: string]: unknown;
 }
 
 export interface OperationEffect {
@@ -37,7 +52,7 @@ export interface CapabilityOperation {
     };
     timeout_ms?: number;
     idempotent?: boolean;
-    presentation?: Record<string, unknown>;
+    presentation?: PresentationMetadata;
 }
 
 export interface CapabilityProperty extends ValueSchema {
@@ -51,8 +66,19 @@ export interface CapabilityInstance {
     capability_id: string;
     properties: CapabilityProperty[];
     operations: CapabilityOperation[];
+    events?: Array<{
+        id: string;
+        producer?: string;
+        severity?: string;
+        retention?: string;
+        data?: Record<string, ValueSchema>;
+        presentation?: PresentationMetadata;
+    }>;
+    resources?: Array<Record<string, unknown>>;
+    credentials?: Array<Record<string, unknown>>;
     semantic_role?: string;
-    presentation?: Record<string, unknown>;
+    presentation?: PresentationMetadata;
+    runtime?: Record<string, unknown>;
 }
 
 export interface ProductCatalog {
@@ -61,8 +87,12 @@ export interface ProductCatalog {
     catalog_revision: number;
     model_name: string;
     category: string;
-    presentation: Record<string, unknown>;
+    description?: string;
+    ui_profile?: string;
+    ui_profile_version?: number;
+    presentation: PresentationMetadata;
     capability_instances: CapabilityInstance[];
+    local_policies?: Array<Record<string, unknown>>;
     firmware_default_state: DeviceStateSeed;
     firmware_compatibility?: { family?: string; [key: string]: unknown };
     operations: Record<string, CapabilityOperation & {
