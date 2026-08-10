@@ -13,6 +13,7 @@ function propertyPath(instanceId, property) {
 }
 
 function setDefault(target, instanceId, property) {
+    if (property.state_authority === 'product_catalog') return;
     if (!Object.prototype.hasOwnProperty.call(property, 'default')) return;
     const value = clone(property.default);
     if (property.channel === 'diagnostic') {
@@ -82,7 +83,9 @@ function compileProduct(product, capabilityIndex) {
 
         activeInstances.push(compiledInstance);
         for (const property of compiledInstance.properties) {
-            propertySchemas[property.path] = clone(property);
+            if (property.state_authority !== 'product_catalog') {
+                propertySchemas[property.path] = clone(property);
+            }
             setDefault(firmwareDefaultState, instance.instance_id, property);
         }
         for (const operation of compiledInstance.operations) {

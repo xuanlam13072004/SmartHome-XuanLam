@@ -83,7 +83,7 @@ void main() {
   }
 
   testWidgets(
-      'irrigation detail uses duration action and firmware notes without sliders',
+      'irrigation detail keeps firmware policy in one note without sliders',
       (tester) async {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -121,10 +121,26 @@ void main() {
       expect(find.byType(Slider), findsNothing, reason: 'width=$width');
       expect(find.text('Tưới thủ công'), findsOneWidget);
       expect(find.text('Tự động tưới'), findsOneWidget);
-      expect(find.text('50/100'), findsOneWidget);
-      expect(find.text('5/100'), findsOneWidget);
+      expect(find.text('Thiết lập cố định trong firmware'), findsNothing);
+      expect(find.text('Độ ẩm mục tiêu'), findsNothing);
+      expect(find.text('Vùng trễ'), findsNothing);
+      expect(find.text('Thời lượng tưới tự động'), findsNothing);
+      expect(find.text('Giới hạn chạy an toàn'), findsNothing);
+      expect(find.text('Thời gian nghỉ bảo vệ bơm'), findsNothing);
       expect(
-        find.textContaining('Vùng trễ chống bật/tắt bơm liên tục'),
+        find.textContaining('ngưỡng độ ẩm 50/100 và vùng trễ 5/100'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('Mỗi chu kỳ kéo dài 5 phút'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('tự dừng sau tối đa 15 phút'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('nghỉ ít nhất 1 phút'),
         findsOneWidget,
       );
 

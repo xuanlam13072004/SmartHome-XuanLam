@@ -241,14 +241,28 @@ function lintEdgeCapabilityContract(capability, path, errors) {
 
     for (const [index, property] of (capability.properties || []).entries()) {
         const propertyPath = `${path}.properties[${index}]`;
-        const expectedAuthority = property.channel === 'desired'
-            ? 'backend_intent'
-            : 'device_firmware';
+        const isCatalogConstant = property.state_authority === 'product_catalog';
+        const expectedAuthority = isCatalogConstant
+            ? 'product_catalog'
+            : property.channel === 'desired'
+                ? 'backend_intent'
+                : 'device_firmware';
         if (property.state_authority !== expectedAuthority) {
             errors.push(issue('INVALID_STATE_AUTHORITY', `${propertyPath}.state_authority`, `${property.channel} properties require ${expectedAuthority}.`));
         }
         if (!STATE_PERSISTENCE.has(property.persistence)) {
             errors.push(issue('STATE_PERSISTENCE_REQUIRED', `${propertyPath}.persistence`, 'Edge-reviewed properties require an explicit persistence policy.'));
+        }
+        if (isCatalogConstant) {
+            if (property.channel !== 'reported') {
+                errors.push(issue('CATALOG_CONSTANT_CHANNEL', `${propertyPath}.channel`, 'Product Catalog constants must be exposed as read-only reported metadata.'));
+            }
+            if (property.persistence !== 'none' || property.history !== 'none') {
+                errors.push(issue('CATALOG_CONSTANT_RUNTIME_STATE', propertyPath, 'Product Catalog constants cannot be persisted or stored as device history.'));
+            }
+            if (property.automation?.trigger || property.automation?.condition) {
+                errors.push(issue('CATALOG_CONSTANT_AUTOMATION', `${propertyPath}.automation`, 'Product Catalog constants are metadata, not runtime automation state.'));
+            }
         }
     }
 

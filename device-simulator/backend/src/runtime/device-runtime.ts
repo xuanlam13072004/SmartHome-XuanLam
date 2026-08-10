@@ -19,6 +19,7 @@ import {
     evolveState,
     generateInitialState,
     patchDeviceState,
+    removeCatalogConstants,
 } from '../generation/telemetry-generator';
 import { getMongoDb } from '../infrastructure/mongodb/client';
 import {
@@ -90,7 +91,10 @@ export class DeviceRuntime {
     ) {
         this.seq = initialSeq;
         this.logger = logger.child({ mac, productId });
-        this.state = initialState || generateInitialState(getProduct(productId));
+        const product = getProduct(productId);
+        this.state = initialState
+            ? removeCatalogConstants(initialState, product)
+            : generateInitialState(product);
         this.assignment = initialAssignment;
     }
 

@@ -347,22 +347,34 @@ test('irrigation cannot start an unbounded pump operation', () => {
         'maximum_runtime_seconds',
         'cooldown_seconds',
     ]) {
+        const property = policy.properties.find(item => item.id === propertyId);
         assert.equal(
-            policy.properties.find(property => property.id === propertyId).persistence,
+            property.persistence,
             'none',
         );
         assert.equal(
-            policy.properties.find(property => property.id === propertyId).presentation.ui_hint,
+            property.presentation.ui_hint,
             'firmware_note',
         );
+        assert.equal(property.state_authority, 'product_catalog');
+        assert.equal(property.history, 'none');
+        assert.deepEqual(property.automation, { trigger: false, condition: false });
     }
+    assert.equal(
+        irrigation.firmware_default_state.instances.irrigation_automation.reported.target_moisture,
+        undefined,
+    );
+    assert.equal(
+        irrigation.property_schemas['instances.irrigation_automation.reported.target_moisture'],
+        undefined,
+    );
     assert.deepEqual(policy.operations.map(operation => operation.id), ['set_control_mode']);
     assert.equal(irrigation.operations['irrigation_automation.set_moisture_policy'], undefined);
     assert.equal(irrigation.operations['irrigation_automation.set_cycle_configuration'], undefined);
     assert.equal(policy.events.some(event => event.id === 'schedule_executed'), false);
 });
 
-test('active irrigation capabilities remain device-authoritative and safe offline', () => {
+test('active irrigation runtime remains device-authoritative while fixed policy metadata comes from Catalog', () => {
     const compiled = compileCatalog(loadCatalogV2());
     const irrigation = compiled.product_index.prod_irrigation_manager;
 
@@ -371,7 +383,10 @@ test('active irrigation capabilities remain device-authoritative and safe offlin
         assert.equal(instance.runtime.reported_state_authority, 'device_firmware');
         assert.equal(instance.runtime.offline_behavior, 'full_local');
         for (const property of instance.properties) {
-            assert.equal(property.state_authority, 'device_firmware');
+            assert.equal(
+                ['device_firmware', 'product_catalog'].includes(property.state_authority),
+                true,
+            );
         }
         for (const event of instance.events) {
             assert.equal(event.producer, 'device_firmware');

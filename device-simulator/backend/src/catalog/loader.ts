@@ -58,6 +58,7 @@ export interface CapabilityOperation {
 export interface CapabilityProperty extends ValueSchema {
     id: string;
     channel: 'reported' | 'desired' | 'diagnostic';
+    state_authority?: 'device_firmware' | 'backend_intent' | 'product_catalog';
     path: string;
 }
 

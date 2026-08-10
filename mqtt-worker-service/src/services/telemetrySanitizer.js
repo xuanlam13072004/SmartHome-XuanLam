@@ -52,6 +52,17 @@ class TelemetrySanitizer {
                     );
                     continue;
                 }
+                if (schema.state_authority === 'product_catalog') {
+                    this.warn(
+                        `instances.${instanceId}.reported.${propertyId}`,
+                        value,
+                        'authority',
+                        'Device telemetry cannot write Product Catalog constants',
+                        stats,
+                        warnings,
+                    );
+                    continue;
+                }
                 const validation = validateValueAgainstSchema(value, schema, { required: true });
                 if (validation.valid) accepted[propertyId] = value;
                 else this.warn(
@@ -86,6 +97,17 @@ class TelemetrySanitizer {
                         value,
                         'unknown',
                         'Unknown diagnostic property',
+                        stats,
+                        warnings,
+                    );
+                    continue;
+                }
+                if (schema.state_authority === 'product_catalog') {
+                    this.warn(
+                        `diagnostics.${instanceId}.${propertyId}`,
+                        value,
+                        'authority',
+                        'Device telemetry cannot write Product Catalog constants',
                         stats,
                         warnings,
                     );

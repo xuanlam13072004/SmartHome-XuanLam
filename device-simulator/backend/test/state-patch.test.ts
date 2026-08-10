@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { ProductCatalog } from '../src/catalog/loader';
-import { patchDeviceState } from '../src/generation/telemetry-generator';
+import {
+    evolveState,
+    generateInitialState,
+    patchDeviceState,
+} from '../src/generation/telemetry-generator';
 
 const product: ProductCatalog = {
     schema: 'compiled.product.v2',
@@ -15,6 +19,7 @@ const product: ProductCatalog = {
         instance_id: 'main',
         properties: [
             { id: 'temperature', channel: 'reported', path: 'instances.main.reported.temperature', type: 'number', minimum: -20, maximum: 80 },
+            { id: 'fixed_threshold', channel: 'reported', state_authority: 'product_catalog', path: 'instances.main.reported.fixed_threshold', type: 'number', default: 50 },
             { id: 'mode', channel: 'desired', path: 'instances.main.desired.mode', type: 'string', enum: ['eco', 'comfort'] },
             { id: 'online', channel: 'diagnostic', path: 'diagnostics.main.online', type: 'boolean' },
         ],
@@ -23,7 +28,7 @@ const product: ProductCatalog = {
     firmware_default_state: {
         schema: 'device.state.v2',
         state_version: 0,
-        instances: { main: { reported: { temperature: 25 }, desired: { mode: 'eco' } } },
+        instances: { main: { reported: { temperature: 25, fixed_threshold: 68.4 }, desired: { mode: 'eco' } } },
         diagnostics: { main: { online: true } },
     },
     operations: {},
@@ -31,7 +36,7 @@ const product: ProductCatalog = {
 
 const current = {
     state_version: 4,
-    instances: { main: { reported: { temperature: 25 }, desired: { mode: 'eco' } } },
+    instances: { main: { reported: { temperature: 25, fixed_threshold: 68.4 }, desired: { mode: 'eco' } } },
     diagnostics: { main: { online: true } },
 };
 
@@ -41,6 +46,7 @@ test('manual state patch merges catalog-valid nested state and advances its vers
         diagnostics: { main: { online: false } },
     });
     assert.equal(next.instances.main.reported.temperature, 31);
+    assert.equal(next.instances.main.reported.fixed_threshold, undefined);
     assert.equal(next.instances.main.desired.mode, 'eco');
     assert.equal(next.diagnostics.main.online, false);
     assert.equal(next.state_version, 5);
@@ -59,4 +65,16 @@ test('manual state patch rejects unknown, out-of-range and wrong-channel propert
         () => patchDeviceState(current, product, { instances: { main: { reported: { mode: 'eco' } } } }),
         /Unknown reported property/,
     );
+    assert.throws(
+        () => patchDeviceState(current, product, { instances: { main: { reported: { fixed_threshold: 55 } } } }),
+        /Product Catalog constant .* cannot be patched/,
+    );
+});
+
+test('Product Catalog constants are absent from generated and evolved device state', () => {
+    const initial = generateInitialState(product);
+    assert.equal(initial.instances.main.reported.fixed_threshold, undefined);
+
+    const evolved = evolveState(current, product);
+    assert.equal(evolved.instances.main.reported.fixed_threshold, undefined);
 });

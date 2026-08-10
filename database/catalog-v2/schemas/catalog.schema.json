@@ -90,7 +90,7 @@
           "properties": {
             "id": { "$ref": "#/$defs/identifier" },
             "channel": { "enum": ["reported", "desired", "diagnostic"] },
-            "state_authority": { "enum": ["device_firmware", "backend_intent"] },
+            "state_authority": { "enum": ["device_firmware", "backend_intent", "product_catalog"] },
             "persistence": { "enum": ["volatile", "device_nvs", "device_secure_storage", "none"] },
             "required": { "type": "boolean" },
             "history": { "enum": ["none", "latest", "sampled"] },

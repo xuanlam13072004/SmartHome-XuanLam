@@ -36,7 +36,8 @@ export function CapabilityControl({
 
   const controlDisabled = disabled || status === 'saving'
   const label = propertyLabel(property)
-  const firmwareOwned = property.presentation?.ui_hint === 'firmware_note'
+  const catalogConstant = property.state_authority === 'product_catalog'
+  const firmwareOwned = catalogConstant || property.presentation?.ui_hint === 'firmware_note'
 
   return (
     <div
@@ -46,7 +47,7 @@ export function CapabilityControl({
       <div className="physical-control__heading">
         <div>
           <strong>{label}</strong>
-          <small>{firmwareOwned ? 'Thiết lập cố định trong firmware' : property.channel === 'diagnostic' ? 'Tín hiệu chẩn đoán' : 'Trạng thái thiết bị báo cáo'}</small>
+          <small>{catalogConstant ? 'Thông tin tĩnh từ Product Catalog' : firmwareOwned ? 'Thiết lập cố định trong firmware' : property.channel === 'diagnostic' ? 'Tín hiệu chẩn đoán' : 'Trạng thái thiết bị báo cáo'}</small>
         </div>
         <output aria-live="polite">{formatValue(value, property)}</output>
       </div>
@@ -65,7 +66,9 @@ export function CapabilityControl({
 
       {firmwareOwned ? (
         <p className="control-unavailable">
-          Chỉ hiển thị giá trị thiết bị đang báo; không thể chỉnh từ Simulator.
+          {catalogConstant
+            ? 'Giá trị cố định theo model, không nằm trong telemetry thiết bị.'
+            : 'Chỉ hiển thị giá trị thiết bị đang báo; không thể chỉnh từ Simulator.'}
         </p>
       ) : value !== null && value !== undefined && renderControl({
         property,

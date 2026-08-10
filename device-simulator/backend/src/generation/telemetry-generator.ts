@@ -28,6 +28,27 @@ export interface DeviceStatePatch {
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
+const isCatalogConstant = (property: CapabilityProperty): boolean =>
+    property.state_authority === 'product_catalog';
+
+export const removeCatalogConstants = (
+    current: DeviceState,
+    product: ProductCatalog,
+): DeviceState => {
+    const next = clone(current);
+    for (const instance of product.capability_instances) {
+        for (const property of instance.properties) {
+            if (!isCatalogConstant(property)) continue;
+            if (property.channel === 'diagnostic') {
+                delete next.diagnostics[instance.instance_id]?.[property.id];
+                continue;
+            }
+            delete next.instances[instance.instance_id]?.[property.channel]?.[property.id];
+        }
+    }
+    return next;
+};
+
 const realisticNumbers: Record<string, number> = {
     temperature: 25,
     humidity: 58,
@@ -62,14 +83,15 @@ const seedValue = (property: CapabilityProperty): unknown => {
 
 export const generateInitialState = (product: ProductCatalog): DeviceState => {
     const source = clone(product.firmware_default_state);
-    const state: DeviceState = {
+    const state = removeCatalogConstants({
         state_version: 0,
         instances: source.instances || {},
         diagnostics: source.diagnostics || {},
-    };
+    }, product);
     for (const instance of product.capability_instances) {
         state.instances[instance.instance_id] ||= { reported: {}, desired: {} };
         for (const property of instance.properties) {
+            if (isCatalogConstant(property)) continue;
             if (property.channel === 'diagnostic') {
                 state.diagnostics[instance.instance_id] ||= {};
                 if (state.diagnostics[instance.instance_id][property.id] == null) {
@@ -102,11 +124,12 @@ const controlledPaths = (product: ProductCatalog): Set<string> => {
 };
 
 export const evolveState = (current: DeviceState, product: ProductCatalog): DeviceState => {
-    const next = clone(current);
+    const next = removeCatalogConstants(current, product);
     const controlled = controlledPaths(product);
     let changed = false;
     for (const instance of product.capability_instances) {
         for (const property of instance.properties) {
+            if (isCatalogConstant(property)) continue;
             if (!['number', 'integer'].includes(property.type)) continue;
             if (property.channel === 'reported') {
                 if (controlled.has(`${instance.instance_id}.${property.id}`)) continue;
@@ -159,7 +182,7 @@ export const applyOperationToState = (
     validateOperationInput(operation, input.input);
     const instance = product.capability_instances.find(item => item.instance_id === input.instance_id);
     if (!instance) throw new Error('Operation capability instance is unavailable');
-    const next = clone(state);
+    const next = removeCatalogConstants(state, product);
     next.instances[input.instance_id] ||= { reported: {}, desired: {} };
     for (const effect of operation.effects || []) {
         if (!effect.property) continue;
@@ -200,7 +223,7 @@ export const patchDeviceState = (
     patch: DeviceStatePatch,
 ): DeviceState => {
     validateDeviceStatePatch(product, patch);
-    const next = clone(state);
+    const next = removeCatalogConstants(state, product);
     for (const [instanceId, envelope] of Object.entries(patch.instances || {})) {
         next.instances[instanceId] ||= { reported: {}, desired: {} };
         for (const channel of ['reported', 'desired'] as const) {
@@ -234,6 +257,9 @@ export const validateDeviceStatePatch = (
                 if (!property) throw new Error(
                     `Unknown ${channel} property ${instanceId}.${propertyId}`,
                 );
+                if (isCatalogConstant(property)) throw new Error(
+                    `Product Catalog constant ${instanceId}.${propertyId} cannot be patched`,
+                );
                 validateValueAgainstSchema(value, property, `${instanceId}.${channel}.${propertyId}`);
             }
         }
@@ -246,6 +272,9 @@ export const validateDeviceStatePatch = (
                 item.id === propertyId && item.channel === 'diagnostic'
             ));
             if (!property) throw new Error(`Unknown diagnostic property ${instanceId}.${propertyId}`);
+            if (isCatalogConstant(property)) throw new Error(
+                `Product Catalog constant ${instanceId}.${propertyId} cannot be patched`,
+            );
             validateValueAgainstSchema(value, property, `${instanceId}.diagnostic.${propertyId}`);
         }
     }

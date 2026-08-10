@@ -86,6 +86,7 @@ export const readPropertyValue = (
   instanceId: string,
   property: CapabilityProperty,
 ): unknown => {
+  if (property.state_authority === 'product_catalog') return property.default ?? null
   if (!state) return property.default ?? null
   if (property.channel === 'diagnostic') {
     return state.diagnostics[instanceId]?.[property.id] ?? property.default ?? null

@@ -20,12 +20,15 @@ class CapabilityAssembler {
       for (final instance in orderedInstances) {
         final attachedOperations = <String>{};
         final firmwareNoteProperties = instance.properties
-            .where((property) => _uiHint(property) == 'firmware_note')
+            .where((property) =>
+                _uiHint(property) == 'firmware_note' ||
+                _isCatalogConstant(property))
             .map((property) => property.id)
             .toSet();
         for (final property in instance.properties) {
           if (property.channel == 'desired') continue;
-          final isFirmwareNote = _uiHint(property) == 'firmware_note';
+          final isFirmwareNote = _uiHint(property) == 'firmware_note' ||
+              _isCatalogConstant(property);
           final operations = property.channel == 'reported' && !isFirmwareNote
               ? _operationsForProperty(
                   instance,
@@ -41,10 +44,13 @@ class CapabilityAssembler {
             id: property.id,
             type: _widgetType(property, isReadOnly),
             name: _propertyDisplayName(instance, property),
-            value: _propertyValue(deviceDto, instance.instance, property),
+            value: _isCatalogConstant(property)
+                ? property.schema['default']
+                : _propertyValue(deviceDto, instance.instance, property),
             properties: {
               ..._widgetProperties(property.schema),
               'ui_hint': _uiHint(property),
+              'state_authority': property.schema['state_authority'],
               'state_version': deviceDto.stateVersion,
             },
             isReadOnly: isReadOnly,
@@ -296,6 +302,9 @@ class CapabilityAssembler {
 
   static String _uiHint(CapabilityProperty property) =>
       _map(property.schema['presentation'])['ui_hint']?.toString() ?? '';
+
+  static bool _isCatalogConstant(CapabilityProperty property) =>
+      property.schema['state_authority'] == 'product_catalog';
 
   static Map<String, dynamic> _map(dynamic value) =>
       value is Map ? Map<String, dynamic>.from(value) : <String, dynamic>{};

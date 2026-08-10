@@ -249,7 +249,7 @@ void main() {
       expect(device.capabilities.single.operations, isEmpty);
     });
 
-    test('firmware note stays read-only even if a setter is published', () {
+    test('catalog constant stays read-only and ignores device telemetry', () {
       final product = ProductModel(
         id: 'prod_irrigation_manager',
         catalogRevision: 2,
@@ -283,6 +283,8 @@ void main() {
                     'instances.irrigation_automation.reported.target_moisture',
                 'type': 'number',
                 'unit': 'normalized',
+                'default': 50,
+                'state_authority': 'product_catalog',
                 'presentation': {
                   'ui_hint': 'firmware_note',
                   'label': 'Độ ẩm mục tiêu',
@@ -321,7 +323,7 @@ void main() {
           'state_version': 8,
           'instances': {
             'irrigation_automation': {
-              'reported': {'target_moisture': 50},
+              'reported': {'target_moisture': 68.4},
             },
           },
           'diagnostics': <String, dynamic>{},
@@ -337,7 +339,9 @@ void main() {
       expect(target.type, 'sensor');
       expect(target.isReadOnly, isTrue);
       expect(target.operations, isEmpty);
+      expect(target.value, 50);
       expect(target.properties['ui_hint'], 'firmware_note');
+      expect(target.properties['state_authority'], 'product_catalog');
     });
 
     test('realtime initial state preserves authoritative REST permissions',

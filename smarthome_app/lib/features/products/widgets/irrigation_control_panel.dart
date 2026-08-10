@@ -257,51 +257,10 @@ class _IrrigationControlPanelState extends State<IrrigationControlPanel> {
                 value: _isAutomatic,
                 onChanged: modeEnabled ? _changeAutomaticMode : null,
               ),
-              if (_isAutomatic) ...[
-                const SizedBox(height: AppSpacing.sm),
-                _InformationNote(
-                  icon: Icons.info_outline_rounded,
-                  text: _automaticModeNote(),
-                ),
-              ],
-              const SizedBox(height: AppSpacing.lg),
-              Text(
-                'Thiết lập cố định trong firmware',
-                style: context.textTheme.titleMedium,
-              ),
-              const SizedBox(height: AppSpacing.xs),
-              Text(
-                'Các giá trị dưới đây do thiết bị báo cáo và không thể sửa từ ứng dụng.',
-                style: context.textTheme.bodySmall?.copyWith(
-                  color: context.colorScheme.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              _ReadOnlyValueRow(
-                label: 'Độ ẩm mục tiêu',
-                value: _normalizedValue(widget.targetMoisture),
-              ),
-              _ReadOnlyValueRow(
-                label: 'Vùng trễ',
-                value: _normalizedValue(widget.moistureHysteresis),
-              ),
-              _ReadOnlyValueRow(
-                label: 'Thời lượng tưới tự động',
-                value: _durationValue(widget.defaultCycleDuration),
-              ),
-              _ReadOnlyValueRow(
-                label: 'Giới hạn chạy an toàn',
-                value: _durationValue(widget.maximumRuntime),
-              ),
-              _ReadOnlyValueRow(
-                label: 'Thời gian nghỉ bảo vệ bơm',
-                value: _durationValue(widget.cooldown),
-                showDivider: false,
-              ),
               const SizedBox(height: AppSpacing.sm),
               _InformationNote(
                 icon: Icons.health_and_safety_outlined,
-                text: _safetyNote(),
+                text: _firmwarePolicyNote(),
               ),
             ],
           ),
@@ -322,65 +281,22 @@ class _IrrigationControlPanelState extends State<IrrigationControlPanel> {
         : 'Mỗi lần tưới không vượt quá ${_formatDuration(maximum)}.';
   }
 
-  String _automaticModeNote() {
+  String _firmwarePolicyNote() {
     final target = _plainNumber(widget.targetMoisture?.value);
     final hysteresis = _plainNumber(widget.moistureHysteresis?.value);
-    if (target == null || hysteresis == null) {
-      return 'Thiết bị tự dùng ngưỡng và vùng trễ trong firmware để tránh bật/tắt bơm liên tục.';
-    }
-    return 'Vùng trễ chống bật/tắt bơm liên tục khi độ ẩm dao động gần mức $target là $hysteresis.';
-  }
-
-  String _safetyNote() {
+    final cycle = _integerValue(widget.defaultCycleDuration);
     final maximum = _integerValue(widget.maximumRuntime);
     final cooldown = _integerValue(widget.cooldown);
-    if (maximum == null || cooldown == null) {
-      return 'Firmware luôn kiểm tra nguồn nước, giới hạn thời gian chạy và thời gian nghỉ trước khi bật bơm.';
+    if (target == null ||
+        hysteresis == null ||
+        cycle == null ||
+        maximum == null ||
+        cooldown == null) {
+      return 'Ở chế độ tự động, thiết bị tự dùng ngưỡng độ ẩm, vùng trễ và các giới hạn an toàn cố định để bảo vệ bơm.';
     }
-    return 'Bơm tự dừng sau tối đa ${_formatDuration(maximum)} và nghỉ ít nhất ${_formatDuration(cooldown)} trước lần chạy tiếp theo.';
+    return 'Ở chế độ tự động, thiết bị dùng ngưỡng độ ẩm $target/100 và vùng trễ $hysteresis/100 để tránh bật/tắt bơm liên tục. '
+        'Mỗi chu kỳ kéo dài ${_formatDuration(cycle)}; bơm tự dừng sau tối đa ${_formatDuration(maximum)} và nghỉ ít nhất ${_formatDuration(cooldown)} trước lần chạy tiếp theo.';
   }
-}
-
-class _ReadOnlyValueRow extends StatelessWidget {
-  const _ReadOnlyValueRow({
-    required this.label,
-    required this.value,
-    this.showDivider = true,
-  });
-
-  final String label;
-  final String value;
-  final bool showDivider;
-
-  @override
-  Widget build(BuildContext context) => Column(
-        children: [
-          Semantics(
-            label: '$label: $value, chỉ đọc',
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: AppSpacing.smMd),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(label, style: context.textTheme.bodyMedium),
-                  ),
-                  const SizedBox(width: AppSpacing.md),
-                  Text(
-                    value,
-                    textAlign: TextAlign.end,
-                    style: context.textTheme.titleSmall?.copyWith(
-                      color: context.colorScheme.primary,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (showDivider)
-            Divider(height: 1, color: context.colorScheme.outlineVariant),
-        ],
-      );
 }
 
 class _InformationNote extends StatelessWidget {
@@ -390,25 +306,20 @@ class _InformationNote extends StatelessWidget {
   final String text;
 
   @override
-  Widget build(BuildContext context) => Semantics(
-        liveRegion: true,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: context.colorScheme.primaryContainer.withValues(alpha: 0.45),
-            borderRadius: BorderRadius.circular(AppRadius.smMd),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.smMd),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(icon, size: 20, color: context.colorScheme.primary),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: Text(text, style: context.textTheme.bodySmall),
-                ),
-              ],
-            ),
+  Widget build(BuildContext context) => DecoratedBox(
+        decoration: BoxDecoration(
+          color: context.colorScheme.primaryContainer.withValues(alpha: 0.45),
+          borderRadius: BorderRadius.circular(AppRadius.smMd),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.smMd),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, size: 20, color: context.colorScheme.primary),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(child: Text(text, style: context.textTheme.bodySmall)),
+            ],
           ),
         ),
       );
@@ -427,16 +338,6 @@ String? _plainNumber(dynamic value) {
   }
   if (value is num) return value.toStringAsFixed(1);
   return value == null ? null : '$value';
-}
-
-String _normalizedValue(CapabilityModel? capability) {
-  final value = _plainNumber(capability?.value);
-  return value == null ? '—' : '$value/100';
-}
-
-String _durationValue(CapabilityModel? capability) {
-  final seconds = _integerValue(capability);
-  return seconds == null ? '—' : _formatDuration(seconds);
 }
 
 String _formatDuration(int seconds) {
