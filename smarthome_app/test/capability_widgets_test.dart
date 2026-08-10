@@ -88,7 +88,7 @@ const rssi = CapabilityModel(
   type: 'sensor',
   name: 'Tín hiệu',
   value: -62,
-  properties: {'min': -120, 'max': 0, 'unit': 'dBm'},
+  properties: {'min': -120, 'max': 0, 'unit': 'dbm'},
   isReadOnly: true,
   instance: 'diagnostics',
   capabilityId: 'system-diagnostics',
@@ -96,6 +96,30 @@ const rssi = CapabilityModel(
   instanceDisplayName: 'System Diagnostics',
   iconName: 'monitor_heart',
   displayOrder: 99,
+  section: CapabilitySection.diagnostic,
+);
+
+const connectionState = CapabilityModel(
+  id: 'online',
+  type: 'sensor',
+  name: 'Kết nối',
+  value: false,
+  isReadOnly: true,
+  instance: 'system',
+  capabilityId: 'system_diagnostics',
+  semanticRole: 'system_diagnostics',
+  section: CapabilitySection.diagnostic,
+);
+
+const firmwareVersion = CapabilityModel(
+  id: 'firmware_version',
+  type: 'sensor',
+  name: 'Phiên bản firmware',
+  value: '1.2.3',
+  isReadOnly: true,
+  instance: 'system',
+  capabilityId: 'system_diagnostics',
+  semanticRole: 'system_diagnostics',
   section: CapabilitySection.diagnostic,
 );
 
@@ -194,17 +218,6 @@ void main() {
                       useGrid: true,
                       onCapabilityChanged: (_, __) {},
                     ),
-                    const SizedBox(height: AppSpacing.xl),
-                    CapabilitySectionPanel(
-                      title: 'Chẩn đoán',
-                      description: 'Thông tin kỹ thuật và chất lượng kết nối',
-                      icon: Icons.monitor_heart_rounded,
-                      capabilities: const [rssi],
-                      useGrid: true,
-                      collapsible: true,
-                      initiallyExpanded: false,
-                      onCapabilityChanged: (_, __) {},
-                    ),
                   ],
                 ),
               ),
@@ -219,15 +232,40 @@ void main() {
         expect(find.text('Kết nối mạng'), findsOneWidget);
         expect(find.text('Qua Hub'), findsWidgets);
         expect(find.text('28.4°C'), findsOneWidget);
-        expect(find.text('-62dBm'), findsNothing);
-
-        await tester.ensureVisible(find.text('Chẩn đoán'));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('Chẩn đoán'));
-        await tester.pump();
-        expect(find.text('-62dBm'), findsOneWidget);
         expect(tester.takeException(), isNull);
       });
     }
   }
+
+  testWidgets('read-only renderer accepts number, boolean and string values',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 800);
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Scaffold(
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            child: CapabilitySectionPanel(
+              title: 'Thông tin chỉ đọc',
+              description: 'Kiểm tra renderer với nhiều kiểu dữ liệu',
+              icon: Icons.info_outline_rounded,
+              capabilities: const [rssi, connectionState, firmwareVersion],
+              useGrid: true,
+              onCapabilityChanged: (_, __) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('-62 dBm'), findsOneWidget);
+    expect(find.text('Tắt'), findsOneWidget);
+    expect(find.text('1.2.3'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

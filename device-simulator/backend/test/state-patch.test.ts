@@ -22,6 +22,7 @@ const product: ProductCatalog = {
             { id: 'fixed_threshold', channel: 'reported', state_authority: 'product_catalog', path: 'instances.main.reported.fixed_threshold', type: 'number', default: 50 },
             { id: 'mode', channel: 'desired', path: 'instances.main.desired.mode', type: 'string', enum: ['eco', 'comfort'] },
             { id: 'online', channel: 'diagnostic', path: 'diagnostics.main.online', type: 'boolean' },
+            { id: 'firmware_status', channel: 'diagnostic', path: 'diagnostics.main.firmware_status', type: 'string', enum: ['unknown', 'healthy', 'fault'], default: 'unknown' },
         ],
         operations: [],
     }],
@@ -37,18 +38,19 @@ const product: ProductCatalog = {
 const current = {
     state_version: 4,
     instances: { main: { reported: { temperature: 25, fixed_threshold: 68.4 }, desired: { mode: 'eco' } } },
-    diagnostics: { main: { online: true } },
+    diagnostics: { main: { online: true, firmware_status: 'healthy' } },
 };
 
 test('manual state patch merges catalog-valid nested state and advances its version', () => {
     const next = patchDeviceState(current, product, {
         instances: { main: { reported: { temperature: 31 } } },
-        diagnostics: { main: { online: false } },
+        diagnostics: { main: { online: false, firmware_status: 'fault' } },
     });
     assert.equal(next.instances.main.reported.temperature, 31);
     assert.equal(next.instances.main.reported.fixed_threshold, undefined);
     assert.equal(next.instances.main.desired.mode, 'eco');
     assert.equal(next.diagnostics.main.online, false);
+    assert.equal(next.diagnostics.main.firmware_status, 'fault');
     assert.equal(next.state_version, 5);
 });
 
@@ -74,6 +76,7 @@ test('manual state patch rejects unknown, out-of-range and wrong-channel propert
 test('Product Catalog constants are absent from generated and evolved device state', () => {
     const initial = generateInitialState(product);
     assert.equal(initial.instances.main.reported.fixed_threshold, undefined);
+    assert.equal(initial.diagnostics.main.firmware_status, 'unknown');
 
     const evolved = evolveState(current, product);
     assert.equal(evolved.instances.main.reported.fixed_threshold, undefined);

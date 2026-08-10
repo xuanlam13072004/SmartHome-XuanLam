@@ -17,9 +17,11 @@ class CapabilitySensorWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final value = capability.value;
-    final min = (capability.properties['min'] as num?)?.toDouble();
-    final max = (capability.properties['max'] as num?)?.toDouble();
-    final numericValue = (value as num?)?.toDouble();
+    final minValue = capability.properties['min'];
+    final maxValue = capability.properties['max'];
+    final min = minValue is num ? minValue.toDouble() : null;
+    final max = maxValue is num ? maxValue.toDouble() : null;
+    final numericValue = value is num ? value.toDouble() : null;
     final hasGauge =
         numericValue != null && min != null && max != null && max > min;
     final progress =
@@ -27,9 +29,7 @@ class CapabilitySensorWidget extends StatelessWidget {
     final accent = CapabilityVisuals.accentFor(context, capability);
 
     // Hallmark: Color coding dựa trên % trong range
-    final gaugeColor = hasGauge
-        ? _colorForProgress(progress, accent)
-        : accent;
+    final gaugeColor = hasGauge ? _colorForProgress(progress, accent) : accent;
 
     return Semantics(
       container: true,
@@ -55,8 +55,7 @@ class CapabilitySensorWidget extends StatelessWidget {
                     color: context.colorScheme.onSurface,
                     fontWeight: FontWeight.w700,
                   ),
-                  backgroundColor:
-                      context.colorScheme.surfaceContainerHighest,
+                  backgroundColor: context.colorScheme.surfaceContainerHighest,
                 ),
               )
             else

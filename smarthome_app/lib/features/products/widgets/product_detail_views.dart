@@ -1,5 +1,5 @@
 // Hallmark · pre-emit critique: P5 H5 E4 S5 R5 V5
-// Hallmark · workbench · status first → task controls → evidence → diagnostics
+// Hallmark · workbench · status first → health alerts → task controls → evidence
 import 'package:flutter/material.dart';
 
 import '../../../core/core.dart';
@@ -42,7 +42,8 @@ class GenericProductDetail extends StatelessWidget {
         ProductStatusFact(
           icon: Icons.widgets_rounded,
           label: 'Chức năng',
-          value: '${device.capabilities.length}',
+          value:
+              '${device.capabilities.where((item) => item.section != CapabilitySection.diagnostic).length}',
         ),
       ],
       groups: _remainingGroups(device, used),
@@ -550,6 +551,7 @@ class ProductDetailWorkbench extends StatelessWidget {
   Widget build(BuildContext context) {
     final visibleGroups =
         groups.where((group) => group.capabilities.isNotEmpty);
+    final health = _deviceHealthStatus(device);
     final hero = DeviceHeroCard(
       device: device,
       identityIcon: heroIcon,
@@ -572,6 +574,10 @@ class ProductDetailWorkbench extends StatelessWidget {
         if (!summaryBeforeHero) ...[
           const SizedBox(height: AppSpacing.xl),
           summary,
+        ],
+        if (health.hasWarning) ...[
+          const SizedBox(height: AppSpacing.md),
+          _DeviceHealthWarning(status: health),
         ],
         for (final section in customSections) ...[
           const SizedBox(height: AppSpacing.xl),
@@ -621,6 +627,88 @@ class ProductStatusFact {
   final String label;
   final String value;
   final Color? tone;
+}
+
+class _DeviceHealthStatus {
+  const _DeviceHealthStatus({
+    required this.weakWifi,
+    required this.firmwareFault,
+  });
+
+  final bool weakWifi;
+  final bool firmwareFault;
+
+  bool get hasWarning => weakWifi || firmwareFault;
+}
+
+class _DeviceHealthWarning extends StatelessWidget {
+  const _DeviceHealthWarning({required this.status});
+
+  final _DeviceHealthStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final messages = <String>[
+      if (status.weakWifi) 'Kết nối Wi-Fi không ổn định',
+      if (status.firmwareFault) 'Firmware của thiết bị cần được kiểm tra',
+    ];
+    final guidance = status.weakWifi && status.firmwareFault
+        ? 'Hãy kiểm tra khoảng cách tới bộ phát hoặc Hub, sau đó khởi động lại thiết bị. Nếu cảnh báo vẫn còn, thiết bị cần được kiểm tra kỹ thuật.'
+        : status.weakWifi
+            ? 'Hãy đưa thiết bị hoặc Hub lại gần bộ phát Wi-Fi và kiểm tra lại kết nối.'
+            : 'Hãy khởi động lại thiết bị. Nếu cảnh báo vẫn còn, firmware cần được kiểm tra kỹ thuật.';
+
+    return Semantics(
+      liveRegion: true,
+      container: true,
+      label: [...messages, guidance].join('. '),
+      child: ExcludeSemantics(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: context.colorScheme.errorContainer,
+            borderRadius: BorderRadius.circular(AppRadius.smMd),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.smMd),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  status.weakWifi
+                      ? Icons.wifi_off_rounded
+                      : Icons.system_security_update_warning_rounded,
+                  color: context.colorScheme.onErrorContainer,
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (final message in messages)
+                        Text(
+                          message,
+                          style: context.textTheme.titleSmall?.copyWith(
+                            color: context.colorScheme.onErrorContainer,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      const SizedBox(height: AppSpacing.xs),
+                      Text(
+                        guidance,
+                        style: context.textTheme.bodySmall?.copyWith(
+                          color: context.colorScheme.onErrorContainer,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _ProtectedActionPanel extends StatelessWidget {
@@ -813,16 +901,53 @@ List<ProductCapabilityGroup> _remainingGroups(
       capabilities: takeSection(CapabilitySection.sensor),
       useGrid: true,
     ),
-    ProductCapabilityGroup(
-      title: 'Chẩn đoán',
-      description: 'Thông tin kỹ thuật và chất lượng kết nối',
-      icon: Icons.monitor_heart_rounded,
-      capabilities: takeSection(CapabilitySection.diagnostic),
-      useGrid: true,
-      collapsible: true,
-      initiallyExpanded: false,
-    ),
   ];
+}
+
+const double _unstableWifiRssiDbm = -75;
+
+_DeviceHealthStatus _deviceHealthStatus(DeviceModel device) {
+  var weakWifi = false;
+  var firmwareFault = false;
+
+  void inspect(String id, dynamic value, [String uiHint = '']) {
+    final key = '$id $uiHint'.toLowerCase();
+    if (key.contains('wifi_rssi') || key.contains('signal_strength')) {
+      final rssi = value is num ? value.toDouble() : double.tryParse('$value');
+      if (rssi != null && rssi <= _unstableWifiRssiDbm) weakWifi = true;
+    }
+    if (key.contains('firmware_status') || key.contains('firmware_health')) {
+      final state = '$value'.trim().toLowerCase();
+      if (const {'fault', 'failed', 'error', 'invalid', 'corrupt'}
+          .contains(state)) {
+        firmwareFault = true;
+      }
+    }
+  }
+
+  for (final capability in device.capabilities) {
+    if (capability.section != CapabilitySection.diagnostic) continue;
+    inspect(
+      capability.id,
+      capability.value,
+      capability.properties['ui_hint']?.toString() ?? '',
+    );
+  }
+  for (final entry in device.diagnostics.entries) {
+    final values = entry.value;
+    if (values is Map) {
+      for (final property in values.entries) {
+        inspect('${property.key}', property.value);
+      }
+    } else {
+      inspect(entry.key, values);
+    }
+  }
+
+  return _DeviceHealthStatus(
+    weakWifi: weakWifi,
+    firmwareFault: firmwareFault,
+  );
 }
 
 bool _truthy(dynamic value) {

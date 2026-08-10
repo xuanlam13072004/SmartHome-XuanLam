@@ -121,6 +121,10 @@ void main() {
       expect(find.byType(Slider), findsNothing, reason: 'width=$width');
       expect(find.text('Tưới thủ công'), findsOneWidget);
       expect(find.text('Tự động tưới'), findsOneWidget);
+      expect(find.text('Chẩn đoán'), findsNothing);
+      expect(find.text('Kết nối Wi-Fi không ổn định'), findsNothing);
+      expect(
+          find.text('Firmware của thiết bị cần được kiểm tra'), findsNothing);
       expect(find.text('Thiết lập cố định trong firmware'), findsNothing);
       expect(find.text('Độ ẩm mục tiêu'), findsNothing);
       expect(find.text('Vùng trễ'), findsNothing);
@@ -152,6 +156,64 @@ void main() {
       expect(tester.takeException(), isNull, reason: 'width=$width');
     }
   });
+
+  testWidgets('detail hides diagnostics and shows contextual health warnings',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 1100);
+    addTearDown(tester.view.reset);
+
+    Future<void> pumpDevice(
+      DeviceModel device,
+      String scenario,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          key: ValueKey(scenario),
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                child: productUiRegistry.buildDetail(
+                  context,
+                  device: device,
+                  onCapabilityChanged: (_, __) async {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(tester.takeException(), isNull, reason: scenario);
+      expect(find.text('Chẩn đoán'), findsNothing, reason: scenario);
+    }
+
+    await pumpDevice(
+      _irrigationWithDiagnostics(rssi: -60, firmwareStatus: 'healthy'),
+      'healthy',
+    );
+    expect(find.text('Kết nối Wi-Fi không ổn định'), findsNothing);
+    expect(find.text('Firmware của thiết bị cần được kiểm tra'), findsNothing);
+
+    await pumpDevice(
+      _irrigationWithDiagnostics(rssi: -82, firmwareStatus: 'healthy'),
+      'weak-wifi',
+    );
+    expect(find.text('Kết nối Wi-Fi không ổn định'), findsOneWidget);
+    expect(find.text('Firmware của thiết bị cần được kiểm tra'), findsNothing);
+
+    await pumpDevice(
+      _irrigationWithDiagnostics(rssi: -60, firmwareStatus: 'fault'),
+      'firmware-fault',
+    );
+    expect(find.text('Kết nối Wi-Fi không ổn định'), findsNothing);
+    expect(
+      find.text('Firmware của thiết bị cần được kiểm tra'),
+      findsOneWidget,
+    );
+  });
 }
 
 final _irrigationDevice = DeviceModel(
@@ -165,7 +227,9 @@ final _irrigationDevice = DeviceModel(
   icon: Icons.grass_rounded,
   status: DeviceStatus.online,
   rawState: const {},
-  diagnostics: const {},
+  diagnostics: const {
+    'system': {'wifi_rssi': -60, 'firmware_status': 'healthy'},
+  },
   capabilities: const [
     CapabilityModel(
       id: 'moisture_level',
@@ -283,8 +347,80 @@ final _irrigationDevice = DeviceModel(
       capabilityId: 'irrigation_policy',
       section: CapabilitySection.sensor,
     ),
+    CapabilityModel(
+      id: 'wifi_rssi',
+      type: 'sensor',
+      name: 'Tín hiệu Wi-Fi',
+      value: -60,
+      properties: {
+        'min': -120,
+        'max': 0,
+        'unit': 'dbm',
+        'ui_hint': 'signal_strength',
+      },
+      isReadOnly: true,
+      instance: 'system',
+      capabilityId: 'system_diagnostics',
+      section: CapabilitySection.diagnostic,
+    ),
+    CapabilityModel(
+      id: 'firmware_status',
+      type: 'sensor',
+      name: 'Tình trạng firmware',
+      value: 'healthy',
+      properties: {'ui_hint': 'firmware_health'},
+      isReadOnly: true,
+      instance: 'system',
+      capabilityId: 'system_diagnostics',
+      section: CapabilitySection.diagnostic,
+    ),
   ],
 );
+
+DeviceModel _irrigationWithDiagnostics({
+  required double rssi,
+  required String firmwareStatus,
+}) =>
+    _irrigationDevice.copyWith(
+      diagnostics: {
+        'system': {
+          'wifi_rssi': rssi,
+          'firmware_status': firmwareStatus,
+        },
+      },
+      capabilities: [
+        ..._irrigationDevice.capabilities.where(
+          (item) => item.section != CapabilitySection.diagnostic,
+        ),
+        CapabilityModel(
+          id: 'wifi_rssi',
+          type: 'sensor',
+          name: 'Tín hiệu Wi-Fi',
+          value: rssi,
+          properties: const {
+            'min': -120,
+            'max': 0,
+            'unit': 'dbm',
+            'ui_hint': 'signal_strength',
+          },
+          isReadOnly: true,
+          instance: 'system',
+          capabilityId: 'system_diagnostics',
+          section: CapabilitySection.diagnostic,
+        ),
+        CapabilityModel(
+          id: 'firmware_status',
+          type: 'sensor',
+          name: 'Tình trạng firmware',
+          value: firmwareStatus,
+          properties: const {'ui_hint': 'firmware_health'},
+          isReadOnly: true,
+          instance: 'system',
+          capabilityId: 'system_diagnostics',
+          section: CapabilitySection.diagnostic,
+        ),
+      ],
+    );
 
 DeviceModel _device(String profile) => DeviceModel(
       mac: 'AA:BB:CC:DD:EE:FF',

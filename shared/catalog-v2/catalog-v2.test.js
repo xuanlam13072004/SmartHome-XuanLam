@@ -53,6 +53,17 @@ test('compiler emits JSON-safe namespaced state without Map or Set values', () =
     visit(compiled);
 });
 
+test('system diagnostics exposes an explicit firmware health signal', () => {
+    const compiled = compileCatalog(loadCatalogV2());
+    const system = compiled.product_index.prod_entrance_controller.capability_instances
+        .find(instance => instance.capability_id === 'system_diagnostics');
+    const firmwareStatus = system.properties.find(property => property.id === 'firmware_status');
+
+    assert.deepEqual(firmwareStatus.enum, ['unknown', 'healthy', 'fault']);
+    assert.equal(firmwareStatus.default, 'unknown');
+    assert.equal(firmwareStatus.presentation.ui_hint, 'firmware_health');
+});
+
 test('runtime contract contains no unconfirmed hazard hardware', () => {
     const compiled = compileCatalog(loadCatalogV2());
     const hazard = compiled.product_index.prod_hazard_mitigation;

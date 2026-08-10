@@ -1,5 +1,5 @@
 // Hallmark · pre-emit critique: P5 H5 E4 S5 R4 V5
-// Hallmark · modern-minimal · calm precision · device hero → controls → sensors → diagnostics
+// Hallmark · modern-minimal · calm precision · device hero → alerts → controls → sensors
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
