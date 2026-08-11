@@ -9,6 +9,7 @@ export interface ClaimedDevice {
     mac: string;
     owner_id: string;
     product_id: string;
+    catalog_revision: number | string;
     network_id?: string | null;
     join_rank?: number | string | null;
     topology_role?: TopologyRole;

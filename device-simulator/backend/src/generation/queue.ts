@@ -30,6 +30,10 @@ import {
     networkIndexForDevice,
 } from '../runtime/topology';
 import { getProduct } from '../catalog/loader';
+import {
+    assertClaimedProductIdentity,
+    resolveDeviceProduct,
+} from '../catalog/device-contract';
 
 const delay = (milliseconds: number) =>
     new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -454,6 +458,7 @@ export class GenerationQueue {
                 mac: identity.mac,
                 name: `Virtual Device ${input.userIndex + 1}-${input.deviceIndex + 1}`,
                 product_id: product.product_id,
+                catalog_revision: getProduct(product.product_id).catalog_revision,
                 simulated_network_index: simulatedNetworkIndex,
                 network_fingerprint: networkFingerprint,
                 secret: encrypt(identity.rawSecret),
@@ -488,7 +493,8 @@ export class GenerationQueue {
 
         const rawSecret = decrypt(device.secret.iv, device.secret.encrypted, device.secret.authTag);
         if (device.provisioning_state === 'planned' || device.provisioning_state === 'failed') {
-            await provisionMockDevice(getProduct(device.product_id), {
+            const product = await resolveDeviceProduct(device);
+            await provisionMockDevice(product, {
                 mac: device.mac,
                 rawSecret,
                 credentialPublicKeyPem: device.credential_public_key_pem,
@@ -531,7 +537,7 @@ export class GenerationQueue {
                 });
             } catch (error) {
                 const existing = await getPgPool().query(
-                    `SELECT d.id, d.mac, d.owner_id, d.product_id, d.network_id,
+                    `SELECT d.id, d.mac, d.owner_id, d.product_id, d.catalog_revision, d.network_id,
                             d.join_rank, n.active_hub_device_id,
                             n.topology_epoch, n.topology_state,
                             hub.mac AS active_hub_mac,
@@ -552,6 +558,7 @@ export class GenerationQueue {
                     mac: String(existing.rows[0].mac),
                     owner_id: String(existing.rows[0].owner_id),
                     product_id: String(existing.rows[0].product_id),
+                    catalog_revision: Number(existing.rows[0].catalog_revision),
                     network_id: existing.rows[0].network_id
                         ? String(existing.rows[0].network_id)
                         : null,
@@ -568,12 +575,14 @@ export class GenerationQueue {
                 };
             }
 
+            assertClaimedProductIdentity(device, claimedDevice);
             const assignment = assignmentFromClaim(claimedDevice);
             await db.collection<SimulatedDeviceRecord>('simulated_devices').updateOne(
                 { mac: device.mac },
                 {
                     $set: {
                         device_id: claimedDevice.id,
+                        catalog_revision: Number(claimedDevice.catalog_revision),
                         provisioning_state: 'claimed',
                         runtime_state: 'claimed',
                         ...(assignment ? {
@@ -592,6 +601,7 @@ export class GenerationQueue {
             );
             device.provisioning_state = 'claimed';
             device.device_id = claimedDevice.id;
+            device.catalog_revision = Number(claimedDevice.catalog_revision);
             if (assignment) {
                 device.network_id = assignment.network_id;
                 device.join_rank = assignment.join_rank;
@@ -612,10 +622,11 @@ export class GenerationQueue {
         }
 
         if (device.desired_state === 'online' && this.runningTasks.has(run.id)) {
+            const product = await resolveDeviceProduct(device);
             const runtime = getRuntimeManager(this.logger).addDevice(
                 run.id,
                 device.mac,
-                device.product_id,
+                product,
                 run.config.telemetry_interval * 1000,
                 run.config.telemetry_jitter_percent ?? 10,
                 run.config.startup_ramp_seconds ?? 30,

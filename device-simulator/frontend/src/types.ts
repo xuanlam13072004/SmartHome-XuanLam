@@ -140,6 +140,7 @@ export interface SimulatedDevice {
   device_id?: string
   name: string
   product_id: string
+  catalog_revision?: number
   simulated_network_index: number
   network_fingerprint: string
   network_id?: string
@@ -164,6 +165,7 @@ export interface SimulatedDevice {
   retention_policy: 'ttl' | 'permanent'
   expires_at?: string
   last_telemetry?: string
+  last_error?: string | null
   created_at: string
   updated_at: string
 }
@@ -280,6 +282,7 @@ export interface DeviceStatePatch {
 export interface DeviceDetailPayload {
   device: SimulatedDevice
   product: ProductContract
+  product_contract_compatible: boolean
   backend_shadow: Record<string, unknown> | null
   telemetry: Record<string, unknown>[]
   operations: DeviceOperation[]

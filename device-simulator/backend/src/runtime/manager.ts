@@ -1,4 +1,5 @@
 import type { FastifyBaseLogger } from 'fastify';
+import type { ProductCatalog } from '../catalog/loader';
 import type { MqttClient } from 'mqtt';
 import { env } from '../config/env';
 import type { DeviceState } from '../generation/telemetry-generator';
@@ -103,7 +104,7 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
     addDevice(
         runId: string,
         macInput: string,
-        productId: string,
+        product: ProductCatalog,
         intervalMs: number,
         telemetryJitterPercent: number,
         startupRampSeconds: number,
@@ -135,7 +136,7 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
         const device = new DeviceRuntime(
             runId,
             mac,
-            productId,
+            product,
             intervalMs,
             telemetryJitterPercent,
             startupRampSeconds * 1000,

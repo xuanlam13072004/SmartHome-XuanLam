@@ -347,7 +347,7 @@ function CleanupDialog({
 export function StatusBadge({ status }: { status: string }) {
   const tone = ['online', 'completed', 'ready', 'cleaned'].includes(status)
     ? 'ok'
-    : ['failed', 'cleanup_failed', 'mqtt_error'].includes(status)
+    : ['failed', 'cleanup_failed', 'mqtt_error', 'contract_error'].includes(status)
       ? 'error'
       : ['partial', 'cleanup_blocked', 'paused'].includes(status)
         ? 'warning'
@@ -361,6 +361,7 @@ const formatDate = (value: string) =>
 const translateStatus = (status: string) => ({
   online: 'trực tuyến', offline: 'ngoại tuyến', completed: 'hoàn tất', ready: 'sẵn sàng',
   cleaned: 'đã dọn', failed: 'thất bại', cleanup_failed: 'dọn thất bại', mqtt_error: 'lỗi MQTT',
+  contract_error: 'lỗi phiên bản Product',
   partial: 'một phần', cleanup_blocked: 'bị chặn dọn', paused: 'tạm dừng', queued: 'đang chờ',
   running: 'đang chạy', cancelled: 'đã hủy', cleaning: 'đang dọn', registered: 'đã đăng ký',
   claimed: 'đã ghép', provisioned: 'đã cấp phát', stopped: 'đã dừng', error: 'lỗi',

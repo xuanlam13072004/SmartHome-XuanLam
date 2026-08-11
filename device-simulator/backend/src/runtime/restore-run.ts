@@ -5,6 +5,7 @@ import { getMongoDb } from '../infrastructure/mongodb/client';
 import { getRuntimeManager } from './manager';
 import { shouldRestoreRunRuntime } from './recovery-policy';
 import { assignmentFromClaim } from './topology';
+import { resolveDeviceProduct } from '../catalog/device-contract';
 
 export const restoreRunDevices = async (
     run: SimulationRun,
@@ -24,18 +25,19 @@ export const restoreRunDevices = async (
     let failed = 0;
 
     for (const device of devices) {
-        const runtime = manager.addDevice(
-            run.id,
-            device.mac,
-            device.product_id,
-            run.config.telemetry_interval * 1000,
-            run.config.telemetry_jitter_percent ?? 10,
-            run.config.startup_ramp_seconds ?? 30,
-            device.seq || 0,
-            device.state_snapshot,
-            assignmentFromClaim(device),
-        );
         try {
+            const product = await resolveDeviceProduct(device);
+            const runtime = manager.addDevice(
+                run.id,
+                device.mac,
+                product,
+                run.config.telemetry_interval * 1000,
+                run.config.telemetry_jitter_percent ?? 10,
+                run.config.startup_ramp_seconds ?? 30,
+                device.seq || 0,
+                device.state_snapshot,
+                assignmentFromClaim(device),
+            );
             await runtime.connect();
             await runtime.resume();
             recovered += 1;

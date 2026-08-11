@@ -29,6 +29,7 @@ import { RecoveryService } from './recovery/service';
 import { getRuntimeManager } from './runtime/manager';
 import { getRunMetricsService } from './metrics/service';
 import { getTelemetryScheduler } from './runtime/telemetry-scheduler';
+import { stopPresenceHeartbeatScheduler } from './runtime/presence-heartbeat-scheduler';
 import { retryStartupDependency } from './startup/retry';
 
 interface PreflightCheck {
@@ -198,6 +199,7 @@ export const buildApp = async (): Promise<{
         cleanupJob.stop();
         await runtimeManager.disconnectAll();
         getTelemetryScheduler().stop();
+        stopPresenceHeartbeatScheduler();
         await metricsService.stop();
         await Promise.all([closeMongo(), closePostgres()]);
     });

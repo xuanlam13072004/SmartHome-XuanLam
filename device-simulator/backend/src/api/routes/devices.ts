@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { getProduct } from '../../catalog/loader';
+import { resolveDeviceProduct } from '../../catalog/device-contract';
 import { env } from '../../config/env';
 import type { SimulatedDeviceRecord } from '../../domain/registry';
 import type { SimulationRun } from '../../domain/simulation-run';
@@ -68,10 +69,19 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
             loadOperations(mac, 100),
             loadEvents(mac, 100),
         ]);
+        let productContractCompatible = true;
+        let product;
+        try {
+            product = getProduct(device.product_id, device.catalog_revision);
+        } catch {
+            productContractCompatible = false;
+            product = getProduct(device.product_id);
+        }
         return {
             success: true,
             device,
-            product: getProduct(device.product_id),
+            product,
+            product_contract_compatible: productContractCompatible,
             backend_shadow: backendShadow,
             telemetry,
             operations,
@@ -133,7 +143,7 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
             { mac },
             { $set: { desired_state: 'online', updated_at: new Date() } },
         );
-        const runtime = getOrCreateRuntime(runtimeManager, context);
+        const runtime = await getOrCreateRuntime(runtimeManager, context);
         await runtime.connect();
         await runtime.resume();
         await recordDeviceAction(context.device, 'device.connected', 'Virtual device connected');
@@ -175,7 +185,7 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
             { mac },
             { $set: { desired_state: 'online', updated_at: new Date() } },
         );
-        const runtime = getOrCreateRuntime(runtimeManager, context);
+        const runtime = await getOrCreateRuntime(runtimeManager, context);
         await runtime.connect();
         await runtime.resume();
         await recordDeviceAction(context.device, 'device.resumed', 'Virtual device telemetry resumed');
@@ -229,7 +239,7 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
             { mac },
             { $set: { desired_state: 'online', updated_at: new Date() } },
         );
-        const runtime = getOrCreateRuntime(runtimeManager, context);
+        const runtime = await getOrCreateRuntime(runtimeManager, context);
         await runtime.connect();
         await recordDeviceAction(context.device, 'device.reconnected', 'Virtual device reconnected');
         return { success: true, runtime_state: 'online' };
@@ -242,7 +252,7 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         const runtime = runtimeManager.getDevice(mac);
         const state = runtime
             ? await runtime.resetState()
-            : generateInitialState(getProduct(context.device.product_id));
+            : generateInitialState(await resolveDeviceProduct(context.device));
         if (!runtime) {
             state.state_version = (context.device.state_snapshot?.state_version || 0) + 1;
         }
@@ -259,7 +269,7 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         }
         const context = await getDeviceContext(mac);
         if (!context) return reply.status(404).send({ success: false, error: 'Device not found' });
-        const product = getProduct(context.device.product_id);
+        const product = await resolveDeviceProduct(context.device);
         try {
             validateDeviceStatePatch(product, parsed.data);
         } catch (error) {
@@ -382,20 +392,23 @@ const requireClaimedDevice = async (mac: string, reply: any) => {
     return context;
 };
 
-const getOrCreateRuntime = (
+const getOrCreateRuntime = async (
     manager: RuntimeManager,
     context: { device: SimulatedDeviceRecord; run: SimulationRun },
-) => manager.addDevice(
-    context.run.id,
-    context.device.mac,
-    context.device.product_id,
-    context.run.config.telemetry_interval * 1000,
-    context.run.config.telemetry_jitter_percent ?? 10,
-    context.run.config.startup_ramp_seconds ?? 30,
-    context.device.seq || 0,
-    context.device.state_snapshot,
-    assignmentFromClaim(context.device),
-);
+) => {
+    const product = await resolveDeviceProduct(context.device);
+    return manager.addDevice(
+        context.run.id,
+        context.device.mac,
+        product,
+        context.run.config.telemetry_interval * 1000,
+        context.run.config.telemetry_jitter_percent ?? 10,
+        context.run.config.startup_ramp_seconds ?? 30,
+        context.device.seq || 0,
+        context.device.state_snapshot,
+        assignmentFromClaim(context.device),
+    );
+};
 
 const persistOfflineState = async (mac: string, state: DeviceState): Promise<void> => {
     await getMongoDb().collection<SimulatedDeviceRecord>('simulated_devices').updateOne(

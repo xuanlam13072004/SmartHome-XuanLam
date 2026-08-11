@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { loadCatalog } from '../src/catalog/loader';
+import {
+    getProduct,
+    loadCatalog,
+    ProductContractUnavailableError,
+} from '../src/catalog/loader';
 
 const product = (productId: string, productRevision: number) => ({
     schema: 'compiled.product.v2',
@@ -42,4 +46,26 @@ test('catalog loader still rejects an invalid product revision', async (t) => {
         loadCatalog(),
         /Product prod_invalid has an invalid compiled contract/,
     );
+});
+
+test('runtime lookup never silently upgrades a pinned device revision', async (t) => {
+    const originalFetch = globalThis.fetch;
+    t.after(() => { globalThis.fetch = originalFetch; });
+    globalThis.fetch = async () => new Response(JSON.stringify({
+        success: true,
+        catalog_revision: 3,
+        products: [product('prod_roof_controller', 2)],
+    }), { status: 200 });
+
+    await loadCatalog();
+
+    assert.throws(
+        () => getProduct('prod_roof_controller', 1),
+        (error: unknown) => (
+            error instanceof ProductContractUnavailableError
+            && error.expectedRevision === 1
+            && error.availableRevision === 2
+        ),
+    );
+    assert.equal(getProduct('prod_roof_controller', 2).catalog_revision, 2);
 });

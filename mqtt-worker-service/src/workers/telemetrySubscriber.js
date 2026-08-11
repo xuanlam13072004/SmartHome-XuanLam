@@ -28,6 +28,20 @@ function sharedTopic(config, topic) {
         : topic;
 }
 
+function assertPresenceProductIdentity(status, context) {
+    // Identity fields were added compatibly to presence.v2. Older physical
+    // firmware may omit them; senders that provide them must match ownership.
+    if (status.product_id === undefined && status.catalog_revision === undefined) return;
+    if (
+        typeof status.product_id !== 'string'
+        || !Number.isSafeInteger(Number(status.catalog_revision))
+        || status.product_id !== context.productId
+        || Number(status.catalog_revision) !== context.catalogRevision
+    ) {
+        throw new Error('Presence Product identity does not match the claimed device');
+    }
+}
+
 function subscribe(mqttClient, topic, qos, logger) {
     return new Promise((resolve, reject) => {
         mqttClient.subscribe(topic, { qos }, error => {
@@ -50,7 +64,7 @@ async function handleTelemetryMessage(topic, payload, clients, config, logger) {
             { topicOrigin: extractTopicOrigin(topic) },
         );
     } catch (error) {
-        logger.warn({ error, topic }, 'Telemetry message rejected');
+        logger.warn({ err: error, topic }, 'Telemetry message rejected');
     }
 }
 
@@ -129,7 +143,7 @@ async function handleOperationAckMessage(topic, payload, clients, config, logger
             );
         }
     } catch (error) {
-        logger.warn({ error, topic }, 'Operation ACK rejected');
+        logger.warn({ err: error, topic }, 'Operation ACK rejected');
     }
 }
 
@@ -160,7 +174,7 @@ async function handleTopologyAckMessage(topic, payload, clients, config, logger)
             timestamp: new Date().toISOString(),
         }));
     } catch (error) {
-        logger.warn({ error, topic }, 'Topology ACK rejected');
+        logger.warn({ err: error, topic }, 'Topology ACK rejected');
     }
 }
 
@@ -184,6 +198,7 @@ async function handleStatusMessage(topic, payload, clients, config, logger) {
             config,
         );
         const context = await resolveDeviceContext(clients, deviceId, config, logger);
+        assertPresenceProductIdentity(status, context);
         if (!context.ownerId || transport.owner_id !== context.ownerId) {
             throw new Error('Presence ownership does not match topology');
         }
@@ -218,7 +233,7 @@ async function handleStatusMessage(topic, payload, clients, config, logger) {
             );
         }
     } catch (error) {
-        logger.warn({ error, topic }, 'Presence message rejected');
+        logger.warn({ err: error, topic }, 'Presence message rejected');
     }
 }
 
@@ -258,6 +273,7 @@ async function startTelemetrySubscriber(mqttClient, clients, config, logger) {
 }
 
 module.exports = {
+    assertPresenceProductIdentity,
     extractTopicOrigin,
     extractTopologyAckOrigin,
     handleOperationAckMessage,

@@ -22,6 +22,7 @@ const knownLabels: Record<string, string> = {
   online: 'Trực tuyến',
   offline: 'Ngoại tuyến',
   paused: 'Tạm dừng',
+  contract_error: 'Lỗi phiên bản Product',
   locked: 'Đã khóa',
   unlocked: 'Đã mở khóa',
   locking: 'Đang khóa',

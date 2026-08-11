@@ -7,6 +7,7 @@ import { getRuntimeManager } from '../runtime/manager';
 import { recordSimulatorEvent } from '../events/service';
 import { shouldRestoreRunRuntime } from '../runtime/recovery-policy';
 import { assignmentFromClaim } from '../runtime/topology';
+import { resolveDeviceProduct } from '../catalog/device-contract';
 
 export class RecoveryService {
     private readonly logger: FastifyBaseLogger;
@@ -63,18 +64,19 @@ export class RecoveryService {
             if (!run || !shouldRestoreRunRuntime(run.status)) {
                 continue;
             }
-            const runtime = manager.addDevice(
-                run.id,
-                device.mac,
-                device.product_id,
-                run.config.telemetry_interval * 1000,
-                run.config.telemetry_jitter_percent ?? 10,
-                run.config.startup_ramp_seconds ?? 30,
-                device.seq || 0,
-                device.state_snapshot,
-                assignmentFromClaim(device),
-            );
             try {
+                const product = await resolveDeviceProduct(device);
+                const runtime = manager.addDevice(
+                    run.id,
+                    device.mac,
+                    product,
+                    run.config.telemetry_interval * 1000,
+                    run.config.telemetry_jitter_percent ?? 10,
+                    run.config.startup_ramp_seconds ?? 30,
+                    device.seq || 0,
+                    device.state_snapshot,
+                    assignmentFromClaim(device),
+                );
                 await runtime.connect();
                 recoveredDevices += 1;
             } catch (error) {

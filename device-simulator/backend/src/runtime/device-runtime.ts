@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import type { FastifyBaseLogger } from 'fastify';
 import type { MqttClient } from 'mqtt';
-import { getProduct } from '../catalog/loader';
+import type { ProductCatalog } from '../catalog/loader';
 import { env } from '../config/env';
 import type {
     SimulatedDeviceRecord,
@@ -30,6 +30,10 @@ import { getRunMetricsService } from '../metrics/service';
 import { decrypt } from '../security/crypto';
 import { startupDelayMs } from './scheduling';
 import { getTelemetryScheduler } from './telemetry-scheduler';
+import {
+    registerPresenceHeartbeat,
+    unregisterPresenceHeartbeat,
+} from './presence-heartbeat-scheduler';
 import {
     automaticRainClosePlan,
     beginRoofMotion,
@@ -92,7 +96,7 @@ export class DeviceRuntime {
     constructor(
         private readonly simulationRunId: string,
         private readonly mac: string,
-        private readonly productId: string,
+        private readonly product: ProductCatalog,
         private readonly intervalMs: number,
         private readonly telemetryJitterPercent: number,
         private readonly startupRampMs: number,
@@ -103,8 +107,11 @@ export class DeviceRuntime {
         initialAssignment?: TopologyAssignment,
     ) {
         this.seq = initialSeq;
-        this.logger = logger.child({ mac, productId });
-        const product = getProduct(productId);
+        this.logger = logger.child({
+            mac,
+            productId: product.product_id,
+            catalogRevision: product.catalog_revision,
+        });
         this.state = normalizeRoofMotionState(initialState
             ? removeCatalogConstants(initialState, product)
             : generateInitialState(product), product);
@@ -172,11 +179,13 @@ export class DeviceRuntime {
         const wasOperational = this.connected;
         this.desiredOnline = false;
         this.stopTelemetry();
+        this.stopPresenceHeartbeat();
         if (wasOperational) {
             await this.publishPresence('offline').catch((error) => {
                 this.logger.warn({ err: error }, 'Could not publish virtual device offline status');
             });
         }
+        this.setOnlineDiagnostic(false);
         await this.persistRegistryState(this.lastTelemetryAt || new Date(), true);
         await this.releaseBrokerConnection();
         this.transportCoordinator.onBrokerUnavailable(this);
@@ -206,7 +215,7 @@ export class DeviceRuntime {
     async resetState(): Promise<DeviceState> {
         return this.serializeStateMutation(async () => {
             this.cancelRoofMotion();
-            const next = generateInitialState(getProduct(this.productId));
+            const next = generateInitialState(this.product);
             next.state_version = this.state.state_version + 1;
             this.state = next;
             await this.persistRegistryState(new Date(), true);
@@ -217,7 +226,7 @@ export class DeviceRuntime {
 
     async patchState(patch: DeviceStatePatch): Promise<DeviceState> {
         return this.serializeStateMutation(async () => {
-            const product = getProduct(this.productId);
+            const product = this.product;
             this.state = patchDeviceState(this.state, product, patch);
             const movementWasPatched = product.capability_instances.some(instance => (
                 instance.capability_id === 'cover_controller'
@@ -366,6 +375,7 @@ export class DeviceRuntime {
 
         if (this.connected) {
             await this.updateRuntimeState(this.isPaused ? 'paused' : 'online');
+            this.startPresenceHeartbeat();
             if (!this.isPaused) this.startTelemetry();
             await this.publishPresence('online').catch((error) => {
                 this.logger.warn({ err: error }, 'Could not publish virtual device online status');
@@ -373,6 +383,7 @@ export class DeviceRuntime {
             await this.publishTopologyReadyAck();
         } else {
             this.stopTelemetry();
+            this.stopPresenceHeartbeat();
             await this.updateRuntimeState('offline');
         }
     }
@@ -447,6 +458,7 @@ export class DeviceRuntime {
                 getRunMetricsService(this.logger).record(this.simulationRunId, {
                     mqtt_disconnects: 1,
                 });
+                this.stopPresenceHeartbeat();
                 void this.updateRuntimeState('offline');
                 if (this.assignment?.role === 'hub') {
                     this.transportCoordinator.onBrokerUnavailable(this);
@@ -514,6 +526,24 @@ export class DeviceRuntime {
         getTelemetryScheduler().unregister(this.mac);
     }
 
+    private startPresenceHeartbeat(): void {
+        registerPresenceHeartbeat(this.mac, this.simulationRunId, async () => {
+            if (!this.connected) return;
+            await this.publishPresence('heartbeat');
+        });
+    }
+
+    private stopPresenceHeartbeat(): void {
+        unregisterPresenceHeartbeat(this.mac);
+    }
+
+    private setOnlineDiagnostic(online: boolean): void {
+        const system = this.state.diagnostics.system;
+        if (!system || system.online === online) return;
+        system.online = online;
+        this.state.state_version += 1;
+    }
+
     private async publishTelemetry(evolve: boolean): Promise<void> {
         if (!this.connected) return;
         if (this.isPublishing) {
@@ -526,8 +556,9 @@ export class DeviceRuntime {
         }
         this.isPublishing = true;
         try {
-            const product = getProduct(this.productId);
+            const product = this.product;
             if (evolve) this.state = evolveState(this.state, product);
+            this.setOnlineDiagnostic(true);
             const nextSeq = await this.reserveNextSequence();
             const timestamp = new Date();
             const instances = Object.fromEntries(
@@ -581,7 +612,7 @@ export class DeviceRuntime {
         });
         try {
             operation = parseDeviceOperation(JSON.parse(rawPayload.toString()) as unknown);
-            const product = getProduct(this.productId);
+            const product = this.product;
             if (operation.target_device_id !== this.mac) {
                 throw new Error('Operation target does not match this virtual device');
             }
@@ -936,6 +967,8 @@ export class DeviceRuntime {
         await this.transportCoordinator.publishDeviceMessage(this, 'presence', {
             schema: 'device.presence.v2',
             device_id: this.mac,
+            product_id: this.product.product_id,
+            catalog_revision: this.product.catalog_revision,
             status,
             observed_at: new Date().toISOString(),
         });
@@ -1001,7 +1034,7 @@ export class DeviceRuntime {
 
     private resumeRoofMotionFromState(): void {
         if (this.disposed || this.roofMotionTimer) return;
-        const plan = pendingRoofMotionFromState(getProduct(this.productId), this.state);
+        const plan = pendingRoofMotionFromState(this.product, this.state);
         if (plan) this.scheduleRoofMotion(plan);
     }
 

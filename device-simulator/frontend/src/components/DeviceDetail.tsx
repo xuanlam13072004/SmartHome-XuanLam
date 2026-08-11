@@ -200,6 +200,11 @@ export function DeviceDetail({
       </header>
 
       {error && <p className="notice notice--error" role="alert">{error}</p>}
+      {(!payload.product_contract_compatible || device.runtime_state === 'contract_error') && (
+        <p className="notice notice--error" role="alert">
+          {device.last_error || 'Product Contract của thiết bị không còn tương thích với Catalog runtime. Hãy migrate thiết bị hoặc tạo lại dữ liệu test.'}
+        </p>
+      )}
 
       <div className="device-actions" aria-label="Điều khiển runtime">
         <button
@@ -526,7 +531,13 @@ function DetailTab({ active, label, onClick }: { active: boolean; label: string;
 }
 
 function RuntimeBadge({ status }: { status: string }) {
-  const tone = status === 'online' ? 'online' : status === 'paused' ? 'paused' : 'offline'
+  const tone = status === 'online'
+    ? 'online'
+    : status === 'paused'
+      ? 'paused'
+      : status === 'contract_error' || status === 'mqtt_error'
+        ? 'error'
+        : 'offline'
   return <span className={`runtime-badge runtime-badge--${tone}`}><i aria-hidden="true" />{humanize(status)}</span>
 }
 

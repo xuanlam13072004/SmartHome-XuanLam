@@ -144,7 +144,7 @@ export function DevicesPage({
                     <span key={item.label}><small>{item.label}</small><strong>{item.value}</strong></span>
                   ))}
                 </span>
-                <span className={`runtime-badge runtime-badge--${device.runtime_state === 'online' ? 'online' : device.runtime_state === 'paused' ? 'paused' : 'offline'}`}>
+                <span className={`runtime-badge runtime-badge--${device.runtime_state === 'online' ? 'online' : device.runtime_state === 'paused' ? 'paused' : ['contract_error', 'mqtt_error'].includes(device.runtime_state) ? 'error' : 'offline'}`}>
                   <i aria-hidden="true" />{humanize(device.runtime_state)}
                 </span>
                 <Icon name="arrow" />

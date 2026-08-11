@@ -11,7 +11,8 @@ export type DeviceRuntimeState =
     | 'paused'
     | 'offline'
     | 'stopped'
-    | 'mqtt_error';
+    | 'mqtt_error'
+    | 'contract_error';
 export type DeviceDesiredState = 'online' | 'offline';
 export type TopologyRole = 'hub' | 'node';
 export type TopologyState = 'stable' | 'degraded_direct' | 'electing' | 'empty';
@@ -51,6 +52,7 @@ export interface SimulatedDeviceRecord {
     device_id?: string;
     name: string;
     product_id: string;
+    catalog_revision?: number;
     simulated_network_index: number;
     network_fingerprint: string;
     network_id?: string;

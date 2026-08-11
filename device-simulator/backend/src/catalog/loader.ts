@@ -156,8 +156,35 @@ export const loadCatalog = async (): Promise<ProductCatalog[]> => {
 export const getCachedCatalog = (): ProductCatalog[] => cachedProducts;
 export const getCatalogRevision = (): number => catalogRevision;
 
-export const getProduct = (productId: string): ProductCatalog => {
+export class ProductContractUnavailableError extends Error {
+    readonly code = 'PRODUCT_CONTRACT_UNAVAILABLE';
+
+    constructor(
+        readonly productId: string,
+        readonly expectedRevision: number | undefined,
+        readonly availableRevision: number | undefined,
+    ) {
+        super(expectedRevision === undefined
+            ? `Product ${productId} is unavailable in the runtime Catalog`
+            : `Product ${productId} revision ${expectedRevision} is unavailable; runtime Catalog provides revision ${availableRevision ?? 'none'}`);
+        this.name = 'ProductContractUnavailableError';
+    }
+}
+
+export const getProduct = (
+    productId: string,
+    expectedRevision?: number,
+): ProductCatalog => {
     const product = cachedProducts.find(item => item.product_id === productId);
-    if (!product) throw new Error(`Product ${productId} is unavailable in the runtime Catalog`);
+    if (!product || (
+        expectedRevision !== undefined
+        && product.catalog_revision !== expectedRevision
+    )) {
+        throw new ProductContractUnavailableError(
+            productId,
+            expectedRevision,
+            product?.catalog_revision,
+        );
+    }
     return product;
 };
