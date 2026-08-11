@@ -166,7 +166,7 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
     async removeDevice(macInput: string): Promise<void> {
         const mac = normalizeMac(macInput);
         const device = this.devices.get(mac);
-        if (device) await device.disconnect();
+        if (device) await device.dispose();
         this.devices.delete(mac);
     }
 
@@ -175,7 +175,7 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
         const devices = [...this.devices.entries()].filter(
             ([, device]) => device.runId === runId,
         );
-        await Promise.allSettled(devices.map(([, device]) => device.disconnect()));
+        await Promise.allSettled(devices.map(([, device]) => device.dispose()));
         for (const [mac] of devices) this.devices.delete(mac);
         this.stoppingRuns.delete(runId);
         return devices.length;
@@ -354,7 +354,7 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
     async disconnectAll(): Promise<void> {
         this.shuttingDown = true;
         await Promise.allSettled(
-            [...this.devices.values()].map((device) => device.disconnect()),
+            [...this.devices.values()].map((device) => device.dispose()),
         );
         this.devices.clear();
         const client = this.topologyClient;

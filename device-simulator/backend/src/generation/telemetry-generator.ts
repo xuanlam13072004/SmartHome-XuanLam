@@ -36,6 +36,49 @@ export const removeCatalogConstants = (
     product: ProductCatalog,
 ): DeviceState => {
     const next = clone(current);
+    const instances = new Map(
+        product.capability_instances.map(instance => [instance.instance_id, instance]),
+    );
+
+    // A restored registry snapshot may come from an older Product revision.
+    // Never publish properties that are no longer part of the active contract.
+    for (const [instanceId, envelope] of Object.entries(next.instances)) {
+        const instance = instances.get(instanceId);
+        if (!instance) {
+            delete next.instances[instanceId];
+            continue;
+        }
+        for (const channel of ['reported', 'desired'] as const) {
+            const allowed = new Set(
+                instance.properties
+                    .filter(property => (
+                        property.channel === channel && !isCatalogConstant(property)
+                    ))
+                    .map(property => property.id),
+            );
+            for (const propertyId of Object.keys(envelope[channel] || {})) {
+                if (!allowed.has(propertyId)) delete envelope[channel][propertyId];
+            }
+        }
+    }
+    for (const [instanceId, values] of Object.entries(next.diagnostics)) {
+        const instance = instances.get(instanceId);
+        if (!instance) {
+            delete next.diagnostics[instanceId];
+            continue;
+        }
+        const allowed = new Set(
+            instance.properties
+                .filter(property => (
+                    property.channel === 'diagnostic' && !isCatalogConstant(property)
+                ))
+                .map(property => property.id),
+        );
+        for (const propertyId of Object.keys(values)) {
+            if (!allowed.has(propertyId)) delete values[propertyId];
+        }
+    }
+
     for (const instance of product.capability_instances) {
         for (const property of instance.properties) {
             if (!isCatalogConstant(property)) continue;

@@ -13,6 +13,7 @@ import '../../dashboard/widgets/device_topology_panel.dart';
 import '../product_capability_query.dart';
 import 'irrigation_control_panel.dart';
 import 'product_mini_cards.dart';
+import 'roof_control_panel.dart';
 
 class GenericProductDetail extends StatelessWidget {
   const GenericProductDetail({
@@ -212,7 +213,6 @@ class RoofProductDetail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final used = <CapabilityModel>{};
     final rain = device.capabilityMatching(
       ids: const ['rain_detected'],
       capabilityIds: const ['rain_detection'],
@@ -221,22 +221,9 @@ class RoofProductDetail extends StatelessWidget {
       ids: const ['movement'],
       capabilityIds: const ['cover_controller'],
     );
-    final motionControls = _take(
-      device,
-      used,
-      hints: const ['cover', 'roof', 'position', 'movement', 'awning', 'motor'],
-      section: CapabilitySection.control,
-    );
-    final automation = _take(
-      device,
-      used,
-      hints: const ['auto', 'rain', 'protect', 'mode'],
-      section: CapabilitySection.control,
-    );
-    final environment = _take(
-      device,
-      used,
-      hints: const ['rain'],
+    final controlMode = device.capabilityMatching(
+      ids: const ['control_mode'],
+      capabilityIds: const ['roof_policy'],
     );
     final raining =
         _truthy(rain?.value) || '${rain?.value}'.toLowerCase().contains('rain');
@@ -248,7 +235,7 @@ class RoofProductDetail extends StatelessWidget {
         ProductStatusFact(
           icon: Icons.open_in_full_rounded,
           label: 'Trạng thái mái',
-          value: productCapabilityValue(movement, fallback: 'Đã dừng'),
+          value: _roofStateLabel(movement?.value),
         ),
         ProductStatusFact(
           icon: raining ? Icons.water_drop_rounded : Icons.cloud_outlined,
@@ -256,33 +243,15 @@ class RoofProductDetail extends StatelessWidget {
           value: raining ? 'Đang mưa' : 'Khô ráo',
           tone: raining ? context.colorScheme.secondary : null,
         ),
-        ProductStatusFact(
-          icon: Icons.swap_vert_rounded,
-          label: 'Chuyển động',
-          value: productCapabilityValue(movement, fallback: 'Đã dừng'),
-        ),
       ],
-      groups: [
-        ProductCapabilityGroup(
-          title: 'Điều khiển mái che',
-          description: 'Mở, đóng, dừng hoặc chọn vị trí mái che',
-          icon: Icons.open_in_full_rounded,
-          capabilities: motionControls,
+      groups: const [],
+      postTopologySections: [
+        RoofControlPanel(
+          device: device,
+          movement: movement,
+          controlMode: controlMode,
+          onCapabilityChanged: onCapabilityChanged,
         ),
-        ProductCapabilityGroup(
-          title: 'Bảo vệ khi mưa',
-          description: 'Bật hoặc tắt cơ chế tự đóng mái che khi phát hiện mưa',
-          icon: Icons.umbrella_rounded,
-          capabilities: automation,
-        ),
-        ProductCapabilityGroup(
-          title: 'Điều kiện môi trường',
-          description: 'Dữ liệu thiết bị dùng cho quyết định tự động tại chỗ',
-          icon: Icons.sensors_rounded,
-          capabilities: environment,
-          useGrid: true,
-        ),
-        ..._remainingGroups(device, used),
       ],
     );
   }
@@ -535,6 +504,7 @@ class ProductDetailWorkbench extends StatelessWidget {
     this.primaryPower,
     this.summaryBeforeHero = false,
     this.customSections = const [],
+    this.postTopologySections = const [],
   });
 
   final DeviceModel device;
@@ -546,6 +516,7 @@ class ProductDetailWorkbench extends StatelessWidget {
   final ProductCapabilityChanged onCapabilityChanged;
   final bool summaryBeforeHero;
   final List<Widget> customSections;
+  final List<Widget> postTopologySections;
 
   @override
   Widget build(BuildContext context) {
@@ -586,6 +557,10 @@ class ProductDetailWorkbench extends StatelessWidget {
         if (device.topology != null) ...[
           const SizedBox(height: AppSpacing.xl),
           DeviceTopologyPanel(topology: device.topology!),
+        ],
+        for (final section in postTopologySections) ...[
+          const SizedBox(height: AppSpacing.xl),
+          section,
         ],
         for (final group in visibleGroups) ...[
           const SizedBox(height: AppSpacing.xl),
@@ -963,6 +938,15 @@ bool _truthy(dynamic value) {
     'running',
   }.contains(normalised);
 }
+
+String _roofStateLabel(dynamic value) => switch ('$value'.toLowerCase()) {
+      'opening' => 'Đang mở',
+      'closing' => 'Đang đóng',
+      'open' || 'opened' => 'Đã mở',
+      'closed' => 'Đã đóng',
+      'stopped' => 'Đã dừng',
+      _ => 'Chưa xác định',
+    };
 
 bool _isLocked(CapabilityModel? capability) {
   if (capability == null) return false;

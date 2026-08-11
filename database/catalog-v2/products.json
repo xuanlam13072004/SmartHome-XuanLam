@@ -35,28 +35,28 @@
     "product_id": "prod_roof_controller",
     "ui_profile": "roof_controller",
     "ui_profile_version": 1,
-    "catalog_revision": 1,
+    "catalog_revision": 2,
     "lifecycle": "published",
     "contract_maturity": "edge_reviewed",
     "manufacturer": "SmartHome XuanLam Ltd.",
     "model_name": "Automated Roof and Climate Controller",
     "category": "environment",
-    "description": "Điều khiển mái che bằng step motor, cảm biến mưa và một nút thao tác tại chỗ.",
-    "firmware_compatibility": { "family": "roof_controller", "minimum_version": "2.0.0" },
+    "description": "Điều khiển mở hoặc đóng mái che, theo dõi mưa và tự xử lý chế độ vận hành ngay trên thiết bị.",
+    "firmware_compatibility": { "family": "roof_controller", "minimum_version": "2.1.0" },
     "connectivity_profiles": ["wifi", "hub_node"],
     "behavior_profile": "roof_controller_v2",
     "capability_instances": [
-      { "instance_id": "roof_motor", "capability_id": "cover_controller", "capability_revision": 1, "availability": "active", "semantic_role": "roof_actuator", "presentation": { "display_name": "Mái che", "description": "Mở, đóng và dừng motor; chưa hiển thị phần trăm vị trí khi chưa có phản hồi hành trình.", "icon": "roofing", "section": "controls", "order": 10 } },
+      { "instance_id": "roof_motor", "capability_id": "cover_controller", "capability_revision": 2, "availability": "active", "semantic_role": "roof_actuator", "presentation": { "display_name": "Mái che", "description": "Nhận lệnh mở hoặc đóng và báo trạng thái đóng, đang mở, mở hoặc đang đóng.", "icon": "roofing", "section": "controls", "order": 10 } },
       { "instance_id": "rain_sensor", "capability_id": "rain_detection", "capability_revision": 1, "availability": "active", "semantic_role": "rain_detector", "presentation": { "display_name": "Cảm biến mưa", "description": "Phát hiện bắt đầu và kết thúc mưa.", "icon": "rainy", "section": "safety", "order": 20 } },
-      { "instance_id": "roof_button", "capability_id": "local_button", "capability_revision": 1, "availability": "active", "semantic_role": "local_toggle_input", "presentation": { "display_name": "Nút đóng/mở tại chỗ", "description": "Mỗi lần nhấn yêu cầu firmware đổi hướng hoặc dừng mái che theo trạng thái hiện tại.", "icon": "touch_app", "section": "diagnostics", "order": 30 } },
-      { "instance_id": "roof_automation", "capability_id": "roof_policy", "capability_revision": 1, "availability": "active", "semantic_role": "roof_safety_policy", "presentation": { "display_name": "Bảo vệ khi mưa", "description": "Khi bật, firmware tự đóng mái đang mở lúc phát hiện mưa; sau đó chỉ mở lại khi có thao tác từ nút hoặc app.", "icon": "automation", "section": "controls", "order": 40 } },
+      { "instance_id": "roof_button", "capability_id": "local_button", "capability_revision": 1, "availability": "active", "semantic_role": "local_toggle_input", "presentation": { "display_name": "Nút đóng/mở tại chỗ", "description": "Mỗi lần nhấn yêu cầu firmware chuyển mục tiêu giữa mở và đóng mái.", "icon": "touch_app", "section": "diagnostics", "order": 30 } },
+      { "instance_id": "roof_automation", "capability_id": "roof_policy", "capability_revision": 2, "availability": "active", "semantic_role": "roof_safety_policy", "presentation": { "display_name": "Chế độ mái che", "description": "Ở chế độ tự động, firmware tự đóng mái khi cảm biến phát hiện mưa; chế độ này không phụ thuộc backend.", "icon": "automation", "section": "controls", "order": 40 } },
       { "instance_id": "system", "capability_id": "system_diagnostics", "capability_revision": 1, "availability": "active", "semantic_role": "system_diagnostics", "presentation": { "display_name": "Chẩn đoán", "description": "Kết nối và tình trạng firmware.", "icon": "monitor_heart", "section": "diagnostics", "order": 1000 } }
     ],
     "local_policies": [
-      { "id": "boot_motor_off", "priority": 40, "enforced_locally": true, "description": "Sau boot hoặc reset, firmware giữ motor dừng cho đến khi local policy quyết định hành động an toàn." },
-      { "id": "motion_safety", "priority": 10, "enforced_locally": true, "description": "Mọi lần chạy motor phải tự dừng khi đạt thời gian chạy tối đa đã lưu trên thiết bị." },
-      { "id": "rain_protection", "priority": 20, "enforced_locally": true, "description": "Bảo vệ mái theo trạng thái mưa hoạt động độc lập với backend." },
-      { "id": "manual_override", "priority": 30, "enforced_locally": true, "description": "Nút tại chỗ và thao tác thủ công được xử lý trước automation thông thường nhưng sau bảo vệ an toàn." }
+      { "id": "logical_state_restore", "priority": 10, "enforced_locally": true, "description": "Thiết bị lưu trạng thái ổn định cuối cùng là mở hoặc đóng; các trạng thái đang mở và đang đóng chỉ tồn tại trong lúc motor chuyển động." },
+      { "id": "rain_auto_close", "priority": 20, "enforced_locally": true, "description": "Khi ở chế độ tự động và phát hiện mưa, firmware tự đóng mái mà không chờ backend." },
+      { "id": "latest_direction_wins", "priority": 30, "enforced_locally": true, "description": "Nếu nhận lệnh ngược chiều trong lúc chuyển động, thiết bị chuyển sang hướng mới và chỉ báo trạng thái cuối của lệnh mới nhất." },
+      { "id": "local_control_offline", "priority": 40, "enforced_locally": true, "description": "Nút tại chỗ và tự động theo mưa vẫn hoạt động khi backend hoặc Internet mất kết nối." }
     ],
     "presentation": { "display_name": "Bộ Kiểm Soát Mái Che", "description": "Điều khiển mái che và theo dõi môi trường.", "icon": "roofing", "order": 20 }
   },

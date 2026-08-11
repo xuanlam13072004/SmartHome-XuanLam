@@ -187,35 +187,45 @@ test('roof uses rain semantics and physical buttons are event-only', () => {
     assert.equal(button.events.every(event => event.producer === 'device_firmware'), true);
 });
 
-test('roof does not claim position or obstruction feedback without confirmed hardware', () => {
+test('roof exposes only four logical states without claiming position feedback', () => {
     const roof = compileCatalog(loadCatalogV2()).product_index.prod_roof_controller;
     const motor = roof.capability_instances.find(instance => instance.instance_id === 'roof_motor');
     const propertyIds = motor.properties.map(property => property.id);
     const operationIds = motor.operations.map(operation => operation.id);
     const eventIds = motor.events.map(event => event.id);
+    const movement = motor.properties.find(property => property.id === 'movement');
 
     assert.equal(propertyIds.includes('current_position'), false);
     assert.equal(propertyIds.includes('target_position'), false);
     assert.equal(propertyIds.includes('obstruction_detected'), false);
+    assert.equal(propertyIds.includes('max_run_seconds'), false);
+    assert.equal(propertyIds.includes('last_command_source'), false);
     assert.equal(operationIds.includes('set_position'), false);
+    assert.deepEqual(operationIds, ['open', 'close']);
     assert.equal(eventIds.includes('cover_obstructed'), false);
-    assert.equal(motor.properties.find(property => property.id === 'movement').default, 'unknown');
+    assert.deepEqual(movement.enum, ['closed', 'opening', 'open', 'closing']);
+    assert.equal(movement.default, 'closed');
+    assert.equal(movement.persistence, 'device_nvs');
 });
 
-test('roof motor operations are device-executed and bounded by persisted maximum runtime', () => {
+test('roof motor accepts only idempotent open and close operations', () => {
     const roof = compileCatalog(loadCatalogV2()).product_index.prod_roof_controller;
     const open = roof.operations['roof_motor.open'];
-    const configureRuntime = roof.operations['roof_motor.set_max_run_seconds'];
+    const close = roof.operations['roof_motor.close'];
 
     assert.equal(open.execution_authority, 'device_firmware');
     assert.equal(open.offline_behavior.local_equivalent, true);
     assert.equal(open.ack_policy.reference, 'movement');
-    assert.equal(open.safety_constraints.includes('max_runtime_configured'), true);
-    assert.equal(configureRuntime.risk, 'dangerous');
-    assert.equal(configureRuntime.confirmation, 'reauthenticate');
-    assert.equal(configureRuntime.ack_policy.success_condition, 'persisted');
-    assert.equal(configureRuntime.input.seconds.minimum, 1);
-    assert.equal(configureRuntime.input.seconds.maximum, 300);
+    assert.deepEqual(open.effects, [
+        { type: 'expect_reported', property: 'movement', value: 'opening' },
+    ]);
+    assert.deepEqual(close.effects, [
+        { type: 'expect_reported', property: 'movement', value: 'closing' },
+    ]);
+    assert.equal(open.idempotent, true);
+    assert.equal(close.idempotent, true);
+    assert.equal(roof.operations['roof_motor.stop'], undefined);
+    assert.equal(roof.operations['roof_motor.set_max_run_seconds'], undefined);
 });
 
 test('roof rain policy and the only physical sensor remain device-local', () => {
@@ -225,11 +235,18 @@ test('roof rain policy and the only physical sensor remain device-local', () => 
 
     assert.equal(policy.runtime.execution_authority, 'device_firmware');
     assert.equal(policy.runtime.configuration_persistence, 'device_nvs');
+    assert.deepEqual(policy.properties.map(property => property.id), ['control_mode']);
+    assert.deepEqual(policy.operations.map(operation => operation.id), ['set_control_mode']);
+    assert.equal(policy.properties[0].persistence, 'device_nvs');
     assert.equal(
-        policy.properties.find(property => property.id === 'rain_protection_enabled').persistence,
-        'device_nvs',
+        roof.operations['roof_automation.set_control_mode'].ack_policy.success_condition,
+        'persisted',
     );
-    assert.equal(roof.operations['roof_automation.set_rain_protection'].ack_policy.success_condition, 'persisted');
+    assert.equal(roof.operations['roof_automation.set_rain_protection'], undefined);
+    assert.equal(
+        roof.local_policies.some(policyDefinition => policyDefinition.id === 'rain_auto_close'),
+        true,
+    );
     for (const instanceId of sensorIds) {
         const instance = roof.capability_instances.find(item => item.instance_id === instanceId);
         assert.equal(instance.runtime.reported_state_authority, 'device_firmware');

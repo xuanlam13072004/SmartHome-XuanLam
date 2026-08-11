@@ -31,6 +31,16 @@ import { decrypt } from '../security/crypto';
 import { startupDelayMs } from './scheduling';
 import { getTelemetryScheduler } from './telemetry-scheduler';
 import {
+    automaticRainClosePlan,
+    beginRoofMotion,
+    completeRoofMotion,
+    normalizeRoofMotionState,
+    pendingRoofMotionFromState,
+    roofMotionPlanForOperation,
+    SIMULATED_ROOF_MOTION_DURATION_MS,
+    type RoofMotionPlan,
+} from './roof-motion';
+import {
     operationRouteMatchesAssignment,
     shouldApplyAssignment,
     type OperationRoute,
@@ -73,6 +83,9 @@ export class DeviceRuntime {
     private assignment?: TopologyAssignment;
     private directFallbackOverride = false;
     private lastTopologyAckKey: string | null = null;
+    private roofMotionTimer: NodeJS.Timeout | null = null;
+    private disposed = false;
+    private stateMutationQueue: Promise<void> = Promise.resolve();
     private readonly operationResults = new Map<string, OperationResult>();
     private readonly logger: FastifyBaseLogger;
 
@@ -92,10 +105,11 @@ export class DeviceRuntime {
         this.seq = initialSeq;
         this.logger = logger.child({ mac, productId });
         const product = getProduct(productId);
-        this.state = initialState
+        this.state = normalizeRoofMotionState(initialState
             ? removeCatalogConstants(initialState, product)
-            : generateInitialState(product);
+            : generateInitialState(product), product);
         this.assignment = initialAssignment;
+        this.resumeRoofMotionFromState();
     }
 
     get id(): string {
@@ -140,8 +154,18 @@ export class DeviceRuntime {
     }
 
     async connect(): Promise<void> {
+        if (this.disposed) throw new Error('Virtual device runtime has been disposed');
         this.desiredOnline = true;
+        this.resumeRoofMotionFromState();
         await this.reconcileTransport();
+    }
+
+    async dispose(): Promise<void> {
+        if (this.disposed) return;
+        this.disposed = true;
+        this.cancelRoofMotion();
+        await this.stateMutationQueue.catch(() => undefined);
+        await this.disconnect();
     }
 
     async disconnect(): Promise<void> {
@@ -167,30 +191,54 @@ export class DeviceRuntime {
     }
 
     async resume(): Promise<void> {
+        if (this.disposed) throw new Error('Virtual device runtime has been disposed');
         this.isPaused = false;
         if (!this.desiredOnline) this.desiredOnline = true;
+        this.resumeRoofMotionFromState();
         await this.reconcileTransport();
     }
 
     async publishNow(): Promise<void> {
         if (!this.connected) throw new Error('Virtual device transport is unavailable');
-        await this.publishTelemetry(false);
+        await this.serializeStateMutation(() => this.publishTelemetry(false));
     }
 
     async resetState(): Promise<DeviceState> {
-        const next = generateInitialState(getProduct(this.productId));
-        next.state_version = this.state.state_version + 1;
-        this.state = next;
-        await this.persistRegistryState(new Date(), true);
-        if (this.connected) await this.publishTelemetry(false);
-        return this.state;
+        return this.serializeStateMutation(async () => {
+            this.cancelRoofMotion();
+            const next = generateInitialState(getProduct(this.productId));
+            next.state_version = this.state.state_version + 1;
+            this.state = next;
+            await this.persistRegistryState(new Date(), true);
+            if (this.connected) await this.publishTelemetry(false);
+            return this.state;
+        });
     }
 
     async patchState(patch: DeviceStatePatch): Promise<DeviceState> {
-        this.state = patchDeviceState(this.state, getProduct(this.productId), patch);
-        await this.persistRegistryState(new Date(), true);
-        if (this.connected) await this.publishTelemetry(false);
-        return this.state;
+        return this.serializeStateMutation(async () => {
+            const product = getProduct(this.productId);
+            this.state = patchDeviceState(this.state, product, patch);
+            const movementWasPatched = product.capability_instances.some(instance => (
+                instance.capability_id === 'cover_controller'
+                && Object.prototype.hasOwnProperty.call(
+                    patch.instances?.[instance.instance_id]?.reported || {},
+                    'movement',
+                )
+            ));
+            if (movementWasPatched) {
+                this.cancelRoofMotion();
+                this.resumeRoofMotionFromState();
+            }
+            const automaticClose = automaticRainClosePlan(product, this.state);
+            if (!movementWasPatched && automaticClose?.shouldMove) {
+                this.state = beginRoofMotion(this.state, automaticClose);
+                this.scheduleRoofMotion(automaticClose);
+            }
+            await this.persistRegistryState(new Date(), true);
+            if (this.connected) await this.publishTelemetry(false);
+            return this.state;
+        });
     }
 
     async applyTopologyAssignment(incoming: TopologyAssignment): Promise<boolean> {
@@ -263,7 +311,11 @@ export class DeviceRuntime {
     }
 
     async receiveOperation(rawPayload: Buffer, originMac: string): Promise<void> {
-        await this.handleControlMessage(rawPayload, originMac.trim().toUpperCase());
+        if (this.disposed) throw new Error('Virtual device runtime has been disposed');
+        await this.serializeStateMutation(() => this.handleControlMessage(
+            rawPayload,
+            originMac.trim().toUpperCase(),
+        ));
     }
 
     async publishBrokerMessage(
@@ -367,8 +419,11 @@ export class DeviceRuntime {
             });
 
             client.on('message', (topic, payload) => {
+                if (this.disposed) return;
                 if (topic === this.controlTopic()) {
-                    void this.handleControlMessage(payload, this.mac);
+                    void this.serializeStateMutation(
+                        () => this.handleControlMessage(payload, this.mac),
+                    );
                 } else if (topic === this.hubControlTopic()) {
                     void this.transportCoordinator
                         .deliverRelayedOperation(this.mac, payload)
@@ -449,7 +504,7 @@ export class DeviceRuntime {
             initialDelayMs: startupDelayMs(this.startupRampMs, this.intervalMs),
             publish: async () => {
                 if (!this.isPaused && this.connected) {
-                    await this.publishTelemetry(true);
+                    await this.serializeStateMutation(() => this.publishTelemetry(true));
                 }
             },
         });
@@ -566,8 +621,25 @@ export class DeviceRuntime {
                 return;
             }
 
+            const roofMotion = roofMotionPlanForOperation(product, operation, this.state);
+            const rainProtection = automaticRainClosePlan(product, this.state);
+            if (roofMotion?.movingState === 'opening' && rainProtection) {
+                throw new Error('Automatic rain protection prevents opening the roof');
+            }
             this.state = applyOperationToState(this.state, product, operation);
+            if (roofMotion && !roofMotion.shouldMove) {
+                // Repeating an already-satisfied idempotent command must not make
+                // the virtual roof appear to move again.
+                this.state = completeRoofMotion(this.state, roofMotion);
+            }
+            let scheduledMotion = roofMotion;
+            const automaticClose = automaticRainClosePlan(product, this.state);
+            if (!roofMotion && automaticClose?.shouldMove) {
+                this.state = beginRoofMotion(this.state, automaticClose);
+                scheduledMotion = automaticClose;
+            }
             await this.persistRegistryState(new Date(), true);
+            if (scheduledMotion) this.scheduleRoofMotion(scheduledMotion);
             const resourceId = typeof operation.context.resource_id === 'string'
                 ? operation.context.resource_id
                 : null;
@@ -919,6 +991,69 @@ export class DeviceRuntime {
             ...result,
             expiresAt: now + env.OPERATION_DEDUP_TTL_MS,
         });
+    }
+
+    private cancelRoofMotion(): void {
+        if (!this.roofMotionTimer) return;
+        clearTimeout(this.roofMotionTimer);
+        this.roofMotionTimer = null;
+    }
+
+    private resumeRoofMotionFromState(): void {
+        if (this.disposed || this.roofMotionTimer) return;
+        const plan = pendingRoofMotionFromState(getProduct(this.productId), this.state);
+        if (plan) this.scheduleRoofMotion(plan);
+    }
+
+    private scheduleRoofMotion(plan?: RoofMotionPlan): void {
+        if (!plan) return;
+        this.cancelRoofMotion();
+        if (!plan.shouldMove || this.disposed) return;
+        this.roofMotionTimer = setTimeout(() => {
+            this.roofMotionTimer = null;
+            void this.serializeStateMutation(() => this.completeScheduledRoofMotion(plan));
+        }, SIMULATED_ROOF_MOTION_DURATION_MS);
+        this.roofMotionTimer.unref();
+    }
+
+    private async completeScheduledRoofMotion(plan: RoofMotionPlan): Promise<void> {
+        if (this.disposed) return;
+        const next = completeRoofMotion(this.state, plan);
+        if (next === this.state) return;
+        this.state = next;
+        try {
+            await this.persistRegistryState(new Date(), true);
+            if (!this.isPaused && this.connected) await this.publishTelemetry(false);
+            await recordSimulatorEvent({
+                type: 'device.roof_motion_completed',
+                severity: 'info',
+                run_id: this.simulationRunId,
+                mac: this.mac,
+                message: `Virtual roof reached ${plan.finalState}`,
+                data: {
+                    instance_id: plan.instanceId,
+                    movement: plan.finalState,
+                    duration_ms: SIMULATED_ROOF_MOTION_DURATION_MS,
+                },
+            }).catch((error) => this.logger.warn(
+                { err: error, finalState: plan.finalState },
+                'Could not record virtual roof completion event',
+            ));
+        } catch (error) {
+            this.logger.error(
+                { err: error, finalState: plan.finalState },
+                'Failed to persist completed virtual roof motion',
+            );
+        }
+    }
+
+    private serializeStateMutation<T>(action: () => Promise<T>): Promise<T> {
+        const result = this.stateMutationQueue.then(action, action);
+        this.stateMutationQueue = result.then(
+            () => undefined,
+            () => undefined,
+        );
+        return result;
     }
 
     private async persistRegistryState(timestamp: Date, force = false): Promise<void> {

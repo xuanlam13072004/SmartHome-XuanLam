@@ -478,15 +478,15 @@ void main() {
       final remote = _RecordingRemoteDataSource();
       final repository = ApiDeviceRepository(remote);
       const capability = CapabilityModel(
-        id: 'rain_protection_enabled',
-        type: 'on_off',
-        name: 'Bảo vệ khi mưa',
-        instance: 'roof_automation',
+        id: 'incident_state',
+        type: 'enum',
+        name: 'Vòng đời sự cố',
+        instance: 'hazard',
         properties: {'state_version': 12},
         operations: [
           CapabilityOperationDescriptor(
-            operationName: 'set_rain_protection',
-            inputNames: ['enabled'],
+            operationName: 'reset_incident',
+            inputNames: ['incident_id'],
             risk: 'dangerous',
             confirmation: 'reauthenticate',
           ),
@@ -496,13 +496,13 @@ void main() {
       await repository.updateCapability(
         'AA:BB:CC:DD:EE:FF',
         capability,
-        true,
+        'incident-42',
         reauthToken: 'reauth-token',
       );
 
-      expect(remote.lastOperation?['instance_id'], 'roof_automation');
-      expect(remote.lastOperation?['operation_name'], 'set_rain_protection');
-      expect(remote.lastOperation?['input'], {'enabled': true});
+      expect(remote.lastOperation?['instance_id'], 'hazard');
+      expect(remote.lastOperation?['operation_name'], 'reset_incident');
+      expect(remote.lastOperation?['input'], {'incident_id': 'incident-42'});
       expect(remote.lastOperation?['expected_state_version'], 12);
       expect(remote.lastReauthToken, 'reauth-token');
     });

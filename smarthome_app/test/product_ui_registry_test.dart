@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:smarthome_app/core/core.dart';
 import 'package:smarthome_app/core/widgets/widgets.dart';
 import 'package:smarthome_app/domain/models/device_model.dart';
+import 'package:smarthome_app/domain/models/device_topology.dart';
 import 'package:smarthome_app/features/dashboard/models/capability_model.dart';
 import 'package:smarthome_app/features/products/product_ui_profile.dart';
 import 'package:smarthome_app/features/products/product_ui_registry.dart';
@@ -214,7 +215,165 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets('roof detail keeps only status, network, open close and mode',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final requests = <(String, dynamic)>[];
+
+    for (final width in [320.0, 390.0, 768.0]) {
+      tester.view.physicalSize = Size(width, 1400);
+      requests.clear();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          key: ValueKey('roof-$width'),
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                child: productUiRegistry.buildDetail(
+                  context,
+                  device: _roofDevice,
+                  onCapabilityChanged: (capability, value) async {
+                    requests.add(
+                      (capability.operations.single.operationName, value),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull, reason: 'width=$width');
+      expect(find.text('Trạng thái mái'), findsOneWidget);
+      expect(find.text('Đang đóng'), findsOneWidget);
+      expect(find.text('Cảm biến mưa'), findsOneWidget);
+      expect(find.text('Khô ráo'), findsOneWidget);
+      expect(find.text('Kết nối mạng'), findsOneWidget);
+      expect(find.text('Mở mái'), findsOneWidget);
+      expect(find.text('Đóng mái'), findsOneWidget);
+      expect(find.text('Thủ công'), findsOneWidget);
+      expect(find.text('Tự động'), findsOneWidget);
+
+      for (final hidden in [
+        'Chuyển động',
+        'Dừng',
+        'Thời gian chạy tối đa',
+        'Bảo vệ khi mưa',
+        'Điều kiện môi trường',
+        'Thông số khác',
+        'Nguồn lệnh gần nhất',
+      ]) {
+        expect(find.text(hidden), findsNothing, reason: 'width=$width');
+      }
+
+      expect(
+        tester.getTopLeft(find.text('Kết nối mạng')).dy,
+        lessThan(tester.getTopLeft(find.text('Điều khiển mái che')).dy),
+      );
+      expect(
+        tester.getTopLeft(find.text('Mở mái')).dy,
+        lessThan(tester.getTopLeft(find.text('Chế độ vận hành')).dy),
+      );
+
+      await tester.ensureVisible(find.text('Mở mái'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Mở mái'));
+      await tester.pump();
+      await tester.ensureVisible(find.text('Tự động'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Tự động'));
+      await tester.pump();
+
+      expect(
+        requests,
+        [('open', 'opening'), ('set_control_mode', 'automatic')],
+      );
+      expect(tester.takeException(), isNull, reason: 'width=$width');
+    }
+  });
 }
+
+final _roofDevice = DeviceModel(
+  mac: 'AA:BB:CC:DD:EE:20',
+  ownerId: 'owner-1',
+  name: 'Mái che sân thượng',
+  productId: 'prod_roof_controller',
+  uiProfile: ProductUiProfile.roofController,
+  uiProfileVersion: 1,
+  category: 'environment',
+  icon: Icons.roofing_rounded,
+  status: DeviceStatus.online,
+  rawState: const {
+    'movement': 'closing',
+    'rain_detected': false,
+    'control_mode': 'manual',
+  },
+  diagnostics: const {},
+  capabilities: const [
+    CapabilityModel(
+      id: 'movement',
+      type: 'enum',
+      name: 'Trạng thái mái',
+      value: 'closing',
+      properties: {
+        'options': ['closed', 'opening', 'open', 'closing'],
+      },
+      instance: 'roof_motor',
+      capabilityId: 'cover_controller',
+      semanticRole: 'roof_actuator',
+      section: CapabilitySection.control,
+      operations: [
+        CapabilityOperationDescriptor(operationName: 'open'),
+        CapabilityOperationDescriptor(operationName: 'close'),
+      ],
+    ),
+    CapabilityModel(
+      id: 'rain_detected',
+      type: 'sensor',
+      name: 'Trạng thái mưa',
+      value: false,
+      isReadOnly: true,
+      instance: 'rain_sensor',
+      capabilityId: 'rain_detection',
+      semanticRole: 'rain_detector',
+      section: CapabilitySection.sensor,
+    ),
+    CapabilityModel(
+      id: 'control_mode',
+      type: 'enum',
+      name: 'Chế độ mái che',
+      value: 'manual',
+      properties: {
+        'options': ['manual', 'automatic'],
+      },
+      instance: 'roof_automation',
+      capabilityId: 'roof_policy',
+      section: CapabilitySection.control,
+      operations: [
+        CapabilityOperationDescriptor(
+          operationName: 'set_control_mode',
+          inputNames: ['mode'],
+        ),
+      ],
+    ),
+  ],
+  topology: const DeviceTopology(
+    networkId: 'network-roof-1',
+    role: DeviceTopologyRole.node,
+    epoch: 3,
+    state: DeviceTopologyState.stable,
+    transportMode: DeviceTransportMode.relay,
+    joinRank: 2,
+    activeHubMac: 'AA:BB:CC:DD:EE:01',
+  ),
+);
 
 final _irrigationDevice = DeviceModel(
   mac: 'AA:BB:CC:DD:EE:40',
@@ -422,16 +581,19 @@ DeviceModel _irrigationWithDiagnostics({
       ],
     );
 
-DeviceModel _device(String profile) => DeviceModel(
-      mac: 'AA:BB:CC:DD:EE:FF',
-      ownerId: 'owner-1',
-      name: 'Thiết bị kiểm thử',
-      productId: 'prod_$profile',
-      uiProfile: profile,
-      uiProfileVersion: 1,
-      icon: Icons.devices_other_rounded,
-      status: DeviceStatus.online,
-      rawState: const {},
-      diagnostics: const {},
-      capabilities: const [],
-    );
+DeviceModel _device(String profile) {
+  if (profile == ProductUiProfile.roofController) return _roofDevice;
+  return DeviceModel(
+    mac: 'AA:BB:CC:DD:EE:FF',
+    ownerId: 'owner-1',
+    name: 'Thiết bị kiểm thử',
+    productId: 'prod_$profile',
+    uiProfile: profile,
+    uiProfileVersion: 1,
+    icon: Icons.devices_other_rounded,
+    status: DeviceStatus.online,
+    rawState: const {},
+    diagnostics: const {},
+    capabilities: const [],
+  );
+}
