@@ -43,12 +43,13 @@
         "Flame sensor reports flame detection",
         "DHT11 reports temperature and humidity",
         "Buzzer emits the local warning",
-        "One local button temporarily mutes the buzzer"
+        "One local button temporarily mutes the buzzer",
+        "Remote mute durations are limited to 30, 60, 180 or 300 seconds",
+        "The local mute button uses the 60-second safe default"
       ],
       "open_questions": [
         "MQ2 calibration and safe warning thresholds",
         "Flame sensor threshold and debounce strategy",
-        "Temporary mute duration before the buzzer must sound again",
         "Whether buzzer output feedback is available; the current contract reports requested output only"
       ]
     },

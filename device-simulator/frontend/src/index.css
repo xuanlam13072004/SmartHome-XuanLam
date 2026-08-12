@@ -1008,6 +1008,119 @@ kbd {
   gap: var(--space-xl);
 }
 
+.hazard-workbench {
+  display: grid;
+  gap: var(--space-xl);
+  padding-block-start: var(--space-xl);
+}
+
+.hazard-sensor-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-md);
+}
+
+.hazard-sensor-card {
+  min-width: 0;
+  padding: var(--space-md);
+  border: var(--rule-thin) solid var(--color-rule);
+  border-radius: var(--radius-md);
+  background: var(--color-paper-2);
+}
+
+.hazard-sensor-card .physical-control {
+  padding: 0;
+}
+
+.hazard-siren-panel {
+  display: grid;
+  gap: var(--space-lg);
+  padding: clamp(var(--space-lg), 4vw, var(--space-xl));
+  border: var(--rule-thin) solid var(--color-rule-2);
+  border-radius: var(--radius-lg);
+  background: var(--color-paper-2);
+}
+
+.hazard-siren-panel--sounding {
+  border-color: var(--color-error);
+  background: var(--color-error-soft);
+}
+
+.hazard-siren-panel > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.hazard-siren-panel > header p,
+.hazard-status-strip dt,
+.hazard-siren-actions label > span {
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
+
+.hazard-siren-panel > header strong {
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+}
+
+.hazard-siren-panel--sounding > header strong {
+  color: var(--color-error);
+}
+
+.hazard-status-strip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  border-block: var(--rule-thin) solid var(--color-rule);
+}
+
+.hazard-status-strip > div {
+  display: grid;
+  gap: var(--space-2xs);
+  padding-block: var(--space-md);
+}
+
+.hazard-status-strip dt,
+.hazard-status-strip dd {
+  margin: 0;
+}
+
+.hazard-status-strip dd {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+.hazard-siren-actions {
+  display: grid;
+  grid-template-columns: minmax(11rem, auto) minmax(11rem, 1fr) minmax(11rem, auto);
+  align-items: end;
+  gap: var(--space-sm);
+}
+
+.hazard-siren-actions label {
+  display: grid;
+  gap: var(--space-2xs);
+}
+
+.hazard-siren-actions select {
+  min-height: 2.75rem;
+  padding-inline: var(--space-sm);
+  border: var(--rule-thin) solid var(--color-rule-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-paper);
+}
+
+.hazard-safety-note {
+  padding: var(--space-sm) var(--space-md);
+  border-inline-start: 3px solid var(--color-warning);
+  background: var(--color-warning-soft);
+  color: var(--color-ink-2);
+  font-size: var(--text-sm);
+}
+
 .work-panel__heading--page {
   padding-block-end: var(--space-md);
   border-bottom: var(--rule-thin) solid var(--color-rule);
@@ -2079,6 +2192,10 @@ dd {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .hazard-sensor-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .device-row {
     grid-template-columns: auto minmax(10rem, 1fr) minmax(12rem, 1fr) auto;
   }
@@ -2182,6 +2299,8 @@ dd {
   }
 
   .capability-controls,
+  .hazard-sensor-grid,
+  .hazard-siren-actions,
   .physical-workbench__side,
   .value-list,
   .history-grid,
@@ -2193,6 +2312,14 @@ dd {
   .form-grid,
   .form-grid--uneven {
     grid-template-columns: 1fr;
+  }
+
+  .hazard-status-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .hazard-status-strip > div + div {
+    border-block-start: var(--rule-thin) solid var(--color-rule);
   }
 
   .value-list > div:nth-child(odd) {

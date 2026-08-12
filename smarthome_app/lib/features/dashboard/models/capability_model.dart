@@ -2,6 +2,7 @@ class CapabilityOperationDescriptor {
   const CapabilityOperationDescriptor({
     required this.operationName,
     this.inputNames = const [],
+    this.inputSchema = const {},
     this.risk = 'normal',
     this.confirmation = 'none',
     this.label = '',
@@ -9,6 +10,7 @@ class CapabilityOperationDescriptor {
 
   final String operationName;
   final List<String> inputNames;
+  final Map<String, dynamic> inputSchema;
   final String risk;
   final String confirmation;
   final String label;

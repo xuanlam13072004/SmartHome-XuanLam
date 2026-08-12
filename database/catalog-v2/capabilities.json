@@ -239,18 +239,19 @@
   },
   {
     "capability_id": "alarm_siren",
-    "revision": 1,
+    "revision": 2,
     "kind": "actuator",
     "runtime": { "execution_authority": "device_firmware", "reported_state_authority": "device_firmware", "offline_behavior": "full_local", "configuration_persistence": "none" },
     "properties": [
-      { "id": "audible_state", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": false, "enum": ["silent", "sounding", "muted"], "default": "silent", "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "siren_status", "label": "Lệnh đầu ra còi" } }
+      { "id": "audible_state", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": false, "enum": ["silent", "sounding", "muted"], "default": "silent", "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "siren_status", "label": "Trạng thái còi" } },
+      { "id": "mute_until", "channel": "reported", "state_authority": "device_firmware", "persistence": "device_nvs", "type": "string", "nullable": true, "format": "date-time", "default": null, "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "mute_deadline", "label": "Tắt còi đến" } }
     ],
     "operations": [
-      { "id": "mute_siren", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": true }, "ack_policy": { "success_condition": "effect_applied", "completion_signal": "reported_state", "reference": "audible_state" }, "permission": "alarm.acknowledge", "risk": "sensitive", "confirmation": "confirm", "timeout_ms": 5000, "idempotent": true, "input": {}, "effects": [{ "type": "expect_reported", "property": "audible_state", "value": "muted" }], "safety_constraints": ["mute_does_not_resolve_incident", "mitigation_continues"], "presentation": { "label": "Tắt âm còi", "ui_hint": "mute_action" } },
+      { "id": "mute_siren", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": true }, "ack_policy": { "success_condition": "effect_applied", "completion_signal": "reported_state", "reference": "audible_state" }, "permission": "alarm.acknowledge", "risk": "sensitive", "confirmation": "confirm", "timeout_ms": 5000, "idempotent": true, "input": { "duration_seconds": { "type": "integer", "enum": [30, 60, 180, 300], "minimum": 30, "maximum": 300, "default": 60, "unit": "second" } }, "effects": [{ "type": "expect_reported", "property": "audible_state", "value": "muted" }], "safety_constraints": ["mute_does_not_resolve_incident", "mitigation_continues", "mute_duration_is_bounded", "hazard_reactivates_siren_after_mute"], "presentation": { "label": "Tắt âm còi tạm thời", "ui_hint": "mute_action" } },
       { "id": "test_siren", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": false }, "ack_policy": { "success_condition": "effect_applied", "completion_signal": "event", "reference": "siren_tested" }, "permission": "safety.configure", "risk": "sensitive", "confirmation": "confirm", "timeout_ms": 40000, "idempotent": false, "input": { "duration_seconds": { "type": "integer", "minimum": 1, "maximum": 30 } }, "effects": [{ "type": "create_event", "property": "events.siren_tested" }], "safety_constraints": ["no_active_incident"], "presentation": { "label": "Kiểm tra còi", "ui_hint": "secondary_action" } }
     ],
     "events": [
-      { "id": "siren_muted", "producer": "device_firmware", "severity": "warning", "retention": "incident", "data": { "incident_id": { "type": "string" }, "source": { "type": "string", "enum": ["local", "remote"] } } },
+      { "id": "siren_muted", "producer": "device_firmware", "severity": "warning", "retention": "incident", "data": { "incident_id": { "type": "string", "nullable": true }, "source": { "type": "string", "enum": ["local", "remote"] }, "duration_seconds": { "type": "integer", "enum": [30, 60, 180, 300], "minimum": 30, "maximum": 300, "unit": "second" }, "mute_until": { "type": "string", "format": "date-time" } } },
       { "id": "siren_tested", "producer": "device_firmware", "severity": "info", "retention": "timeline", "data": { "duration_seconds": { "type": "integer", "minimum": 1, "maximum": 30 } } }
     ],
     "resources": [], "credentials": []

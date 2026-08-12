@@ -35,6 +35,18 @@ import {
     unregisterPresenceHeartbeat,
 } from './presence-heartbeat-scheduler';
 import {
+    assertSirenOperationAllowed,
+    beginSirenTimer,
+    completeSirenTimer,
+    normalizeSirenState,
+    pendingSirenTimerFromState,
+    reconcileHazardSafetyState,
+    sirenTimerPlanForPhysicalAction,
+    sirenTimerPlanForOperation,
+    type PhysicalSirenAction,
+    type SirenTimerPlan,
+} from './hazard-siren';
+import {
     automaticRainClosePlan,
     beginRoofMotion,
     completeRoofMotion,
@@ -88,6 +100,7 @@ export class DeviceRuntime {
     private directFallbackOverride = false;
     private lastTopologyAckKey: string | null = null;
     private roofMotionTimer: NodeJS.Timeout | null = null;
+    private sirenTimer: NodeJS.Timeout | null = null;
     private disposed = false;
     private stateMutationQueue: Promise<void> = Promise.resolve();
     private readonly operationResults = new Map<string, OperationResult>();
@@ -112,11 +125,15 @@ export class DeviceRuntime {
             productId: product.product_id,
             catalogRevision: product.catalog_revision,
         });
-        this.state = normalizeRoofMotionState(initialState
-            ? removeCatalogConstants(initialState, product)
-            : generateInitialState(product), product);
+        this.state = reconcileHazardSafetyState(normalizeSirenState(
+            normalizeRoofMotionState(initialState
+                ? removeCatalogConstants(initialState, product)
+                : generateInitialState(product), product),
+            product,
+        ), product);
         this.assignment = initialAssignment;
         this.resumeRoofMotionFromState();
+        this.resumeSirenTimerFromState();
     }
 
     get id(): string {
@@ -171,6 +188,7 @@ export class DeviceRuntime {
         if (this.disposed) return;
         this.disposed = true;
         this.cancelRoofMotion();
+        this.cancelSirenTimer();
         await this.stateMutationQueue.catch(() => undefined);
         await this.disconnect();
     }
@@ -215,7 +233,11 @@ export class DeviceRuntime {
     async resetState(): Promise<DeviceState> {
         return this.serializeStateMutation(async () => {
             this.cancelRoofMotion();
-            const next = generateInitialState(this.product);
+            this.cancelSirenTimer();
+            const next = reconcileHazardSafetyState(
+                generateInitialState(this.product),
+                this.product,
+            );
             next.state_version = this.state.state_version + 1;
             this.state = next;
             await this.persistRegistryState(new Date(), true);
@@ -227,7 +249,10 @@ export class DeviceRuntime {
     async patchState(patch: DeviceStatePatch): Promise<DeviceState> {
         return this.serializeStateMutation(async () => {
             const product = this.product;
-            this.state = patchDeviceState(this.state, product, patch);
+            this.state = reconcileHazardSafetyState(
+                patchDeviceState(this.state, product, patch),
+                product,
+            );
             const movementWasPatched = product.capability_instances.some(instance => (
                 instance.capability_id === 'cover_controller'
                 && Object.prototype.hasOwnProperty.call(
@@ -239,6 +264,19 @@ export class DeviceRuntime {
                 this.cancelRoofMotion();
                 this.resumeRoofMotionFromState();
             }
+            const sirenWasPatched = product.capability_instances.some(instance => (
+                instance.capability_id === 'alarm_siren'
+                && ['audible_state', 'mute_until'].some(property => (
+                    Object.prototype.hasOwnProperty.call(
+                        patch.instances?.[instance.instance_id]?.reported || {},
+                        property,
+                    )
+                ))
+            ));
+            if (sirenWasPatched) {
+                this.cancelSirenTimer();
+                this.resumeSirenTimerFromState();
+            }
             const automaticClose = automaticRainClosePlan(product, this.state);
             if (!movementWasPatched && automaticClose?.shouldMove) {
                 this.state = beginRoofMotion(this.state, automaticClose);
@@ -246,6 +284,40 @@ export class DeviceRuntime {
             }
             await this.persistRegistryState(new Date(), true);
             if (this.connected) await this.publishTelemetry(false);
+            return this.state;
+        });
+    }
+
+    async performPhysicalSirenAction(
+        action: PhysicalSirenAction,
+        durationSeconds: number,
+    ): Promise<DeviceState> {
+        return this.serializeStateMutation(async () => {
+            const plan = sirenTimerPlanForPhysicalAction(
+                this.product,
+                action,
+                durationSeconds,
+            );
+            assertSirenOperationAllowed(this.state, plan);
+            this.state = beginSirenTimer(this.state, plan);
+            await this.persistRegistryState(new Date(), true);
+            this.scheduleSirenTimer(plan);
+            if (!this.isPaused && this.connected) await this.publishTelemetry(false);
+            await recordSimulatorEvent({
+                type: action === 'mute_siren'
+                    ? 'device.local_siren_muted'
+                    : 'device.local_siren_tested',
+                severity: action === 'mute_siren' ? 'warning' : 'info',
+                run_id: this.simulationRunId,
+                mac: this.mac,
+                message: action === 'mute_siren'
+                    ? `Physical mute button silenced the virtual siren for ${durationSeconds} seconds`
+                    : `Physical siren test started for ${durationSeconds} seconds`,
+                data: {
+                    source: 'simulator_physical_panel',
+                    duration_seconds: durationSeconds,
+                },
+            });
             return this.state;
         });
     }
@@ -557,7 +629,12 @@ export class DeviceRuntime {
         this.isPublishing = true;
         try {
             const product = this.product;
-            if (evolve) this.state = evolveState(this.state, product);
+            if (evolve) {
+                this.state = reconcileHazardSafetyState(
+                    evolveState(this.state, product),
+                    product,
+                );
+            }
             this.setOnlineDiagnostic(true);
             const nextSeq = await this.reserveNextSequence();
             const timestamp = new Date();
@@ -653,11 +730,14 @@ export class DeviceRuntime {
             }
 
             const roofMotion = roofMotionPlanForOperation(product, operation, this.state);
+            const sirenPlan = sirenTimerPlanForOperation(product, operation);
+            assertSirenOperationAllowed(this.state, sirenPlan);
             const rainProtection = automaticRainClosePlan(product, this.state);
             if (roofMotion?.movingState === 'opening' && rainProtection) {
                 throw new Error('Automatic rain protection prevents opening the roof');
             }
             this.state = applyOperationToState(this.state, product, operation);
+            if (sirenPlan) this.state = beginSirenTimer(this.state, sirenPlan, false);
             if (roofMotion && !roofMotion.shouldMove) {
                 // Repeating an already-satisfied idempotent command must not make
                 // the virtual roof appear to move again.
@@ -671,6 +751,7 @@ export class DeviceRuntime {
             }
             await this.persistRegistryState(new Date(), true);
             if (scheduledMotion) this.scheduleRoofMotion(scheduledMotion);
+            if (sirenPlan) this.scheduleSirenTimer(sirenPlan);
             const resourceId = typeof operation.context.resource_id === 'string'
                 ? operation.context.resource_id
                 : null;
@@ -1076,6 +1157,64 @@ export class DeviceRuntime {
             this.logger.error(
                 { err: error, finalState: plan.finalState },
                 'Failed to persist completed virtual roof motion',
+            );
+        }
+    }
+
+    private cancelSirenTimer(): void {
+        if (!this.sirenTimer) return;
+        clearTimeout(this.sirenTimer);
+        this.sirenTimer = null;
+    }
+
+    private resumeSirenTimerFromState(): void {
+        if (this.disposed || this.sirenTimer) return;
+        const plan = pendingSirenTimerFromState(this.product, this.state);
+        if (plan) this.scheduleSirenTimer(plan);
+    }
+
+    private scheduleSirenTimer(plan: SirenTimerPlan): void {
+        this.cancelSirenTimer();
+        if (this.disposed) return;
+        const delayMs = Math.max(0, plan.deadlineMs - Date.now());
+        this.sirenTimer = setTimeout(() => {
+            this.sirenTimer = null;
+            void this.serializeStateMutation(() => this.completeScheduledSirenTimer(plan));
+        }, delayMs);
+        this.sirenTimer.unref();
+    }
+
+    private async completeScheduledSirenTimer(plan: SirenTimerPlan): Promise<void> {
+        if (this.disposed) return;
+        const next = completeSirenTimer(this.state, plan);
+        if (next === this.state) return;
+        this.state = next;
+        try {
+            await this.persistRegistryState(new Date(), true);
+            if (!this.isPaused && this.connected) await this.publishTelemetry(false);
+            await recordSimulatorEvent({
+                type: plan.mode === 'mute'
+                    ? 'device.siren_mute_expired'
+                    : 'device.siren_test_completed',
+                severity: 'info',
+                run_id: this.simulationRunId,
+                mac: this.mac,
+                message: plan.mode === 'mute'
+                    ? 'Virtual siren mute period expired'
+                    : 'Virtual siren test completed',
+                data: {
+                    instance_id: plan.instanceId,
+                    audible_state: this.state.instances[plan.instanceId]?.reported.audible_state,
+                    hazard_active: this.state.instances.hazard?.reported.risk_level,
+                },
+            }).catch((error) => this.logger.warn(
+                { err: error, sirenMode: plan.mode },
+                'Could not record virtual siren timer completion event',
+            ));
+        } catch (error) {
+            this.logger.error(
+                { err: error, sirenMode: plan.mode },
+                'Failed to persist completed virtual siren timer',
             );
         }
     }

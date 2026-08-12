@@ -158,6 +158,134 @@ void main() {
     }
   });
 
+  testWidgets(
+      'hazard detail is sensor-first and exposes only safe siren controls',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final requests = <(String, dynamic)>[];
+
+    for (final width in [320.0, 375.0, 414.0, 768.0]) {
+      tester.view.physicalSize = Size(width, 1500);
+      requests.clear();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          key: ValueKey('hazard-$width'),
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                child: productUiRegistry.buildDetail(
+                  context,
+                  device: _hazardDevice(),
+                  onCapabilityChanged: (capability, value) async {
+                    requests.add(
+                      (capability.operations.single.operationName, value),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull, reason: 'width=$width');
+      for (final label in [
+        'Nhiệt độ',
+        'Độ ẩm',
+        'Khí gas',
+        'Cảm biến khói',
+        'Cảm biến lửa',
+      ]) {
+        expect(find.text(label), findsOneWidget, reason: 'width=$width');
+      }
+      expect(find.text('30°C'), findsOneWidget, reason: 'width=$width');
+      expect(find.text('65%'), findsOneWidget, reason: 'width=$width');
+      expect(find.text('12/100'), findsOneWidget, reason: 'width=$width');
+      expect(find.text('4/100'), findsOneWidget, reason: 'width=$width');
+      expect(find.text('Còi báo động'), findsOneWidget, reason: 'width=$width');
+      expect(find.text('Bật còi'), findsOneWidget, reason: 'width=$width');
+      expect(
+        find.text('Tắt còi tạm thời'),
+        findsOneWidget,
+        reason: 'width=$width',
+      );
+      expect(
+        find.text('Thời gian tắt còi cảnh báo'),
+        findsOneWidget,
+        reason: 'width=$width',
+      );
+      expect(find.byType(Slider), findsNothing, reason: 'width=$width');
+      for (final hidden in [
+        'Vòng đời sự cố',
+        'Sự cố đang hoạt động',
+        'Nút tắt âm tại chỗ',
+        'Điều khiển khác',
+        'Thông số khác',
+      ]) {
+        expect(find.text(hidden), findsNothing, reason: 'width=$width');
+      }
+
+      expect(
+        tester.getTopLeft(find.text('Nhiệt độ')).dy,
+        lessThan(tester.getTopLeft(find.text('Còi báo động')).dy),
+      );
+      expect(
+        tester.getTopLeft(find.text('Còi báo động')).dy,
+        lessThan(tester.getTopLeft(find.text('Kết nối mạng')).dy),
+      );
+
+      await tester.ensureVisible(find.text('Bật còi'));
+      await tester.tap(find.text('Bật còi'));
+      await tester.pump();
+
+      expect(requests, [('test_siren', 5)]);
+      expect(tester.takeException(), isNull, reason: 'width=$width');
+    }
+  });
+
+  testWidgets('hazard sounding siren can be muted temporarily', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 1200);
+    addTearDown(tester.view.reset);
+    final requests = <(String, dynamic)>[];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+              child: productUiRegistry.buildDetail(
+                context,
+                device: _hazardDevice(sirenState: 'sounding'),
+                onCapabilityChanged: (capability, value) async {
+                  requests.add(
+                    (capability.operations.single.operationName, value),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Đang kêu'), findsOneWidget);
+    await tester.ensureVisible(find.text('Tắt còi tạm thời'));
+    await tester.tap(find.text('Tắt còi tạm thời'));
+    await tester.pump();
+
+    expect(requests, [('mute_siren', 60)]);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('detail hides diagnostics and shows contextual health warnings',
       (tester) async {
     tester.view.devicePixelRatio = 1;
@@ -375,6 +503,165 @@ final _roofDevice = DeviceModel(
   ),
 );
 
+DeviceModel _hazardDevice({String sirenState = 'silent'}) => DeviceModel(
+      mac: 'AA:BB:CC:DD:EE:30',
+      ownerId: 'owner-1',
+      name: 'Cảnh báo an toàn bếp',
+      productId: 'prod_hazard_mitigation',
+      uiProfile: ProductUiProfile.hazardMonitor,
+      uiProfileVersion: 1,
+      category: 'safety',
+      icon: Icons.health_and_safety_rounded,
+      status: DeviceStatus.online,
+      rawState: const {},
+      diagnostics: const {},
+      capabilities: [
+        const CapabilityModel(
+          id: 'temperature',
+          type: 'sensor',
+          name: 'Nhiệt độ DHT11',
+          value: 30,
+          properties: {'unit': 'celsius'},
+          isReadOnly: true,
+          instance: 'kitchen_temperature',
+          capabilityId: 'temperature_measurement',
+          section: CapabilitySection.sensor,
+        ),
+        const CapabilityModel(
+          id: 'humidity',
+          type: 'sensor',
+          name: 'Độ ẩm DHT11',
+          value: 65,
+          properties: {'unit': 'percent'},
+          isReadOnly: true,
+          instance: 'kitchen_humidity',
+          capabilityId: 'humidity_measurement',
+          section: CapabilitySection.sensor,
+        ),
+        const CapabilityModel(
+          id: 'gas_level',
+          type: 'sensor',
+          name: 'Mức khí gas',
+          value: 12,
+          properties: {'unit': 'normalized'},
+          isReadOnly: true,
+          instance: 'kitchen_gas',
+          capabilityId: 'gas_measurement',
+          section: CapabilitySection.sensor,
+        ),
+        const CapabilityModel(
+          id: 'smoke_level',
+          type: 'sensor',
+          name: 'Mức khói',
+          value: 4,
+          properties: {'unit': 'normalized'},
+          isReadOnly: true,
+          instance: 'kitchen_smoke',
+          capabilityId: 'smoke_measurement',
+          section: CapabilitySection.sensor,
+        ),
+        const CapabilityModel(
+          id: 'flame_detected',
+          type: 'sensor',
+          name: 'Phát hiện lửa',
+          value: false,
+          isReadOnly: true,
+          instance: 'kitchen_flame',
+          capabilityId: 'flame_detection',
+          section: CapabilitySection.sensor,
+        ),
+        const CapabilityModel(
+          id: 'risk_level',
+          type: 'enum',
+          name: 'Mức nguy hiểm',
+          value: 'normal',
+          isReadOnly: true,
+          instance: 'hazard',
+          capabilityId: 'hazard_controller',
+          section: CapabilitySection.sensor,
+        ),
+        const CapabilityModel(
+          id: 'incident_state',
+          type: 'enum',
+          name: 'Vòng đời sự cố',
+          value: 'idle',
+          isReadOnly: true,
+          instance: 'hazard',
+          capabilityId: 'hazard_controller',
+          section: CapabilitySection.sensor,
+        ),
+        CapabilityModel(
+          id: 'audible_state',
+          type: 'enum',
+          name: 'Lệnh đầu ra còi',
+          value: sirenState,
+          properties: const {
+            'options': ['silent', 'sounding', 'muted'],
+          },
+          instance: 'alarm_siren',
+          capabilityId: 'alarm_siren',
+          section: CapabilitySection.control,
+          operations: const [
+            CapabilityOperationDescriptor(
+              operationName: 'mute_siren',
+              inputNames: ['duration_seconds'],
+              inputSchema: {
+                'duration_seconds': {
+                  'type': 'integer',
+                  'enum': [30, 60, 180, 300],
+                  'default': 60,
+                },
+              },
+              confirmation: 'confirm',
+            ),
+          ],
+        ),
+        const CapabilityModel(
+          id: 'mute_until',
+          type: 'text',
+          name: 'Tắt còi đến',
+          isReadOnly: true,
+          instance: 'alarm_siren',
+          capabilityId: 'alarm_siren',
+          section: CapabilitySection.sensor,
+        ),
+        const CapabilityModel(
+          id: 'test_siren',
+          type: 'operation',
+          name: 'Kiểm tra còi',
+          instance: 'alarm_siren',
+          capabilityId: 'alarm_siren',
+          section: CapabilitySection.control,
+          operations: [
+            CapabilityOperationDescriptor(
+              operationName: 'test_siren',
+              inputNames: ['duration_seconds'],
+              confirmation: 'confirm',
+            ),
+          ],
+        ),
+        const CapabilityModel(
+          id: 'pressed',
+          type: 'sensor',
+          name: 'Nút tắt âm tại chỗ',
+          value: false,
+          isReadOnly: true,
+          instance: 'mute_button',
+          capabilityId: 'local_button',
+          section: CapabilitySection.sensor,
+        ),
+      ],
+      topology: const DeviceTopology(
+        networkId: 'network-hazard-1',
+        role: DeviceTopologyRole.hub,
+        epoch: 2,
+        state: DeviceTopologyState.stable,
+        transportMode: DeviceTransportMode.hub,
+        joinRank: 1,
+        activeHubMac: 'AA:BB:CC:DD:EE:30',
+      ),
+    );
+
 final _irrigationDevice = DeviceModel(
   mac: 'AA:BB:CC:DD:EE:40',
   ownerId: 'owner-1',
@@ -583,6 +870,7 @@ DeviceModel _irrigationWithDiagnostics({
 
 DeviceModel _device(String profile) {
   if (profile == ProductUiProfile.roofController) return _roofDevice;
+  if (profile == ProductUiProfile.hazardMonitor) return _hazardDevice();
   return DeviceModel(
     mac: 'AA:BB:CC:DD:EE:FF',
     ownerId: 'owner-1',

@@ -213,6 +213,7 @@ class CapabilityAssembler {
       CapabilityOperationDescriptor(
         operationName: operation.id,
         inputNames: operation.input.keys.toList(growable: false),
+        inputSchema: operation.input,
         risk: operation.risk,
         confirmation: operation.confirmation,
         label: operation.presentation['label']?.toString() ?? '',

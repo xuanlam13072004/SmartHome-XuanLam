@@ -109,6 +109,12 @@ const realisticNumbers: Record<string, number> = {
 };
 
 const seedValue = (property: CapabilityProperty): unknown => {
+    if (
+        ['calibration_state', 'sensor_state'].includes(property.id)
+        && property.enum?.includes('ready')
+    ) {
+        return 'ready';
+    }
     if (property.default !== null && property.default !== undefined) return clone(property.default);
     if (realisticNumbers[property.id] !== undefined) return realisticNumbers[property.id];
     if (property.type === 'number' || property.type === 'integer') {

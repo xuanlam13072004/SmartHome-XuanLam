@@ -64,16 +64,16 @@
     "product_id": "prod_hazard_mitigation",
     "ui_profile": "hazard_monitor",
     "ui_profile_version": 1,
-    "catalog_revision": 1,
+    "catalog_revision": 2,
     "lifecycle": "published",
     "contract_maturity": "edge_reviewed",
     "manufacturer": "SmartHome XuanLam Ltd.",
     "model_name": "Safety and Hazard Mitigation System",
     "category": "safety",
     "description": "Giám sát MQ2, flame sensor và DHT11; phát còi cục bộ và cho phép tắt âm tạm thời.",
-    "firmware_compatibility": { "family": "hazard_controller", "minimum_version": "2.0.0" },
+    "firmware_compatibility": { "family": "hazard_controller", "minimum_version": "2.1.0" },
     "connectivity_profiles": ["wifi", "hub_node"],
-    "behavior_profile": "hazard_mitigation_v2",
+    "behavior_profile": "hazard_mitigation_v3",
     "capability_instances": [
       { "instance_id": "kitchen_gas", "capability_id": "gas_measurement", "capability_revision": 1, "availability": "active", "semantic_role": "lpg_gas_sensor", "presentation": { "display_name": "Khí gas", "description": "Giá trị normalized cho đến khi phần cứng được hiệu chuẩn.", "icon": "gas_meter", "section": "measurements", "order": 10 } },
       { "instance_id": "kitchen_smoke", "capability_id": "smoke_measurement", "capability_revision": 1, "availability": "active", "semantic_role": "smoke_sensor", "presentation": { "display_name": "Khói", "description": "Giá trị normalized cho đến khi phần cứng được hiệu chuẩn.", "icon": "smoke_free", "section": "measurements", "order": 20 } },
@@ -81,14 +81,14 @@
       { "instance_id": "kitchen_temperature", "capability_id": "temperature_measurement", "capability_revision": 1, "availability": "active", "semantic_role": "dht11_temperature", "presentation": { "display_name": "Nhiệt độ DHT11", "description": "Nhiệt độ môi trường do DHT11 đo.", "icon": "thermostat", "section": "measurements", "order": 40 } },
       { "instance_id": "kitchen_humidity", "capability_id": "humidity_measurement", "capability_revision": 1, "availability": "active", "semantic_role": "dht11_humidity", "presentation": { "display_name": "Độ ẩm DHT11", "description": "Độ ẩm không khí do DHT11 đo.", "icon": "humidity_percentage", "section": "measurements", "order": 50 } },
       { "instance_id": "hazard", "capability_id": "hazard_controller", "capability_revision": 1, "availability": "active", "semantic_role": "hazard_coordinator", "presentation": { "display_name": "Trạng thái an toàn", "description": "Mức nguy hiểm và vòng đời sự cố do firmware quyết định.", "icon": "health_and_safety", "section": "safety", "order": 60 } },
-      { "instance_id": "alarm_siren", "capability_id": "alarm_siren", "capability_revision": 1, "availability": "active", "semantic_role": "alarm_buzzer", "presentation": { "display_name": "Còi báo động", "description": "Tắt âm chỉ có hiệu lực tạm thời; nếu nguy hiểm còn tồn tại firmware sẽ bật còi lại.", "icon": "volume_up", "section": "safety", "order": 70 } },
+      { "instance_id": "alarm_siren", "capability_id": "alarm_siren", "capability_revision": 2, "availability": "active", "semantic_role": "alarm_buzzer", "presentation": { "display_name": "Còi báo động", "description": "Cho phép kiểm tra còi và tắt âm trong thời gian hữu hạn; nếu nguy hiểm còn tồn tại firmware sẽ tự bật còi lại.", "icon": "volume_up", "section": "safety", "order": 70 } },
       { "instance_id": "mute_button", "capability_id": "local_button", "capability_revision": 1, "availability": "active", "semantic_role": "local_mute_input", "presentation": { "display_name": "Nút tắt âm tại chỗ", "description": "Tắt còi tạm thời nhưng không xóa trạng thái nguy hiểm.", "icon": "volume_mute", "section": "diagnostics", "order": 80 } },
       { "instance_id": "system", "capability_id": "system_diagnostics", "capability_revision": 1, "availability": "active", "semantic_role": "system_diagnostics", "presentation": { "display_name": "Chẩn đoán", "description": "Kết nối và tình trạng firmware.", "icon": "monitor_heart", "section": "diagnostics", "order": 1000 } }
     ],
     "local_policies": [
       { "id": "hazard_protection", "priority": 10, "enforced_locally": true, "description": "Phát hiện nguy hiểm phải kích hoạt phản ứng cục bộ mà không chờ backend." },
       { "id": "mute_is_not_reset", "priority": 20, "enforced_locally": true, "description": "Tắt âm còi không xóa incident và không dừng biện pháp giảm thiểu." },
-      { "id": "temporary_mute", "priority": 30, "enforced_locally": true, "description": "Sau thời gian tắt âm cố định trong firmware, còi phải kêu lại nếu bất kỳ chỉ số nguy hiểm nào vẫn vượt ngưỡng." },
+      { "id": "temporary_mute", "priority": 30, "enforced_locally": true, "description": "Người dùng chỉ được chọn 30 giây, 1 phút, 3 phút hoặc 5 phút; firmware mặc định 1 phút cho nút tại chỗ và phải bật còi lại khi hết hạn nếu nguy hiểm còn tồn tại." },
       { "id": "fail_safe_sensor_state", "priority": 40, "enforced_locally": true, "description": "Khi khởi động, cảm biến chưa sẵn sàng hoặc bị lỗi thì thiết bị không được báo trạng thái normal." }
     ],
     "presentation": { "display_name": "Hệ Thống Cảnh Báo An Toàn Bếp", "description": "Phát hiện và giảm thiểu nguy cơ trong bếp.", "icon": "health_and_safety", "order": 30 }

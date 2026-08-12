@@ -6,6 +6,7 @@ const path = require('node:path');
 const test = require('node:test');
 
 const { compileCatalog, lintCatalog, loadCatalogV2 } = require('./index');
+const { validateObjectAgainstSchema } = require('../validation');
 
 function clone(value) {
     return JSON.parse(JSON.stringify(value));
@@ -267,8 +268,10 @@ test('hazard contract matches MQ2, flame sensor, DHT11, buzzer and mute button',
     const muteButton = hazard.capability_instances.find(instance => instance.instance_id === 'mute_button');
 
     assert.equal(hazard.contract_maturity, 'edge_reviewed');
+    assert.equal(hazard.catalog_revision, 2);
     assert.equal(hazard.connectivity_profiles.includes('ethernet'), false);
     assert.equal(siren.capability_id, 'alarm_siren');
+    assert.equal(siren.capability_revision, 2);
     assert.equal(temperature.capability_id, 'temperature_measurement');
     assert.equal(humidity.capability_id, 'humidity_measurement');
     assert.equal(muteButton.capability_id, 'local_button');
@@ -293,10 +296,26 @@ test('hazard contract matches MQ2, flame sensor, DHT11, buzzer and mute button',
     const mute = siren.operations.find(operation => operation.id === 'mute_siren');
     assert.equal(mute.execution_authority, 'device_firmware');
     assert.equal(mute.offline_behavior.local_equivalent, true);
+    assert.deepEqual(mute.input.duration_seconds.enum, [30, 60, 180, 300]);
+    assert.equal(mute.input.duration_seconds.default, 60);
     assert.deepEqual(mute.effects, [
         { type: 'expect_reported', property: 'audible_state', value: 'muted' },
     ]);
     assert.equal(mute.safety_constraints.includes('mitigation_continues'), true);
+    assert.equal(mute.safety_constraints.includes('mute_duration_is_bounded'), true);
+    assert.equal(
+        validateObjectAgainstSchema({ duration_seconds: 60 }, mute.input).valid,
+        true,
+    );
+    assert.equal(
+        validateObjectAgainstSchema({ duration_seconds: 120 }, mute.input).valid,
+        false,
+    );
+    assert.equal(validateObjectAgainstSchema({}, mute.input).valid, false);
+    assert.equal(
+        siren.properties.some(property => property.id === 'mute_until' && property.format === 'date-time'),
+        true,
+    );
 
     assert.equal(hazard.capability_instances.some(instance => instance.instance_id === 'exhaust_fan'), false);
     assert.equal(hazard.capability_instances.some(instance => instance.instance_id === 'kitchen_power'), false);

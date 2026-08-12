@@ -162,6 +162,21 @@ export const updateDeviceState = (
   body: JSON.stringify(state),
 })
 
+export const performPhysicalSirenAction = (
+  mac: string,
+  action: 'test_siren' | 'mute_siren',
+  durationSeconds: number,
+) => request<{
+  state: NonNullable<SimulatedDevice['state_snapshot']>
+  delivery: 'publish_requested' | 'stored_offline'
+}>(`/devices/${encodeURIComponent(mac)}/physical-siren`, {
+  method: 'POST',
+  body: JSON.stringify({
+    action,
+    duration_seconds: durationSeconds,
+  }),
+})
+
 export const revealDeviceSecret = (mac: string) =>
   request<{ device: { mac: string; secret_key: string; product_id: string } }>(
     `/devices/${encodeURIComponent(mac)}/reveal-secret`,

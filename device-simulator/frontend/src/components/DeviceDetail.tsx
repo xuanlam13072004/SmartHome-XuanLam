@@ -3,6 +3,7 @@ import {
   deviceAction,
   fetchDevice,
   fetchDeviceLive,
+  performPhysicalSirenAction,
   revealDeviceSecret,
   sendDeviceTelemetry,
   setDeviceConnection,
@@ -140,6 +141,26 @@ export function DeviceDetail({
     }
   }
 
+  const runPhysicalSiren = async (
+    action: 'test_siren' | 'mute_siren',
+    durationSeconds: number,
+  ) => {
+    setActing(`physical-${action}`)
+    try {
+      const result = await performPhysicalSirenAction(mac, action, durationSeconds)
+      setPayload((current) => current ? {
+        ...current,
+        device: { ...current.device, state_snapshot: result.state },
+      } : current)
+      window.setTimeout(() => void refreshLive(), 350)
+      setError('')
+    } catch (caught) {
+      setError(readError(caught, 'Thiết bị từ chối thao tác còi.'))
+    } finally {
+      setActing('')
+    }
+  }
+
   const act = async (
     action: 'pause' | 'resume' | 'force-offline' | 'reconnect' | 'reset-state',
   ) => {
@@ -240,7 +261,13 @@ export function DeviceDetail({
       </nav>
 
       {tab === 'controls' && (
-        <PhysicalWorkbench device={device} instances={product.capability_instances} onPatch={applyPatch} />
+        <PhysicalWorkbench
+          acting={acting}
+          device={device}
+          instances={product.capability_instances}
+          onPatch={applyPatch}
+          onSirenAction={runPhysicalSiren}
+        />
       )}
 
       {tab === 'data' && (
@@ -270,13 +297,20 @@ export function DeviceDetail({
 }
 
 function PhysicalWorkbench({
+  acting,
   device,
   instances,
   onPatch,
+  onSirenAction,
 }: {
+  acting: string
   device: SimulatedDevice
   instances: CapabilityInstance[]
   onPatch: (patch: DeviceStatePatch) => Promise<void>
+  onSirenAction: (
+    action: 'test_siren' | 'mute_siren',
+    durationSeconds: number,
+  ) => Promise<void>
 }) {
   const ordered = useMemo(() => [...instances].sort((left, right) => (
     Number(left.presentation?.order || 0) - Number(right.presentation?.order || 0)
@@ -284,6 +318,18 @@ function PhysicalWorkbench({
   const lcd = ordered.find(isLcdInstance)
   const camera = ordered.find(isCameraInstance)
   const standard = ordered.filter((instance) => !isLcdInstance(instance) && !isCameraInstance(instance))
+
+  if (device.product_id === 'prod_hazard_mitigation') {
+    return (
+      <HazardPhysicalWorkbench
+        acting={acting}
+        device={device}
+        instances={ordered}
+        onPatch={onPatch}
+        onSirenAction={onSirenAction}
+      />
+    )
+  }
 
   return (
     <div className="physical-workbench">
@@ -327,6 +373,158 @@ function PhysicalWorkbench({
       </aside>
     </div>
   )
+}
+
+function HazardPhysicalWorkbench({
+  acting,
+  device,
+  instances,
+  onPatch,
+  onSirenAction,
+}: {
+  acting: string
+  device: SimulatedDevice
+  instances: CapabilityInstance[]
+  onPatch: (patch: DeviceStatePatch) => Promise<void>
+  onSirenAction: (
+    action: 'test_siren' | 'mute_siren',
+    durationSeconds: number,
+  ) => Promise<void>
+}) {
+  const sensorDefinitions = [
+    ['temperature_measurement', 'temperature'],
+    ['humidity_measurement', 'humidity'],
+    ['gas_measurement', 'gas_level'],
+    ['smoke_measurement', 'smoke_level'],
+    ['flame_detection', 'flame_detected'],
+  ] as const
+  const sensorControls = sensorDefinitions.flatMap(([capabilityId, propertyId]) => {
+    const instance = instances.find((item) => item.capability_id === capabilityId)
+    const property = instance?.properties.find((item) => item.id === propertyId)
+    return instance && property ? [{ instance, property }] : []
+  })
+  const sirenInstance = instances.find((item) => item.capability_id === 'alarm_siren')
+  const sirenProperty = sirenInstance?.properties.find((item) => item.id === 'audible_state')
+  const muteUntilProperty = sirenInstance?.properties.find((item) => item.id === 'mute_until')
+  const riskInstance = instances.find((item) => item.capability_id === 'hazard_controller')
+  const riskProperty = riskInstance?.properties.find((item) => item.id === 'risk_level')
+  const audibleState = String(
+    sirenInstance && sirenProperty
+      ? readPropertyValue(device.state_snapshot, sirenInstance.instance_id, sirenProperty)
+      : 'silent',
+  )
+  const riskLevel = String(
+    riskInstance && riskProperty
+      ? readPropertyValue(device.state_snapshot, riskInstance.instance_id, riskProperty)
+      : 'sensor_fault',
+  )
+  const muteUntil = sirenInstance && muteUntilProperty
+    ? readPropertyValue(device.state_snapshot, sirenInstance.instance_id, muteUntilProperty)
+    : null
+  const muteOperation = sirenInstance?.operations.find((item) => item.id === 'mute_siren')
+  const durationSchema = muteOperation?.input.duration_seconds
+  const durationOptions = (durationSchema?.enum || [60])
+    .filter((value): value is number => typeof value === 'number' && Number.isInteger(value))
+    .sort((left, right) => left - right)
+  const defaultDuration = typeof durationSchema?.default === 'number'
+    && durationOptions.includes(durationSchema.default)
+    ? durationSchema.default
+    : durationOptions[0] || 60
+  const [muteDuration, setMuteDuration] = useState(defaultDuration)
+  const busy = acting.startsWith('physical-')
+  const hazardActive = riskLevel === 'alarm' || riskLevel === 'emergency'
+
+  return (
+    <div className="hazard-workbench">
+      <header className="work-panel__heading work-panel__heading--page">
+        <div>
+          <h3>Cảm biến an toàn</h3>
+          <p>Điều chỉnh tín hiệu vật lý để kiểm tra cảnh báo; state mới sẽ được publish qua MQTT khi thiết bị trực tuyến.</p>
+        </div>
+        <span className="state-version">State v{device.state_snapshot?.state_version ?? 0}</span>
+      </header>
+
+      <div className="hazard-sensor-grid">
+        {sensorControls.map(({ instance, property }) => (
+          <section className="hazard-sensor-card" key={`${instance.instance_id}:${property.id}`}>
+            <CapabilityControl
+              disabled={false}
+              onCommit={(value) => onPatch(patchForProperty(instance.instance_id, property, value))}
+              property={property}
+              value={readPropertyValue(device.state_snapshot, instance.instance_id, property)}
+            />
+          </section>
+        ))}
+      </div>
+
+      <section className={`hazard-siren-panel hazard-siren-panel--${audibleState}`}>
+        <header>
+          <div>
+            <p>Đầu ra vật lý</p>
+            <h3>Còi cảnh báo</h3>
+          </div>
+          <strong>{sirenStateLabel(audibleState)}</strong>
+        </header>
+
+        <dl className="hazard-status-strip">
+          <div><dt>Mức nguy hiểm</dt><dd>{humanize(riskLevel)}</dd></div>
+          <div><dt>Tắt còi đến</dt><dd>{formatMuteDeadline(muteUntil)}</dd></div>
+        </dl>
+
+        <div className="hazard-siren-actions">
+          <button
+            className="button button--primary"
+            disabled={busy || audibleState === 'sounding' || hazardActive}
+            onClick={() => void onSirenAction('test_siren', 5)}
+            type="button"
+          >
+            {acting === 'physical-test_siren' ? 'Đang bật…' : 'Bật còi thử 5 giây'}
+          </button>
+          <label>
+            <span>Thời gian tắt còi</span>
+            <select
+              disabled={busy}
+              onChange={(event) => setMuteDuration(Number(event.target.value))}
+              value={muteDuration}
+            >
+              {durationOptions.map((seconds) => (
+                <option key={seconds} value={seconds}>{formatSirenDuration(seconds)}</option>
+              ))}
+            </select>
+          </label>
+          <button
+            className="button button--quiet"
+            disabled={busy || audibleState !== 'sounding'}
+            onClick={() => void onSirenAction('mute_siren', muteDuration)}
+            type="button"
+          >
+            {acting === 'physical-mute_siren' ? 'Đang tắt…' : 'Tắt còi tạm thời'}
+          </button>
+        </div>
+
+        <p className="hazard-safety-note">
+          Tắt âm không xóa cảnh báo và không dừng giám sát. Nếu nguy hiểm còn tồn tại khi hết hạn, còi sẽ tự bật lại.
+        </p>
+      </section>
+    </div>
+  )
+}
+
+function sirenStateLabel(value: string) {
+  if (value === 'sounding') return 'Đang kêu'
+  if (value === 'muted') return 'Đang tắt tạm thời'
+  if (value === 'silent') return 'Đang tắt'
+  return 'Chưa xác định'
+}
+
+function formatSirenDuration(seconds: number) {
+  return seconds < 60 ? `${seconds} giây` : `${seconds / 60} phút`
+}
+
+function formatMuteDeadline(value: unknown) {
+  if (typeof value !== 'string' || !value) return '—'
+  const date = new Date(value)
+  return Number.isNaN(date.valueOf()) ? '—' : date.toLocaleTimeString('vi-VN')
 }
 
 function CapabilitySection({

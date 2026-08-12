@@ -36,6 +36,32 @@ const statePatchSchema = z.object({
     { message: 'At least one state section is required' },
 );
 
+const physicalSirenActionSchema = z.object({
+    action: z.enum(['test_siren', 'mute_siren']),
+    duration_seconds: z.number().int(),
+}).strict().superRefine((value, context) => {
+    if (
+        value.action === 'test_siren'
+        && (value.duration_seconds < 1 || value.duration_seconds > 30)
+    ) {
+        context.addIssue({
+            code: 'custom',
+            path: ['duration_seconds'],
+            message: 'Siren test duration must be between 1 and 30 seconds',
+        });
+    }
+    if (
+        value.action === 'mute_siren'
+        && ![30, 60, 180, 300].includes(value.duration_seconds)
+    ) {
+        context.addIssue({
+            code: 'custom',
+            path: ['duration_seconds'],
+            message: 'Siren mute duration must be 30, 60, 180 or 300 seconds',
+        });
+    }
+});
+
 const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
     const runtimeManager = getRuntimeManager(app.log);
 
@@ -299,6 +325,36 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
             state,
             delivery: runtime?.connected ? 'publish_requested' : 'stored_offline',
         };
+    });
+
+    app.post('/api/devices/:mac/physical-siren', async (request, reply) => {
+        const mac = normalizeMac((request.params as { mac: string }).mac);
+        const parsed = physicalSirenActionSchema.safeParse(request.body);
+        if (!parsed.success) {
+            return reply.status(400).send({ success: false, error: parsed.error.flatten() });
+        }
+        const context = await getDeviceContext(mac);
+        if (!context) return reply.status(404).send({ success: false, error: 'Device not found' });
+        try {
+            const runtime = await getOrCreateRuntime(runtimeManager, context);
+            const state = await runtime.performPhysicalSirenAction(
+                parsed.data.action,
+                parsed.data.duration_seconds,
+            );
+            return {
+                success: true,
+                state,
+                delivery: runtime.connected ? 'publish_requested' : 'stored_offline',
+            };
+        } catch (error) {
+            return reply.status(409).send({
+                success: false,
+                error: {
+                    code: 'PHYSICAL_SIREN_ACTION_REJECTED',
+                    message: error instanceof Error ? error.message : 'Physical siren action failed',
+                },
+            });
+        }
     });
 
     app.post('/api/devices/:mac/reveal-secret', async (request, reply) => {

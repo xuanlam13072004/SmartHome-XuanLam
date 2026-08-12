@@ -11,6 +11,7 @@ import '../../dashboard/widgets/capabilities/capability_section_panel.dart';
 import '../../dashboard/widgets/device_hero_card.dart';
 import '../../dashboard/widgets/device_topology_panel.dart';
 import '../product_capability_query.dart';
+import 'hazard_control_panel.dart';
 import 'irrigation_control_panel.dart';
 import 'product_mini_cards.dart';
 import 'roof_control_panel.dart';
@@ -269,36 +270,56 @@ class HazardProductDetail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final used = <CapabilityModel>{};
-    final flame = device.capabilityMatching(ids: const ['flame_detected']);
-    final gas = device.capabilityMatching(
-      ids: const ['gas_level', 'smoke_level'],
-      capabilityIds: const ['gas_measurement', 'smoke_measurement'],
-    );
-    final siren = device.capabilityMatching(
-      ids: const ['audible_state'],
-      capabilityIds: const ['alarm_siren'],
-    );
-    final environment = _take(
+    final temperature = _productProperty(
       device,
-      used,
-      hints: const [
-        'flame',
-        'gas',
-        'mq2',
-        'smoke',
-        'temperature',
-        'humidity',
-      ],
-      section: CapabilitySection.sensor,
+      capabilityId: 'temperature_measurement',
+      propertyId: 'temperature',
     );
-    final alarmControls = _take(
+    final humidity = _productProperty(
       device,
-      used,
-      hints: const ['siren', 'alarm', 'mute', 'silence', 'buzzer', 'fan'],
-      section: CapabilitySection.control,
+      capabilityId: 'humidity_measurement',
+      propertyId: 'humidity',
     );
-    final alert = _truthy(flame?.value) || _truthy(siren?.value);
+    final gas = _productProperty(
+      device,
+      capabilityId: 'gas_measurement',
+      propertyId: 'gas_level',
+    );
+    final smoke = _productProperty(
+      device,
+      capabilityId: 'smoke_measurement',
+      propertyId: 'smoke_level',
+    );
+    final flame = _productProperty(
+      device,
+      capabilityId: 'flame_detection',
+      propertyId: 'flame_detected',
+    );
+    final risk = _productProperty(
+      device,
+      capabilityId: 'hazard_controller',
+      propertyId: 'risk_level',
+    );
+    final siren = _productProperty(
+      device,
+      capabilityId: 'alarm_siren',
+      propertyId: 'audible_state',
+    );
+    final muteUntil = _productProperty(
+      device,
+      capabilityId: 'alarm_siren',
+      propertyId: 'mute_until',
+    );
+    final testSiren = _productProperty(
+      device,
+      capabilityId: 'alarm_siren',
+      propertyId: 'test_siren',
+    );
+    final riskLevel = '${risk?.value}'.trim().toLowerCase();
+    final alert = _truthy(flame?.value) ||
+        '${siren?.value}'.trim().toLowerCase() == 'sounding' ||
+        const {'warning', 'alarm', 'emergency', 'sensor_fault'}
+            .contains(riskLevel);
     return ProductDetailWorkbench(
       device: device,
       heroIcon: alert ? Icons.warning_rounded : Icons.health_and_safety_rounded,
@@ -307,39 +328,48 @@ class HazardProductDetail extends StatelessWidget {
       onCapabilityChanged: onCapabilityChanged,
       summaries: [
         ProductStatusFact(
-          icon: alert ? Icons.warning_rounded : Icons.shield_rounded,
-          label: 'Trạng thái an toàn',
-          value: alert ? 'Cần kiểm tra' : 'An toàn',
-          tone: alert ? context.colorScheme.error : context.neu.deviceOnline,
+          icon: Icons.thermostat_rounded,
+          label: 'Nhiệt độ',
+          value: productCapabilityValue(temperature),
         ),
         ProductStatusFact(
-          icon: Icons.local_fire_department_rounded,
-          label: 'Ngọn lửa',
-          value: _truthy(flame?.value) ? 'Phát hiện' : 'Bình thường',
+          icon: Icons.water_drop_rounded,
+          label: 'Độ ẩm',
+          value: productCapabilityValue(humidity),
         ),
         ProductStatusFact(
           icon: Icons.air_rounded,
-          label: 'Khí/khói',
-          value: productCapabilityValue(gas, fallback: 'Ổn định'),
+          label: 'Khí gas',
+          value: productCapabilityValue(gas),
+          tone: alert ? context.colorScheme.error : null,
+        ),
+        ProductStatusFact(
+          icon: Icons.smoke_free_rounded,
+          label: 'Cảm biến khói',
+          value: productCapabilityValue(smoke),
+          tone: alert ? context.colorScheme.error : null,
+        ),
+        ProductStatusFact(
+          icon: Icons.local_fire_department_rounded,
+          label: 'Cảm biến lửa',
+          value: flame?.value == null
+              ? 'Chưa có dữ liệu'
+              : _truthy(flame?.value)
+                  ? 'Phát hiện lửa'
+                  : 'Bình thường',
+          tone: _truthy(flame?.value) ? context.colorScheme.error : null,
         ),
       ],
-      groups: [
-        ProductCapabilityGroup(
-          title: 'Chỉ số an toàn',
-          description: 'Dữ liệu mới nhất từ flame sensor, MQ2 và DHT11',
-          icon: Icons.monitor_heart_rounded,
-          capabilities: environment,
-          useGrid: true,
+      customSections: [
+        HazardControlPanel(
+          device: device,
+          sirenState: siren,
+          muteUntil: muteUntil,
+          testSiren: testSiren,
+          onCapabilityChanged: onCapabilityChanged,
         ),
-        ProductCapabilityGroup(
-          title: 'Cảnh báo tại chỗ',
-          description:
-              'Điều khiển còi và khoảng tạm dừng cảnh báo nếu được hỗ trợ',
-          icon: Icons.notifications_active_rounded,
-          capabilities: alarmControls,
-        ),
-        ..._remainingGroups(device, used),
       ],
+      groups: const [],
     );
   }
 }
