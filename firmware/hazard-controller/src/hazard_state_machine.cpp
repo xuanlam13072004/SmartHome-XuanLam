@@ -9,10 +9,11 @@ constexpr std::uint64_t millisForSeconds(std::uint16_t value) {
 }  // namespace
 
 bool HazardSirenController::isAllowedMuteDuration(std::uint16_t durationSeconds) {
-    return durationSeconds == 30
-        || durationSeconds == 60
+    return durationSeconds == 60
         || durationSeconds == 180
-        || durationSeconds == 300;
+        || durationSeconds == 300
+        || durationSeconds == 600
+        || durationSeconds == 1800;
 }
 
 bool HazardSirenController::isActiveHazard(RiskLevel risk) {
@@ -62,6 +63,9 @@ SirenCommandResult HazardSirenController::startTest(
     if (isActiveHazard(snapshot_.risk)) {
         return SirenCommandResult::ActiveHazard;
     }
+    if (snapshot_.audible == AudibleState::Muted) {
+        return SirenCommandResult::SirenMuted;
+    }
     testUntilMillis_ = nowMillis + millisForSeconds(durationSeconds);
     setAudible(AudibleState::Sounding);
     return SirenCommandResult::Applied;
@@ -75,9 +79,9 @@ SirenCommandResult HazardSirenController::mute(
     if (!isAllowedMuteDuration(durationSeconds)) {
         return SirenCommandResult::InvalidDuration;
     }
-    if (snapshot_.audible != AudibleState::Sounding) {
-        return SirenCommandResult::NotSounding;
-    }
+    // Muting is intentionally allowed while the siren is only armed/standing
+    // by. A later hazard remains fully reported but the buzzer stays quiet
+    // until this bounded deadline expires.
     testUntilMillis_ = 0;
     muteUntilMillis_ = nowMillis + millisForSeconds(durationSeconds);
     snapshot_.muteUntilEpochSeconds = nowEpochSeconds == 0
@@ -88,11 +92,28 @@ SirenCommandResult HazardSirenController::mute(
     return SirenCommandResult::Applied;
 }
 
+SirenCommandResult HazardSirenController::resume(
+    std::uint64_t nowEpochSeconds,
+    std::uint64_t nowMillis
+) {
+    testUntilMillis_ = 0;
+    clearMute();
+    reconcile(nowEpochSeconds, nowMillis);
+    return SirenCommandResult::Applied;
+}
+
 void HazardSirenController::tick(
     std::uint64_t nowEpochSeconds,
     std::uint64_t nowMillis
 ) {
     reconcile(nowEpochSeconds, nowMillis);
+}
+
+void HazardSirenController::clearMute() {
+    if (muteUntilMillis_ == 0 && snapshot_.muteUntilEpochSeconds == 0) return;
+    muteUntilMillis_ = 0;
+    snapshot_.muteUntilEpochSeconds = 0;
+    changed_ = true;
 }
 
 void HazardSirenController::reconcile(
@@ -103,9 +124,7 @@ void HazardSirenController::reconcile(
     const bool testActive = testUntilMillis_ != 0 && nowMillis < testUntilMillis_;
 
     if (!muteActive && (muteUntilMillis_ != 0 || snapshot_.muteUntilEpochSeconds != 0)) {
-        muteUntilMillis_ = 0;
-        snapshot_.muteUntilEpochSeconds = 0;
-        changed_ = true;
+        clearMute();
     } else if (
         muteActive
         && nowEpochSeconds != 0
@@ -119,8 +138,10 @@ void HazardSirenController::reconcile(
 
     if (!testActive) testUntilMillis_ = 0;
 
-    if (isActiveHazard(snapshot_.risk)) {
-        setAudible(muteActive ? AudibleState::Muted : AudibleState::Sounding);
+    if (muteActive) {
+        setAudible(AudibleState::Muted);
+    } else if (isActiveHazard(snapshot_.risk)) {
+        setAudible(AudibleState::Sounding);
     } else if (testActive) {
         setAudible(AudibleState::Sounding);
     } else {

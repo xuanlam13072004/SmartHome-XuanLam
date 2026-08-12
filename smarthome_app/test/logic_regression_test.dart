@@ -453,6 +453,29 @@ void main() {
   });
 
   group('V2 operations', () {
+    test(
+        'prefers an explicitly requested zero-input action over a parameterized operation',
+        () {
+      const capability = CapabilityModel(
+        id: 'audible_state',
+        type: 'enum',
+        name: 'Trạng thái còi',
+        instance: 'main_siren',
+        operations: [
+          CapabilityOperationDescriptor(
+            operationName: 'mute_siren',
+            inputNames: ['duration_seconds'],
+          ),
+          CapabilityOperationDescriptor(operationName: 'resume_siren'),
+        ],
+      );
+
+      final operation = capability.resolveOperation('resume');
+
+      expect(operation.operationName, 'resume_siren');
+      expect(operation.inputNames, isEmpty);
+    });
+
     test('resolves the correct zero-input operation from the target value', () {
       const capability = CapabilityModel(
         id: 'lock_state',

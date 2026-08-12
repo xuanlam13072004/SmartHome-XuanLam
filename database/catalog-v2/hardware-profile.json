@@ -44,8 +44,11 @@
         "DHT11 reports temperature and humidity",
         "Buzzer emits the local warning",
         "One local button temporarily mutes the buzzer",
-        "Remote mute durations are limited to 30, 60, 180 or 300 seconds",
-        "The local mute button uses the 60-second safe default"
+        "Remote mute durations are limited to 60, 180, 300, 600 or 1800 seconds",
+        "The local mute button uses the 60-second safe default",
+        "The buzzer turns on automatically for alarm or emergency risk while armed",
+        "A bounded mute can be activated before a hazard and suppresses the buzzer until its deadline without suppressing hazard telemetry",
+        "The mute can be cancelled immediately from the app or by pressing the local button again"
       ],
       "open_questions": [
         "MQ2 calibration and safe warning thresholds",

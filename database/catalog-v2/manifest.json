@@ -1,7 +1,7 @@
 {
   "catalog_schema": "smarthome.catalog.v2",
   "schema_version": 2,
-  "catalog_revision": 4,
+  "catalog_revision": 8,
   "lifecycle": "published",
   "schema_file": "schemas/catalog.schema.json",
   "capabilities_file": "capabilities.json",

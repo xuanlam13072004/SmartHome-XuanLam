@@ -181,6 +181,10 @@ class Devices extends _$Devices {
       String mac, CapabilityModel capability, dynamic value,
       {String? reauthToken}) async {
     final previousState = state;
+    final selectedOperation = capability.resolveOperation(value);
+    final allowedValues = capability.properties['options'];
+    final canApplyOptimistically = selectedOperation.inputNames.isNotEmpty ||
+        (allowedValues is List && allowedValues.contains(value));
 
     // Optimistic Update: Update UI immediately
     if (state.value != null) {
@@ -191,13 +195,15 @@ class Devices extends _$Devices {
           final newCapabilities = device.capabilities.map((cap) {
             if (cap.id == capability.id &&
                 cap.instance == capability.instance) {
-              return cap.copyWith(value: value);
+              return canApplyOptimistically ? cap.copyWith(value: value) : cap;
             }
             return cap;
           }).toList();
 
           final newRawState = Map<String, dynamic>.from(device.rawState);
-          newRawState[capability.id] = value;
+          if (canApplyOptimistically) {
+            newRawState[capability.id] = value;
+          }
 
           return device.copyWith(
             capabilities: newCapabilities,
@@ -224,9 +230,16 @@ class Devices extends _$Devices {
               'Capability ${capability.instance}.${capability.id} not found');
         }
         final currentCapability = device.capabilities[capabilityIndex];
+        // Keep the exact operation selected by the caller (specialized
+        // product panels intentionally narrow this list), while refreshing
+        // volatile metadata such as the current state-version fence.
+        final operationCapability = capability.copyWith(
+          properties: currentCapability.properties,
+          operations: [selectedOperation],
+        );
         await repo.updateCapability(
           mac,
-          currentCapability,
+          operationCapability,
           value,
           reauthToken: reauthToken,
         );

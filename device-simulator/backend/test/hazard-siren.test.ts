@@ -9,6 +9,8 @@ import {
     completeSirenTimer,
     pendingSirenTimerFromState,
     reconcileHazardSafetyState,
+    resumeSiren,
+    sirenResumeInstanceForOperation,
     sirenTimerPlanForPhysicalAction,
     sirenTimerPlanForOperation,
 } from '../src/runtime/hazard-siren';
@@ -35,6 +37,7 @@ const product = {
     ],
     operations: {
         'alarm_siren.mute_siren': { capability_id: 'alarm_siren' },
+        'alarm_siren.resume_siren': { capability_id: 'alarm_siren' },
         'alarm_siren.test_siren': { capability_id: 'alarm_siren' },
     },
 } as unknown as ProductCatalog;
@@ -71,17 +74,19 @@ const state = (audibleState: string, riskLevel = 'normal'): DeviceState => ({
 });
 
 const operation = (
-    operationName: 'mute_siren' | 'test_siren',
-    durationSeconds: number,
+    operationName: 'mute_siren' | 'resume_siren' | 'test_siren',
+    durationSeconds = 0,
 ): DeviceOperation => ({
     schema: 'device.operation.v2',
     operation_id: 'operation-1',
     target_device_id: 'AA:BB:CC:DD:EE:FF',
     product_id: product.product_id,
-    catalog_revision: 2,
+    catalog_revision: 6,
     instance_id: 'alarm_siren',
     operation_name: operationName,
-    input: { duration_seconds: durationSeconds },
+    input: operationName === 'resume_siren'
+        ? {}
+        : { duration_seconds: durationSeconds },
     context: {},
     issued_at: '2026-08-11T00:00:00.000Z',
     timeout_at: '2026-08-11T00:01:00.000Z',
@@ -96,12 +101,13 @@ const operation = (
 test('mute plan persists a bounded deadline and restores silently when safe', () => {
     const now = Date.parse('2026-08-11T00:00:00.000Z');
     const plan = sirenTimerPlanForOperation(product, operation('mute_siren', 60), now)!;
-    const muted = beginSirenTimer(state('sounding'), plan);
+    const muted = beginSirenTimer(state('sounding', 'alarm'), plan);
 
     assert.equal(muted.instances.alarm_siren.reported.audible_state, 'muted');
     assert.equal(muted.instances.alarm_siren.reported.mute_until, '2026-08-11T00:01:00.000Z');
     assert.deepEqual(pendingSirenTimerFromState(product, muted), plan);
 
+    muted.instances.hazard.reported.risk_level = 'normal';
     const completed = completeSirenTimer(muted, plan);
     assert.equal(completed.instances.alarm_siren.reported.audible_state, 'silent');
     assert.equal(completed.instances.alarm_siren.reported.mute_until, null);
@@ -110,7 +116,7 @@ test('mute plan persists a bounded deadline and restores silently when safe', ()
 test('expired mute reactivates the siren while danger remains', () => {
     const plan = sirenTimerPlanForOperation(
         product,
-        operation('mute_siren', 30),
+        operation('mute_siren', 60),
         Date.parse('2026-08-11T00:00:00.000Z'),
     )!;
     const muted = beginSirenTimer(state('sounding', 'alarm'), plan);
@@ -129,12 +135,16 @@ test('simulator rejects unsupported mute durations and unsafe siren tests', () =
         () => assertSirenOperationAllowed(state('silent', 'emergency'), testPlan),
         /hazard is active/,
     );
+    assert.throws(
+        () => assertSirenOperationAllowed(state('muted', 'normal'), testPlan),
+        /while it is muted/,
+    );
 });
 
 test('a stale timer cannot override a newer mute deadline', () => {
-    const oldPlan = sirenTimerPlanForOperation(product, operation('mute_siren', 30), 0)!;
-    const newPlan = sirenTimerPlanForOperation(product, operation('mute_siren', 60), 0)!;
-    const muted = beginSirenTimer(state('sounding'), newPlan);
+    const oldPlan = sirenTimerPlanForOperation(product, operation('mute_siren', 60), 0)!;
+    const newPlan = sirenTimerPlanForOperation(product, operation('mute_siren', 180), 0)!;
+    const muted = beginSirenTimer(state('sounding', 'alarm'), newPlan);
 
     assert.equal(completeSirenTimer(muted, oldPlan), muted);
 });
@@ -150,6 +160,10 @@ test('physical panel actions use the same bounded Product contract', () => {
         () => sirenTimerPlanForPhysicalAction(product, 'mute_siren', 120),
         /not allowed/,
     );
+    assert.equal(
+        sirenTimerPlanForPhysicalAction(product, 'mute_siren', 1800, 1_000).deadlineMs,
+        1_801_000,
+    );
 });
 
 test('simulated sensor changes derive risk and local siren state like firmware', () => {
@@ -164,4 +178,49 @@ test('simulated sensor changes derive risk and local siren state like firmware',
     alarm.instances.flame.reported.flame_detected = true;
     const emergency = reconcileHazardSafetyState(alarm, product, 11_000);
     assert.equal(emergency.instances.hazard.reported.risk_level, 'emergency');
+});
+
+test('standby mute suppresses a later hazard only until its deadline', () => {
+    const standby = state('silent', 'normal');
+    const plan = sirenTimerPlanForOperation(
+        product,
+        operation('mute_siren', 180),
+        10_000,
+    )!;
+    assert.doesNotThrow(() => assertSirenOperationAllowed(standby, plan));
+    const muted = beginSirenTimer(standby, plan);
+    assert.equal(muted.instances.alarm_siren.reported.audible_state, 'muted');
+
+    muted.instances.gas.reported.gas_level = 80;
+    const nextAlarm = reconcileHazardSafetyState(muted, product, 20_000);
+    assert.equal(nextAlarm.instances.hazard.reported.risk_level, 'alarm');
+    assert.equal(nextAlarm.instances.alarm_siren.reported.audible_state, 'muted');
+
+    const expired = completeSirenTimer(nextAlarm, plan);
+    assert.equal(expired.instances.alarm_siren.reported.audible_state, 'sounding');
+    assert.equal(expired.instances.alarm_siren.reported.mute_until, null);
+});
+
+test('resume operation cancels mute immediately and follows current hazard state', () => {
+    const resumeOperation = operation('resume_siren');
+    assert.equal(
+        sirenResumeInstanceForOperation(product, resumeOperation),
+        'alarm_siren',
+    );
+
+    const safeMuted = beginSirenTimer(
+        state('silent', 'normal'),
+        sirenTimerPlanForOperation(product, operation('mute_siren', 1800), 0)!,
+    );
+    const safeResumed = resumeSiren(safeMuted, 'alarm_siren');
+    assert.equal(safeResumed.instances.alarm_siren.reported.audible_state, 'silent');
+    assert.equal(safeResumed.instances.alarm_siren.reported.mute_until, null);
+
+    const hazardMuted = beginSirenTimer(
+        state('sounding', 'alarm'),
+        sirenTimerPlanForOperation(product, operation('mute_siren', 1800), 0)!,
+    );
+    const hazardResumed = resumeSiren(hazardMuted, 'alarm_siren');
+    assert.equal(hazardResumed.instances.alarm_siren.reported.audible_state, 'sounding');
+    assert.equal(hazardResumed.instances.alarm_siren.reported.mute_until, null);
 });

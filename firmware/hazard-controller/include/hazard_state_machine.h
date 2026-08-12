@@ -20,7 +20,7 @@ enum class SirenCommandResult : std::uint8_t {
     Applied,
     InvalidDuration,
     ActiveHazard,
-    NotSounding,
+    SirenMuted,
 };
 
 struct SirenSnapshot {
@@ -54,6 +54,11 @@ public:
         std::uint64_t nowMillis
     );
 
+    SirenCommandResult resume(
+        std::uint64_t nowEpochSeconds,
+        std::uint64_t nowMillis
+    );
+
     void tick(std::uint64_t nowEpochSeconds, std::uint64_t nowMillis);
 
     const SirenSnapshot& snapshot() const { return snapshot_; }
@@ -70,6 +75,7 @@ private:
     bool changed_ = true;
 
     static bool isActiveHazard(RiskLevel risk);
+    void clearMute();
     void reconcile(std::uint64_t nowEpochSeconds, std::uint64_t nowMillis);
     void setAudible(AudibleState value);
 };

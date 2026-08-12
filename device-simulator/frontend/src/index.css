@@ -1121,6 +1121,12 @@ kbd {
   font-size: var(--text-sm);
 }
 
+.hazard-safety-note--warning {
+  border: var(--rule-thin) solid var(--color-warning);
+  border-inline-start-width: 4px;
+  font-weight: 650;
+}
+
 .work-panel__heading--page {
   padding-block-end: var(--space-md);
   border-bottom: var(--rule-thin) solid var(--color-rule);

@@ -1,15 +1,23 @@
 # Hazard Controller firmware
 
-Firmware tham chiếu cho `prod_hazard_mitigation` revision 2, dùng ESP32 +
+Firmware tham chiếu cho `prod_hazard_mitigation` revision 6, dùng ESP32 +
 MQ2 + cảm biến lửa + DHT11 + buzzer + nút tắt âm cục bộ.
 
 ## Hành vi an toàn
 
 - Cảm biến và còi hoạt động cục bộ, không phụ thuộc Internet.
 - Nguy hiểm `alarm` hoặc `emergency` bật còi ngay.
-- Nút tại chỗ tắt còi 60 giây. Lệnh từ backend chỉ nhận 30, 60, 180 hoặc
-  300 giây.
-- Tắt còi không xóa incident. Khi hết hạn, còi bật lại nếu nguy hiểm còn tồn tại.
+- Nút tại chỗ tắt còi 60 giây. Lệnh từ backend chỉ nhận 1, 3, 5, 10 hoặc
+  30 phút.
+- Còi mặc định ở trạng thái chờ và tự bật khi mức nguy hiểm là `alarm` hoặc
+  `emergency`; người dùng không điều khiển bật còi thủ công trong ứng dụng.
+- Người dùng có thể tắt còi trước hoặc trong cảnh báo. Trong khoảng tắt, còi
+  giữ im nhưng incident, telemetry và cảnh báo trên ứng dụng vẫn hoạt động.
+- Khi hết hạn, còi bật ngay nếu nguy hiểm còn tồn tại; nếu an toàn, còi quay
+  lại trạng thái chờ.
+- Người dùng có thể bật lại cảnh báo trước hạn từ ứng dụng hoặc nhấn nút tại
+  chỗ lần nữa. Deadline bị hủy; còi kêu ngay nếu đang nguy hiểm, nếu không thì
+  trở về trạng thái chờ.
 - `test_siren` chỉ chạy 1–30 giây và bị từ chối khi đang có nguy hiểm.
 - Deadline tắt còi được lưu trong NVS. Nếu thiết bị khởi động lại mà chưa lấy
   được thời gian NTP, firmware chọn fail-safe: không kéo dài trạng thái tắt còi.

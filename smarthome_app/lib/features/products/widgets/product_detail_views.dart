@@ -310,11 +310,6 @@ class HazardProductDetail extends StatelessWidget {
       capabilityId: 'alarm_siren',
       propertyId: 'mute_until',
     );
-    final testSiren = _productProperty(
-      device,
-      capabilityId: 'alarm_siren',
-      propertyId: 'test_siren',
-    );
     final riskLevel = '${risk?.value}'.trim().toLowerCase();
     final alert = _truthy(flame?.value) ||
         '${siren?.value}'.trim().toLowerCase() == 'sounding' ||
@@ -324,7 +319,6 @@ class HazardProductDetail extends StatelessWidget {
       device: device,
       heroIcon: alert ? Icons.warning_rounded : Icons.health_and_safety_rounded,
       heroAccent: alert ? context.colorScheme.error : context.neu.deviceOnline,
-      summaryBeforeHero: true,
       onCapabilityChanged: onCapabilityChanged,
       summaries: [
         ProductStatusFact(
@@ -365,7 +359,6 @@ class HazardProductDetail extends StatelessWidget {
           device: device,
           sirenState: siren,
           muteUntil: muteUntil,
-          testSiren: testSiren,
           onCapabilityChanged: onCapabilityChanged,
         ),
       ],

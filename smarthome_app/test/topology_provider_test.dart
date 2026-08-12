@@ -19,6 +19,8 @@ class _FakeDeviceRepository implements IDeviceRepository {
   _FakeDeviceRepository(this.devices);
 
   final List<DeviceModel> devices;
+  CapabilityModel? lastUpdatedCapability;
+  dynamic lastUpdatedValue;
 
   @override
   Future<List<DeviceModel>> getDevices() async => devices;
@@ -81,7 +83,10 @@ class _FakeDeviceRepository implements IDeviceRepository {
     CapabilityModel capability,
     dynamic value, {
     String? reauthToken,
-  }) async {}
+  }) async {
+    lastUpdatedCapability = capability;
+    lastUpdatedValue = value;
+  }
 
   @override
   DeviceModel updateDeviceStatus(DeviceModel device, bool isOnline) => device;
@@ -134,6 +139,82 @@ DeviceModel _deviceAtEpoch(int epoch) => DeviceModel(
     );
 
 void main() {
+  test(
+      'device provider preserves the operation selected by a specialized panel',
+      () async {
+    const fullCapability = CapabilityModel(
+      id: 'audible_state',
+      type: 'enum',
+      name: 'Trạng thái còi',
+      value: 'muted',
+      instance: 'main_siren',
+      properties: {
+        'options': ['silent', 'sounding', 'muted'],
+        'state_version': 9,
+      },
+      operations: [
+        CapabilityOperationDescriptor(
+          operationName: 'mute_siren',
+          inputNames: ['duration_seconds'],
+        ),
+        CapabilityOperationDescriptor(operationName: 'resume_siren'),
+      ],
+    );
+    const selectedCapability = CapabilityModel(
+      id: 'audible_state',
+      type: 'enum',
+      name: 'Trạng thái còi',
+      value: 'muted',
+      instance: 'main_siren',
+      operations: [
+        CapabilityOperationDescriptor(operationName: 'resume_siren'),
+      ],
+    );
+    final device = _deviceAtEpoch(5).copyWith(
+      capabilities: const [fullCapability],
+    );
+    final repository = _FakeDeviceRepository([device]);
+    final realtime = _FakeRealtimeRepository();
+    final container = ProviderContainer(
+      overrides: [
+        deviceRepositoryProvider.overrideWithValue(repository),
+        realtimeRepositoryProvider.overrideWithValue(realtime),
+      ],
+    );
+    final subscription = container.listen(
+      devicesProvider,
+      (_, __) {},
+      fireImmediately: true,
+    );
+    addTearDown(subscription.close);
+    addTearDown(container.dispose);
+    addTearDown(realtime.dispose);
+    await container.read(devicesProvider.future);
+
+    await container.read(devicesProvider.notifier).updateCapability(
+          device.mac,
+          selectedCapability,
+          'resume',
+        );
+
+    expect(
+      repository.lastUpdatedCapability?.operations.single.operationName,
+      'resume_siren',
+    );
+    expect(repository.lastUpdatedCapability?.properties['state_version'], 9);
+    expect(repository.lastUpdatedValue, 'resume');
+    expect(
+      container
+          .read(devicesProvider)
+          .requireValue
+          .single
+          .capabilities
+          .single
+          .value,
+      'muted',
+    );
+  });
+
   test('topology provider fences stale updates and stale unpair events',
       () async {
     final repository = _FakeDeviceRepository([_deviceAtEpoch(5)]);

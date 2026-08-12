@@ -56,6 +56,17 @@ class CapabilityModel {
   final CapabilitySection section;
 
   CapabilityOperationDescriptor resolveOperation(dynamic nextValue) {
+    // Prefer an operation whose name explicitly describes the requested
+    // action. This matters when one reported property exposes both a
+    // parameterized operation (for example mute_siren) and a zero-input
+    // action (resume_siren). Selecting the sole parameterized operation first
+    // would incorrectly turn a resume request into mute_siren with empty input.
+    final tokens = _desiredOperationTokens(nextValue);
+    for (final operation in operations) {
+      final name = operation.operationName.toLowerCase();
+      if (tokens.any(name.contains)) return operation;
+    }
+
     final singleInput =
         operations.where((operation) => operation.inputNames.length == 1);
     if (singleInput.length == 1) return singleInput.single;
@@ -63,11 +74,6 @@ class CapabilityModel {
     final noInput =
         operations.where((operation) => operation.inputNames.isEmpty).toList();
     if (noInput.isNotEmpty) {
-      final tokens = _desiredOperationTokens(nextValue);
-      for (final operation in noInput) {
-        final name = operation.operationName.toLowerCase();
-        if (tokens.any(name.contains)) return operation;
-      }
       if (noInput.length == 1) return noInput.single;
     }
 

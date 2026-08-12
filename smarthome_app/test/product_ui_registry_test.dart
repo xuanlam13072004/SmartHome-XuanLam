@@ -159,7 +159,7 @@ void main() {
   });
 
   testWidgets(
-      'hazard detail is sensor-first and exposes only safe siren controls',
+      'hazard detail is device-first and exposes only safe siren controls',
       (tester) async {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -208,7 +208,7 @@ void main() {
       expect(find.text('12/100'), findsOneWidget, reason: 'width=$width');
       expect(find.text('4/100'), findsOneWidget, reason: 'width=$width');
       expect(find.text('Còi báo động'), findsOneWidget, reason: 'width=$width');
-      expect(find.text('Bật còi'), findsOneWidget, reason: 'width=$width');
+      expect(find.text('Bật còi'), findsNothing, reason: 'width=$width');
       expect(
         find.text('Tắt còi tạm thời'),
         findsOneWidget,
@@ -231,6 +231,10 @@ void main() {
       }
 
       expect(
+        tester.getTopLeft(find.text(_hazardDevice().name)).dy,
+        lessThan(tester.getTopLeft(find.text('Nhiệt độ')).dy),
+      );
+      expect(
         tester.getTopLeft(find.text('Nhiệt độ')).dy,
         lessThan(tester.getTopLeft(find.text('Còi báo động')).dy),
       );
@@ -239,11 +243,7 @@ void main() {
         lessThan(tester.getTopLeft(find.text('Kết nối mạng')).dy),
       );
 
-      await tester.ensureVisible(find.text('Bật còi'));
-      await tester.tap(find.text('Bật còi'));
-      await tester.pump();
-
-      expect(requests, [('test_siren', 5)]);
+      expect(requests, isEmpty);
       expect(tester.takeException(), isNull, reason: 'width=$width');
     }
   });
@@ -278,11 +278,98 @@ void main() {
     await tester.pump();
 
     expect(find.text('Đang kêu'), findsOneWidget);
+    expect(find.text('1 phút'), findsOneWidget);
+    await tester.tap(find.text('1 phút'));
+    await tester.pumpAndSettle();
+    for (final duration in ['3 phút', '5 phút', '10 phút', '30 phút']) {
+      expect(find.text(duration), findsOneWidget);
+    }
+    await tester.tap(find.text('3 phút'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Tắt còi tạm thời'));
+    await tester.tap(find.text('Tắt còi tạm thời'));
+    await tester.pump();
+
+    expect(requests, [('mute_siren', 180)]);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('hazard standby siren can be muted before danger',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 1200);
+    addTearDown(tester.view.reset);
+    final requests = <(String, dynamic)>[];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+              child: productUiRegistry.buildDetail(
+                context,
+                device: _hazardDevice(sirenState: 'silent'),
+                onCapabilityChanged: (capability, value) async {
+                  requests.add(
+                    (capability.operations.single.operationName, value),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Đang chờ cảnh báo'), findsOneWidget);
     await tester.ensureVisible(find.text('Tắt còi tạm thời'));
     await tester.tap(find.text('Tắt còi tạm thời'));
     await tester.pump();
 
     expect(requests, [('mute_siren', 60)]);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('muted hazard siren shows warning and can be resumed immediately',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 1200);
+    addTearDown(tester.view.reset);
+    final requests = <(String, dynamic)>[];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+              child: productUiRegistry.buildDetail(
+                context,
+                device: _hazardDevice(sirenState: 'muted'),
+                onCapabilityChanged: (capability, value) async {
+                  requests.add(
+                    (capability.operations.single.operationName, value),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Đã tắt cảnh báo tạm thời'), findsOneWidget);
+    expect(find.text('Cảnh báo: còi đang tắt tạm thời'), findsOneWidget);
+    await tester.ensureVisible(find.text('Bật lại cảnh báo ngay'));
+    await tester.tap(find.text('Bật lại cảnh báo ngay'));
+    await tester.pump();
+
+    expect(requests, [('resume_siren', 'resume')]);
     expect(tester.takeException(), isNull);
   });
 
@@ -608,11 +695,15 @@ DeviceModel _hazardDevice({String sirenState = 'silent'}) => DeviceModel(
               inputSchema: {
                 'duration_seconds': {
                   'type': 'integer',
-                  'enum': [30, 60, 180, 300],
+                  'enum': [60, 180, 300, 600, 1800],
                   'default': 60,
                 },
               },
               confirmation: 'confirm',
+            ),
+            CapabilityOperationDescriptor(
+              operationName: 'resume_siren',
+              label: 'Bật lại cảnh báo ngay',
             ),
           ],
         ),

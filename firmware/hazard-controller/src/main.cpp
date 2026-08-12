@@ -368,7 +368,7 @@ const char* commandReason(SirenCommandResult result) {
         case SirenCommandResult::Applied: return "";
         case SirenCommandResult::InvalidDuration: return "INVALID_DURATION";
         case SirenCommandResult::ActiveHazard: return "ACTIVE_HAZARD";
-        case SirenCommandResult::NotSounding: return "SIREN_NOT_SOUNDING";
+        case SirenCommandResult::SirenMuted: return "SIREN_MUTED";
     }
     return "DEVICE_OPERATION_REJECTED";
 }
@@ -387,6 +387,9 @@ SirenCommandResult applySirenOperation(const String& name, JsonObjectConst input
     if (name == "test_siren") return siren.startTest(duration, nowMillis());
     if (name == "mute_siren") {
         return siren.mute(duration, nowEpochSeconds(), nowMillis());
+    }
+    if (name == "resume_siren") {
+        return siren.resume(nowEpochSeconds(), nowMillis());
     }
     return SirenCommandResult::InvalidDuration;
 }
@@ -596,13 +599,14 @@ void updateLocalButton() {
     stableButtonPressed = rawButtonPressed;
     if (!stableButtonPressed) return;
 
-    if (
-        siren.mute(
+    const auto result = siren.snapshot().audible == AudibleState::Muted
+        ? siren.resume(nowEpochSeconds(), current)
+        : siren.mute(
             BoardConfig::LOCAL_MUTE_SECONDS,
             nowEpochSeconds(),
             current
-    ) == SirenCommandResult::Applied
-    ) {
+        );
+    if (result == SirenCommandResult::Applied) {
         pendingMuteUntilEpoch = 0;
         muteRestorePending = false;
         persistSafetyState();

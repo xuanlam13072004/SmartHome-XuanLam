@@ -2,7 +2,7 @@ import type { ProductCatalog } from '../catalog/loader';
 import type { DeviceOperation } from '../generation/operation-validation';
 import type { DeviceState } from '../generation/telemetry-generator';
 
-export const ALLOWED_MUTE_DURATIONS_SECONDS = [30, 60, 180, 300] as const;
+export const ALLOWED_MUTE_DURATIONS_SECONDS = [60, 180, 300, 600, 1800] as const;
 export const SIMULATED_HAZARD_THRESHOLDS = {
     gasWarning: 50,
     gasAlarm: 70,
@@ -16,7 +16,7 @@ export interface SirenTimerPlan {
     deadlineMs: number;
 }
 
-export type PhysicalSirenAction = 'test_siren' | 'mute_siren';
+export type PhysicalSirenAction = 'test_siren' | 'mute_siren' | 'resume_siren';
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
@@ -86,7 +86,7 @@ const planForDuration = (
 
 export const sirenTimerPlanForPhysicalAction = (
     product: ProductCatalog,
-    action: PhysicalSirenAction,
+    action: Exclude<PhysicalSirenAction, 'resume_siren'>,
     durationSeconds: number,
     nowMs = Date.now(),
 ): SirenTimerPlan => {
@@ -96,6 +96,41 @@ export const sirenTimerPlanForPhysicalAction = (
     ));
     if (!instance) throw new Error('This Product does not support the requested siren action');
     return planForDuration(product, instance.instance_id, action, durationSeconds, nowMs);
+};
+
+export const sirenResumeInstanceForOperation = (
+    product: ProductCatalog,
+    operation: DeviceOperation,
+): string | undefined => {
+    if (operation.operation_name !== 'resume_siren') return undefined;
+    const compiledOperation = product.operations[
+        `${operation.instance_id}.${operation.operation_name}`
+    ];
+    if (
+        compiledOperation?.capability_id !== 'alarm_siren'
+        || !sirenInstance(product, operation.instance_id)
+    ) {
+        return undefined;
+    }
+    return operation.instance_id;
+};
+
+export const resumeSiren = (
+    state: DeviceState,
+    instanceId: string,
+    incrementVersion = true,
+): DeviceState => {
+    const reported = state.instances[instanceId]?.reported;
+    if (!reported) return state;
+    const nextAudible = hasActiveHazard(state) ? 'sounding' : 'silent';
+    if (reported.audible_state === nextAudible && reported.mute_until == null) {
+        return state;
+    }
+    const next = clone(state);
+    next.instances[instanceId].reported.audible_state = nextAudible;
+    next.instances[instanceId].reported.mute_until = null;
+    if (incrementVersion) next.state_version += 1;
+    return next;
 };
 
 export const hasActiveHazard = (state: DeviceState): boolean => {
@@ -169,17 +204,25 @@ export const reconcileHazardSafetyState = (
         ? Date.parse(alarmReported.mute_until)
         : Number.NaN;
     const muteActive = Number.isFinite(muteDeadline) && muteDeadline > nowMs;
-    const nextAudible = nextHazard
-        ? muteActive ? 'muted' : 'sounding'
+    const nextAudible = muteActive
+        ? 'muted'
+        : nextHazard
+            ? 'sounding'
         : previousHazard && ['sounding', 'muted'].includes(audibleState)
             ? 'silent'
+            : audibleState === 'muted'
+                ? 'silent'
             : audibleState;
+    const nextMuteUntil = muteActive
+        ? alarmReported.mute_until
+        : null;
 
     const hazardReported = state.instances[hazardInstance.instance_id]?.reported || {};
     const startsIncident = nextHazard && hazardReported.incident_state === 'idle';
     if (
         previousRisk === nextRisk
         && audibleState === nextAudible
+        && (alarmReported.mute_until ?? null) === nextMuteUntil
         && !startsIncident
     ) {
         return state;
@@ -190,6 +233,7 @@ export const reconcileHazardSafetyState = (
     next.instances[alarmInstance.instance_id] ||= { reported: {}, desired: {} };
     next.instances[hazardInstance.instance_id].reported.risk_level = nextRisk;
     next.instances[alarmInstance.instance_id].reported.audible_state = nextAudible;
+    next.instances[alarmInstance.instance_id].reported.mute_until = nextMuteUntil;
     if (startsIncident) {
         next.instances[hazardInstance.instance_id].reported.incident_state = 'active';
         next.instances[hazardInstance.instance_id].reported.active_incident_id =
@@ -238,8 +282,8 @@ export const assertSirenOperationAllowed = (
     if (plan.mode === 'test' && hasActiveHazard(state)) {
         throw new Error('Cannot test the siren while a hazard is active');
     }
-    if (plan.mode === 'mute' && audibleState !== 'sounding') {
-        throw new Error('Cannot mute a siren that is not sounding');
+    if (plan.mode === 'test' && audibleState === 'muted') {
+        throw new Error('Cannot test the siren while it is muted');
     }
 };
 

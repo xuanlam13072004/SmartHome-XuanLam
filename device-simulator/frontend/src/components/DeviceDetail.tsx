@@ -142,8 +142,8 @@ export function DeviceDetail({
   }
 
   const runPhysicalSiren = async (
-    action: 'test_siren' | 'mute_siren',
-    durationSeconds: number,
+    action: 'test_siren' | 'mute_siren' | 'resume_siren',
+    durationSeconds = 0,
   ) => {
     setActing(`physical-${action}`)
     try {
@@ -308,8 +308,8 @@ function PhysicalWorkbench({
   instances: CapabilityInstance[]
   onPatch: (patch: DeviceStatePatch) => Promise<void>
   onSirenAction: (
-    action: 'test_siren' | 'mute_siren',
-    durationSeconds: number,
+    action: 'test_siren' | 'mute_siren' | 'resume_siren',
+    durationSeconds?: number,
   ) => Promise<void>
 }) {
   const ordered = useMemo(() => [...instances].sort((left, right) => (
@@ -387,8 +387,8 @@ function HazardPhysicalWorkbench({
   instances: CapabilityInstance[]
   onPatch: (patch: DeviceStatePatch) => Promise<void>
   onSirenAction: (
-    action: 'test_siren' | 'mute_siren',
-    durationSeconds: number,
+    action: 'test_siren' | 'mute_siren' | 'resume_siren',
+    durationSeconds?: number,
   ) => Promise<void>
 }) {
   const sensorDefinitions = [
@@ -423,7 +423,7 @@ function HazardPhysicalWorkbench({
     : null
   const muteOperation = sirenInstance?.operations.find((item) => item.id === 'mute_siren')
   const durationSchema = muteOperation?.input.duration_seconds
-  const durationOptions = (durationSchema?.enum || [60])
+  const durationOptions = (durationSchema?.enum || [60, 180, 300, 600, 1800])
     .filter((value): value is number => typeof value === 'number' && Number.isInteger(value))
     .sort((left, right) => left - right)
   const defaultDuration = typeof durationSchema?.default === 'number'
@@ -460,7 +460,7 @@ function HazardPhysicalWorkbench({
       <section className={`hazard-siren-panel hazard-siren-panel--${audibleState}`}>
         <header>
           <div>
-            <p>Đầu ra vật lý</p>
+            <p>Đầu ra an toàn tự động</p>
             <h3>Còi cảnh báo</h3>
           </div>
           <strong>{sirenStateLabel(audibleState)}</strong>
@@ -474,11 +474,11 @@ function HazardPhysicalWorkbench({
         <div className="hazard-siren-actions">
           <button
             className="button button--primary"
-            disabled={busy || audibleState === 'sounding' || hazardActive}
+            disabled={busy || audibleState !== 'silent' || hazardActive}
             onClick={() => void onSirenAction('test_siren', 5)}
             type="button"
           >
-            {acting === 'physical-test_siren' ? 'Đang bật…' : 'Bật còi thử 5 giây'}
+            {acting === 'physical-test_siren' ? 'Đang kiểm tra…' : 'Kiểm tra phần cứng 5 giây'}
           </button>
           <label>
             <span>Thời gian tắt còi</span>
@@ -494,16 +494,34 @@ function HazardPhysicalWorkbench({
           </label>
           <button
             className="button button--quiet"
-            disabled={busy || audibleState !== 'sounding'}
+            disabled={busy}
             onClick={() => void onSirenAction('mute_siren', muteDuration)}
             type="button"
           >
-            {acting === 'physical-mute_siren' ? 'Đang tắt…' : 'Tắt còi tạm thời'}
+            {acting === 'physical-mute_siren'
+              ? 'Đang cập nhật…'
+              : audibleState === 'muted'
+                ? 'Cập nhật thời gian tắt'
+                : 'Tắt còi tạm thời'}
           </button>
+          {audibleState === 'muted' && (
+            <button
+              className="button button--primary"
+              disabled={busy}
+              onClick={() => void onSirenAction('resume_siren')}
+              type="button"
+            >
+              {acting === 'physical-resume_siren'
+                ? 'Đang bật lại…'
+                : 'Bật lại cảnh báo ngay'}
+            </button>
+          )}
         </div>
 
-        <p className="hazard-safety-note">
-          Tắt âm không xóa cảnh báo và không dừng giám sát. Nếu nguy hiểm còn tồn tại khi hết hạn, còi sẽ tự bật lại.
+        <p className={`hazard-safety-note${audibleState === 'muted' ? ' hazard-safety-note--warning' : ''}`}>
+          {audibleState === 'muted'
+            ? 'Cảnh báo: còi vật lý đang bị tắt tạm thời. Cảm biến và cảnh báo dữ liệu vẫn hoạt động; bạn có thể bật lại còi ngay hoặc chờ đến hạn.'
+            : 'Còi mặc định ở trạng thái chờ. Có thể tắt trước cảnh báo trong thời gian đã chọn; hết hạn còi sẽ kêu ngay nếu nguy hiểm đang tồn tại.'}
         </p>
       </section>
     </div>
@@ -512,8 +530,8 @@ function HazardPhysicalWorkbench({
 
 function sirenStateLabel(value: string) {
   if (value === 'sounding') return 'Đang kêu'
-  if (value === 'muted') return 'Đang tắt tạm thời'
-  if (value === 'silent') return 'Đang tắt'
+  if (value === 'muted') return 'Đã tắt cảnh báo tạm thời'
+  if (value === 'silent') return 'Đang chờ cảnh báo'
   return 'Chưa xác định'
 }
 

@@ -37,12 +37,16 @@ const statePatchSchema = z.object({
 );
 
 const physicalSirenActionSchema = z.object({
-    action: z.enum(['test_siren', 'mute_siren']),
-    duration_seconds: z.number().int(),
+    action: z.enum(['test_siren', 'mute_siren', 'resume_siren']),
+    duration_seconds: z.number().int().optional(),
 }).strict().superRefine((value, context) => {
     if (
         value.action === 'test_siren'
-        && (value.duration_seconds < 1 || value.duration_seconds > 30)
+        && (
+            value.duration_seconds === undefined
+            || value.duration_seconds < 1
+            || value.duration_seconds > 30
+        )
     ) {
         context.addIssue({
             code: 'custom',
@@ -52,12 +56,15 @@ const physicalSirenActionSchema = z.object({
     }
     if (
         value.action === 'mute_siren'
-        && ![30, 60, 180, 300].includes(value.duration_seconds)
+        && (
+            value.duration_seconds === undefined
+            || ![60, 180, 300, 600, 1800].includes(value.duration_seconds)
+        )
     ) {
         context.addIssue({
             code: 'custom',
             path: ['duration_seconds'],
-            message: 'Siren mute duration must be 30, 60, 180 or 300 seconds',
+            message: 'Siren mute duration must be 60, 180, 300, 600 or 1800 seconds',
         });
     }
 });
@@ -339,7 +346,7 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
             const runtime = await getOrCreateRuntime(runtimeManager, context);
             const state = await runtime.performPhysicalSirenAction(
                 parsed.data.action,
-                parsed.data.duration_seconds,
+                parsed.data.duration_seconds ?? 0,
             );
             return {
                 success: true,

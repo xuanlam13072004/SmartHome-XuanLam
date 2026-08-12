@@ -268,10 +268,10 @@ test('hazard contract matches MQ2, flame sensor, DHT11, buzzer and mute button',
     const muteButton = hazard.capability_instances.find(instance => instance.instance_id === 'mute_button');
 
     assert.equal(hazard.contract_maturity, 'edge_reviewed');
-    assert.equal(hazard.catalog_revision, 2);
+    assert.equal(hazard.catalog_revision, 6);
     assert.equal(hazard.connectivity_profiles.includes('ethernet'), false);
     assert.equal(siren.capability_id, 'alarm_siren');
-    assert.equal(siren.capability_revision, 2);
+    assert.equal(siren.capability_revision, 6);
     assert.equal(temperature.capability_id, 'temperature_measurement');
     assert.equal(humidity.capability_id, 'humidity_measurement');
     assert.equal(muteButton.capability_id, 'local_button');
@@ -294,17 +294,29 @@ test('hazard contract matches MQ2, flame sensor, DHT11, buzzer and mute button',
     assert.equal(reset.safety_constraints.includes('sensors_healthy'), true);
 
     const mute = siren.operations.find(operation => operation.id === 'mute_siren');
+    const resume = siren.operations.find(operation => operation.id === 'resume_siren');
     assert.equal(mute.execution_authority, 'device_firmware');
     assert.equal(mute.offline_behavior.local_equivalent, true);
-    assert.deepEqual(mute.input.duration_seconds.enum, [30, 60, 180, 300]);
+    assert.deepEqual(mute.input.duration_seconds.enum, [60, 180, 300, 600, 1800]);
     assert.equal(mute.input.duration_seconds.default, 60);
     assert.deepEqual(mute.effects, [
         { type: 'expect_reported', property: 'audible_state', value: 'muted' },
     ]);
     assert.equal(mute.safety_constraints.includes('mitigation_continues'), true);
     assert.equal(mute.safety_constraints.includes('mute_duration_is_bounded'), true);
+    assert.equal(mute.safety_constraints.includes('preemptive_mute_allowed'), true);
+    assert.equal(mute.safety_constraints.includes('active_hazard_required'), false);
+    assert.deepEqual(resume.input, {});
+    assert.equal(resume.confirmation, 'none');
+    assert.equal(resume.idempotent, true);
+    assert.equal(resume.ack_policy.reference, 'audible_state');
+    assert.equal(resume.safety_constraints.includes('cancel_mute_deadline'), true);
     assert.equal(
         validateObjectAgainstSchema({ duration_seconds: 60 }, mute.input).valid,
+        true,
+    );
+    assert.equal(
+        validateObjectAgainstSchema({ duration_seconds: 1800 }, mute.input).valid,
         true,
     );
     assert.equal(

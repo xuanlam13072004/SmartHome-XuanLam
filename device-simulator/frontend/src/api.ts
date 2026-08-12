@@ -164,8 +164,8 @@ export const updateDeviceState = (
 
 export const performPhysicalSirenAction = (
   mac: string,
-  action: 'test_siren' | 'mute_siren',
-  durationSeconds: number,
+  action: 'test_siren' | 'mute_siren' | 'resume_siren',
+  durationSeconds = 0,
 ) => request<{
   state: NonNullable<SimulatedDevice['state_snapshot']>
   delivery: 'publish_requested' | 'stored_offline'

@@ -9,22 +9,18 @@ import '../../../domain/models/device_model.dart';
 import '../../dashboard/models/capability_model.dart';
 import 'product_mini_cards.dart';
 
-const int _sirenTestDurationSeconds = 5;
-
 class HazardControlPanel extends StatefulWidget {
   const HazardControlPanel({
     super.key,
     required this.device,
     required this.sirenState,
     required this.muteUntil,
-    required this.testSiren,
     required this.onCapabilityChanged,
   });
 
   final DeviceModel device;
   final CapabilityModel? sirenState;
   final CapabilityModel? muteUntil;
-  final CapabilityModel? testSiren;
   final ProductCapabilityChanged onCapabilityChanged;
 
   @override
@@ -60,11 +56,11 @@ class _HazardControlPanelState extends State<HazardControlPanel> {
 
   List<int> _muteDurations(CapabilityModel? capability) {
     if (capability == null || capability.operations.length != 1) {
-      return const [60];
+      return const [60, 180, 300, 600, 1800];
     }
     final durationSchema =
         capability.operations.single.inputSchema['duration_seconds'];
-    if (durationSchema is! Map) return const [60];
+    if (durationSchema is! Map) return const [60, 180, 300, 600, 1800];
     final values = (durationSchema['enum'] as List? ?? const [])
         .whereType<num>()
         .map((value) => value.toInt())
@@ -72,7 +68,7 @@ class _HazardControlPanelState extends State<HazardControlPanel> {
         .toSet()
         .toList()
       ..sort();
-    return values.isEmpty ? const [60] : values;
+    return values.isEmpty ? const [60, 180, 300, 600, 1800] : values;
   }
 
   Future<void> _run(
@@ -91,17 +87,16 @@ class _HazardControlPanelState extends State<HazardControlPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final testOperation = _forOperation(widget.testSiren, 'test_siren');
     final muteOperation = _forOperation(widget.sirenState, 'mute_siren');
+    final resumeOperation = _forOperation(widget.sirenState, 'resume_siren');
     final muteDurations = _muteDurations(muteOperation);
     final selectedMuteDuration = muteDurations.contains(_selectedMuteDuration)
         ? _selectedMuteDuration
         : muteDurations.first;
     final isBusy = _pendingOperation != null;
-    final canTest =
-        _isOnline && testOperation != null && !_isSounding && !isBusy;
-    final canMute =
-        _isOnline && muteOperation != null && _isSounding && !isBusy;
+    final canMute = _isOnline && muteOperation != null && !isBusy;
+    final canResume =
+        _isOnline && resumeOperation != null && _isMuted && !isBusy;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -128,7 +123,7 @@ class _HazardControlPanelState extends State<HazardControlPanel> {
                   Text('Còi báo động', style: context.textTheme.titleLarge),
                   const SizedBox(height: AppSpacing.xs),
                   Text(
-                    'Kiểm tra còi hoặc tắt âm tạm thời khi có cảnh báo.',
+                    'Còi đang chờ cảnh báo và có thể tắt trước trong thời gian hữu hạn.',
                     style: context.textTheme.bodySmall,
                   ),
                 ],
@@ -221,72 +216,62 @@ class _HazardControlPanelState extends State<HazardControlPanel> {
                 ],
               ),
               const SizedBox(height: AppSpacing.md),
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final stackButtons = constraints.maxWidth < 400;
-                  final testButton = FilledButton.icon(
-                    onPressed: canTest
-                        ? () => _run(
-                              'test_siren',
-                              testOperation,
-                              _sirenTestDurationSeconds,
-                            )
-                        : null,
-                    icon: _operationIcon(
-                      'test_siren',
-                      Icons.volume_up_rounded,
-                    ),
-                    label: Text(
-                      _pendingOperation == 'test_siren'
-                          ? 'Đang bật còi…'
-                          : 'Bật còi',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  );
-                  final muteButton = OutlinedButton.icon(
-                    onPressed: canMute
-                        ? () => _run(
-                              'mute_siren',
-                              muteOperation,
-                              selectedMuteDuration,
-                            )
-                        : null,
-                    icon: _operationIcon(
-                      'mute_siren',
-                      Icons.volume_off_rounded,
-                    ),
-                    label: Text(
-                      _pendingOperation == 'mute_siren'
-                          ? 'Đang tắt còi…'
-                          : 'Tắt còi tạm thời',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  );
-
-                  if (stackButtons) {
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        SizedBox(height: 48, child: testButton),
-                        const SizedBox(height: AppSpacing.sm),
-                        SizedBox(height: 48, child: muteButton),
-                      ],
-                    );
-                  }
-                  return Row(
-                    children: [
-                      Expanded(child: SizedBox(height: 48, child: testButton)),
-                      const SizedBox(width: AppSpacing.sm),
-                      Expanded(child: SizedBox(height: 48, child: muteButton)),
-                    ],
-                  );
-                },
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: OutlinedButton.icon(
+                  onPressed: canMute
+                      ? () => _run(
+                            'mute_siren',
+                            muteOperation,
+                            selectedMuteDuration,
+                          )
+                      : null,
+                  icon: _operationIcon(
+                    'mute_siren',
+                    Icons.volume_off_rounded,
+                  ),
+                  label: Text(
+                    _pendingOperation == 'mute_siren'
+                        ? 'Đang cập nhật…'
+                        : _isMuted
+                            ? 'Cập nhật thời gian tắt'
+                            : 'Tắt còi tạm thời',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
               ),
+              if (_isMuted) ...[
+                const SizedBox(height: AppSpacing.sm),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: FilledButton.icon(
+                    onPressed: canResume
+                        ? () => _run(
+                              'resume_siren',
+                              resumeOperation,
+                              'resume',
+                            )
+                        : null,
+                    icon: _operationIcon(
+                      'resume_siren',
+                      Icons.notifications_active_rounded,
+                    ),
+                    label: Text(
+                      _pendingOperation == 'resume_siren'
+                          ? 'Đang bật lại…'
+                          : 'Bật lại cảnh báo ngay',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: AppSpacing.sm),
               Text(
-                _helperText(testOperation, muteOperation),
+                _helperText(muteOperation),
                 style: context.textTheme.bodySmall?.copyWith(
                   color: context.colorScheme.onSurfaceVariant,
                 ),
@@ -316,8 +301,8 @@ class _HazardControlPanelState extends State<HazardControlPanel> {
 
   String _stateLabel() => switch (_state) {
         'sounding' => 'Đang kêu',
-        'muted' => 'Đang tắt tạm thời',
-        'silent' => 'Đang tắt',
+        'muted' => 'Đã tắt cảnh báo tạm thời',
+        'silent' => 'Đang chờ cảnh báo',
         _ => 'Chưa xác định',
       };
 
@@ -326,23 +311,18 @@ class _HazardControlPanelState extends State<HazardControlPanel> {
     return '${seconds ~/ 60} phút';
   }
 
-  String _helperText(
-    CapabilityModel? testOperation,
-    CapabilityModel? muteOperation,
-  ) {
+  String _helperText(CapabilityModel? muteOperation) {
     if (!_isOnline) return 'Thiết bị đang ngoại tuyến nên chưa thể nhận lệnh.';
-    if (testOperation == null && muteOperation == null) {
-      return 'Tài khoản này không có quyền điều khiển còi.';
+    if (muteOperation == null) {
+      return 'Tài khoản này không có quyền tắt còi cảnh báo.';
     }
     if (_isSounding) {
-      return muteOperation == null
-          ? 'Còi đang kêu nhưng tài khoản này không có quyền tắt âm.'
-          : 'Tắt âm không kết thúc cảnh báo và không ngừng việc giám sát.';
+      return 'Tắt âm không kết thúc cảnh báo và không ngừng việc giám sát.';
     }
     if (_isMuted) {
-      return 'Còi đang tắt tạm thời; thiết bị vẫn tiếp tục theo dõi nguy hiểm.';
+      return 'Còi đang tắt tạm thời; cảm biến và cảnh báo dữ liệu vẫn hoạt động.';
     }
-    return 'Bật còi sẽ chạy một lần kiểm tra trong $_sirenTestDurationSeconds giây.';
+    return 'Còi đang chờ và sẽ tự bật khi phát hiện nguy hiểm; bạn có thể tắt trước bằng thời gian đã chọn.';
   }
 }
 
@@ -372,21 +352,24 @@ class _MutePolicyNote extends StatelessWidget {
   String _description() {
     final deadline = _deadlineLabel();
     if (isMuted && deadline.isNotEmpty) {
-      return 'Còi đang tắt đến $deadline. Thiết bị vẫn giám sát và sẽ tự bật '
-          'lại nếu nguy hiểm còn tồn tại.';
+      return 'Còi đang tắt đến $deadline. Thiết bị vẫn gửi cảnh báo dữ liệu; '
+          'hết hạn còi sẽ kêu ngay nếu nguy hiểm đang tồn tại.';
     }
     if (isMuted) {
-      return 'Còi đang tắt tạm thời. Thiết bị vẫn giám sát và sẽ tự bật lại '
-          'nếu nguy hiểm còn tồn tại.';
+      return 'Còi đang tắt tạm thời. Thiết bị vẫn gửi cảnh báo dữ liệu và còi '
+          'sẽ hoạt động lại khi hết hạn.';
     }
-    return 'Đang chọn ${_durationLabel()}. Tắt âm không xóa cảnh báo; còi sẽ '
-        'tự bật lại khi hết hạn nếu nguy hiểm còn tồn tại.';
+    return 'Đang chọn ${_durationLabel()}. Có thể tắt còi ngay từ trạng thái '
+        'chờ; hết hạn còi sẽ kêu nếu lúc đó vẫn có nguy hiểm.';
   }
 
   @override
-  Widget build(BuildContext context) => DecoratedBox(
+  Widget build(BuildContext context) {
+    final tone = isMuted ? context.neu.warningColor : context.colorScheme.primary;
+    return DecoratedBox(
         decoration: BoxDecoration(
-          color: context.colorScheme.primaryContainer.withValues(alpha: 0.45),
+          color: tone.withValues(alpha: isMuted ? 0.16 : 0.10),
+          border: isMuted ? Border.all(color: tone.withValues(alpha: 0.65)) : null,
           borderRadius: BorderRadius.circular(AppRadius.smMd),
         ),
         child: Padding(
@@ -395,9 +378,9 @@ class _MutePolicyNote extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Icon(
-                Icons.timer_outlined,
+                isMuted ? Icons.warning_amber_rounded : Icons.timer_outlined,
                 size: 20,
-                color: context.colorScheme.primary,
+                color: tone,
               ),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
@@ -405,9 +388,12 @@ class _MutePolicyNote extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Thời gian tắt còi cảnh báo',
+                      isMuted
+                          ? 'Cảnh báo: còi đang tắt tạm thời'
+                          : 'Thời gian tắt còi cảnh báo',
                       style: context.textTheme.labelLarge?.copyWith(
                         fontWeight: FontWeight.w700,
+                        color: isMuted ? tone : null,
                       ),
                     ),
                     const SizedBox(height: AppSpacing.xs),
@@ -422,4 +408,5 @@ class _MutePolicyNote extends StatelessWidget {
           ),
         ),
       );
+  }
 }

@@ -68,8 +68,8 @@ inline constexpr char MQTT_USERNAME[] = SMARTHOME_MQTT_USERNAME;
 inline constexpr char MQTT_PASSWORD[] = SMARTHOME_MQTT_PASSWORD;
 
 inline constexpr char PRODUCT_ID[] = "prod_hazard_mitigation";
-inline constexpr std::uint16_t CATALOG_REVISION = 2;
-inline constexpr char FIRMWARE_VERSION[] = "2.1.0";
+inline constexpr std::uint16_t CATALOG_REVISION = 6;
+inline constexpr char FIRMWARE_VERSION[] = "2.5.0";
 
 inline constexpr std::uint8_t DHT_PIN = SMARTHOME_DHT_PIN;
 inline constexpr std::uint8_t MQ2_ANALOG_PIN = SMARTHOME_MQ2_ANALOG_PIN;

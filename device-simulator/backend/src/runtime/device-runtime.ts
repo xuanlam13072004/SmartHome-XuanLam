@@ -41,6 +41,8 @@ import {
     normalizeSirenState,
     pendingSirenTimerFromState,
     reconcileHazardSafetyState,
+    resumeSiren,
+    sirenResumeInstanceForOperation,
     sirenTimerPlanForPhysicalAction,
     sirenTimerPlanForOperation,
     type PhysicalSirenAction,
@@ -290,9 +292,29 @@ export class DeviceRuntime {
 
     async performPhysicalSirenAction(
         action: PhysicalSirenAction,
-        durationSeconds: number,
+        durationSeconds = 0,
     ): Promise<DeviceState> {
         return this.serializeStateMutation(async () => {
+            if (action === 'resume_siren') {
+                const instance = this.product.capability_instances.find(item => (
+                    item.capability_id === 'alarm_siren'
+                    && this.product.operations[`${item.instance_id}.resume_siren`]
+                ));
+                if (!instance) throw new Error('This Product cannot re-arm the siren');
+                this.cancelSirenTimer();
+                this.state = resumeSiren(this.state, instance.instance_id);
+                await this.persistRegistryState(new Date(), true);
+                if (!this.isPaused && this.connected) await this.publishTelemetry(false);
+                await recordSimulatorEvent({
+                    type: 'device.local_siren_resumed',
+                    severity: 'info',
+                    run_id: this.simulationRunId,
+                    mac: this.mac,
+                    message: 'Physical button re-armed the virtual siren before its mute deadline',
+                    data: { source: 'simulator_physical_panel' },
+                });
+                return this.state;
+            }
             const plan = sirenTimerPlanForPhysicalAction(
                 this.product,
                 action,
@@ -731,6 +753,7 @@ export class DeviceRuntime {
 
             const roofMotion = roofMotionPlanForOperation(product, operation, this.state);
             const sirenPlan = sirenTimerPlanForOperation(product, operation);
+            const sirenResumeInstance = sirenResumeInstanceForOperation(product, operation);
             assertSirenOperationAllowed(this.state, sirenPlan);
             const rainProtection = automaticRainClosePlan(product, this.state);
             if (roofMotion?.movingState === 'opening' && rainProtection) {
@@ -738,6 +761,10 @@ export class DeviceRuntime {
             }
             this.state = applyOperationToState(this.state, product, operation);
             if (sirenPlan) this.state = beginSirenTimer(this.state, sirenPlan, false);
+            if (sirenResumeInstance) {
+                this.cancelSirenTimer();
+                this.state = resumeSiren(this.state, sirenResumeInstance, false);
+            }
             if (roofMotion && !roofMotion.shouldMove) {
                 // Repeating an already-satisfied idempotent command must not make
                 // the virtual roof appear to move again.
