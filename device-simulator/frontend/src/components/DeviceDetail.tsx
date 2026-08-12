@@ -286,7 +286,9 @@ export function DeviceDetail({
         <TechnicalView
           acting={acting}
           device={device}
+          instances={product.capability_instances}
           onAction={act}
+          onPatch={applyPatch}
           onReveal={reveal}
           productRevision={product.catalog_revision}
           secret={secret}
@@ -317,7 +319,11 @@ function PhysicalWorkbench({
   )), [instances])
   const lcd = ordered.find(isLcdInstance)
   const camera = ordered.find(isCameraInstance)
-  const standard = ordered.filter((instance) => !isLcdInstance(instance) && !isCameraInstance(instance))
+  const standard = ordered.filter((instance) => (
+    !isLcdInstance(instance)
+    && !isCameraInstance(instance)
+    && !isDiagnosticOnlyInstance(instance)
+  ))
 
   if (device.product_id === 'prod_hazard_mitigation') {
     return (
@@ -670,19 +676,30 @@ function HistoryView({
 
 function TechnicalView({
   device,
+  instances,
   productRevision,
   secret,
   acting,
   onReveal,
   onAction,
+  onPatch,
 }: {
   device: SimulatedDevice
+  instances: CapabilityInstance[]
   productRevision: number
   secret: string
   acting: string
   onReveal: () => Promise<void>
   onAction: (action: 'pause' | 'resume' | 'force-offline' | 'reconnect' | 'reset-state') => Promise<void>
+  onPatch: (patch: DeviceStatePatch) => Promise<void>
 }) {
+  const diagnostics = instances.find((instance) => (
+    instance.capability_id === 'system_diagnostics'
+  ))
+  const firmwareStatus = diagnostics?.properties.find((property) => (
+    property.id === 'firmware_status' && property.channel === 'diagnostic'
+  ))
+
   return (
     <div className="technical-layout">
       <section className="technical-panel">
@@ -712,6 +729,23 @@ function TechnicalView({
         )}
       </section>
 
+      {diagnostics && firmwareStatus && (
+        <section className="technical-panel technical-panel--full">
+          <header className="work-panel__heading">
+            <div>
+              <h3>Giả lập lỗi firmware</h3>
+              <p>Dùng để kiểm tra cảnh báo của hệ thống chính; uptime và phiên bản firmware vẫn được runtime quản lý tự động.</p>
+            </div>
+          </header>
+          <CapabilityControl
+            disabled={Boolean(acting)}
+            onCommit={(value) => onPatch(patchForProperty(diagnostics.instance_id, firmwareStatus, value))}
+            property={firmwareStatus}
+            value={readPropertyValue(device.state_snapshot, diagnostics.instance_id, firmwareStatus)}
+          />
+        </section>
+      )}
+
       <section className="technical-panel technical-panel--full">
         <header className="work-panel__heading"><div><h3>Khôi phục runtime</h3><p>Các thao tác này dành cho kiểm thử lỗi kết nối và state.</p></div></header>
         <div className="technical-actions">
@@ -726,6 +760,11 @@ function TechnicalView({
       </section>
     </div>
   )
+}
+
+function isDiagnosticOnlyInstance(instance: CapabilityInstance): boolean {
+  return instance.properties.length > 0
+    && instance.properties.every((property) => property.channel === 'diagnostic')
 }
 
 export function EventRows({ events }: { events: SimulatorEvent[] }) {
