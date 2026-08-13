@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   deviceAction,
   fetchDevice,
@@ -319,6 +319,12 @@ function PhysicalWorkbench({
   )), [instances])
   const lcd = ordered.find(isLcdInstance)
   const camera = ordered.find(isCameraInstance)
+  const diagnostics = ordered.find((instance) => (
+    instance.capability_id === 'system_diagnostics'
+  ))
+  const wifiRssi = diagnostics?.properties.find((property) => (
+    property.id === 'wifi_rssi' && property.channel === 'diagnostic'
+  ))
   const standard = ordered.filter((instance) => (
     !isLcdInstance(instance)
     && !isCameraInstance(instance)
@@ -333,6 +339,14 @@ function PhysicalWorkbench({
         instances={ordered}
         onPatch={onPatch}
         onSirenAction={onSirenAction}
+        wifiControl={diagnostics && wifiRssi ? (
+          <WifiSignalControl
+            device={device}
+            instance={diagnostics}
+            onPatch={onPatch}
+            property={wifiRssi}
+          />
+        ) : null}
       />
     )
   }
@@ -347,6 +361,15 @@ function PhysicalWorkbench({
           </div>
           <span className="state-version">State v{device.state_snapshot?.state_version ?? 0}</span>
         </header>
+
+        {diagnostics && wifiRssi && (
+          <WifiSignalControl
+            device={device}
+            instance={diagnostics}
+            onPatch={onPatch}
+            property={wifiRssi}
+          />
+        )}
 
         <div className="capability-stack">
           {standard.map((instance) => (
@@ -387,6 +410,7 @@ function HazardPhysicalWorkbench({
   instances,
   onPatch,
   onSirenAction,
+  wifiControl,
 }: {
   acting: string
   device: SimulatedDevice
@@ -396,6 +420,7 @@ function HazardPhysicalWorkbench({
     action: 'test_siren' | 'mute_siren' | 'resume_siren',
     durationSeconds?: number,
   ) => Promise<void>
+  wifiControl: ReactNode
 }) {
   const sensorDefinitions = [
     ['temperature_measurement', 'temperature'],
@@ -449,6 +474,8 @@ function HazardPhysicalWorkbench({
         </div>
         <span className="state-version">State v{device.state_snapshot?.state_version ?? 0}</span>
       </header>
+
+      {wifiControl}
 
       <div className="hazard-sensor-grid">
         {sensorControls.map(({ instance, property }) => (
@@ -531,6 +558,56 @@ function HazardPhysicalWorkbench({
         </p>
       </section>
     </div>
+  )
+}
+
+function WifiSignalControl({
+  device,
+  instance,
+  property,
+  onPatch,
+}: {
+  device: SimulatedDevice
+  instance: CapabilityInstance
+  property: CapabilityInstance['properties'][number]
+  onPatch: (patch: DeviceStatePatch) => Promise<void>
+}) {
+  const value = readPropertyValue(
+    device.state_snapshot,
+    instance.instance_id,
+    property,
+  )
+  const numericValue = value === null || value === undefined || value === ''
+    ? Number.NaN
+    : typeof value === 'number'
+      ? value
+      : Number(value)
+  const quality = !Number.isFinite(numericValue)
+    ? 'Chưa có tín hiệu'
+    : numericValue >= -55
+      ? 'Rất tốt'
+      : numericValue >= -67
+        ? 'Ổn định'
+        : numericValue >= -75
+          ? 'Yếu'
+          : 'Không ổn định'
+
+  return (
+    <section className="capability-section wifi-signal-control">
+      <header>
+        <div>
+          <h4>Kết nối Wi-Fi</h4>
+          <p>Đặt mức RSSI để thử cảnh báo kết nối; khi tự gửi telemetry, tín hiệu tiếp tục dao động nhẹ quanh giá trị hiện tại.</p>
+        </div>
+        <strong>{quality}</strong>
+      </header>
+      <CapabilityControl
+        disabled={false}
+        onCommit={(next) => onPatch(patchForProperty(instance.instance_id, property, next))}
+        property={{ ...property, default: -60 }}
+        value={value}
+      />
+    </section>
   )
 }
 
