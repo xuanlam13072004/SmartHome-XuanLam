@@ -73,7 +73,7 @@ class EntranceProductDetail extends StatelessWidget {
   Widget build(BuildContext context) {
     final used = <CapabilityModel>{};
     final lock = device.capabilityMatching(
-      ids: const ['lock_state', 'target_lock_state'],
+      ids: const ['lock_state'],
       capabilityIds: const ['door_lock'],
     );
     final camera = device.capabilityMatching(
@@ -979,5 +979,5 @@ bool _isLocked(CapabilityModel? capability) {
 
 String _lockLabel(CapabilityModel? capability) {
   if (capability == null) return 'Chưa có dữ liệu';
-  return _isLocked(capability) ? 'Đã khóa' : 'Đang mở khóa';
+  return _isLocked(capability) ? 'Đã khóa' : 'Đã mở khóa';
 }

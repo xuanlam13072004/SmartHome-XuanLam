@@ -329,7 +329,9 @@ function PhysicalWorkbench({
     !isLcdInstance(instance)
     && !isCameraInstance(instance)
     && !isDiagnosticOnlyInstance(instance)
+    && instance.capability_id !== 'door_lock'
   ))
+  const doorLock = ordered.find((instance) => instance.capability_id === 'door_lock')
 
   if (device.product_id === 'prod_hazard_mitigation') {
     return (
@@ -371,6 +373,14 @@ function PhysicalWorkbench({
           />
         )}
 
+        {doorLock && (
+          <ServoLockControl
+            device={device}
+            instance={doorLock}
+            onPatch={onPatch}
+          />
+        )}
+
         <div className="capability-stack">
           {standard.map((instance) => (
             <CapabilitySection
@@ -401,6 +411,68 @@ function PhysicalWorkbench({
         )}
       </aside>
     </div>
+  )
+}
+
+function ServoLockControl({
+  device,
+  instance,
+  onPatch,
+}: {
+  device: SimulatedDevice
+  instance: CapabilityInstance
+  onPatch: (patch: DeviceStatePatch) => Promise<void>
+}) {
+  const property = instance.properties.find((item) => (
+    item.id === 'lock_state' && item.channel === 'reported'
+  ))
+  if (!property) return null
+
+  const value = String(readPropertyValue(
+    device.state_snapshot,
+    instance.instance_id,
+    property,
+  ) || 'locked')
+  const locked = value !== 'unlocked'
+  const setState = (next: 'locked' | 'unlocked') => onPatch(
+    patchForProperty(instance.instance_id, property, next),
+  )
+
+  return (
+    <section className="capability-section servo-lock-control">
+      <header>
+        <div>
+          <h4>Khóa cửa chính</h4>
+          <p>Servo SG90 quay giữa hai vị trí cố định; không có cảm biến chốt cửa riêng.</p>
+        </div>
+        <strong>{locked ? 'Đã khóa' : 'Đã mở khóa'}</strong>
+      </header>
+      <div className="servo-lock-control__body">
+        <div aria-hidden="true" className={`servo-dial ${locked ? 'servo-dial--locked' : 'servo-dial--unlocked'}`}>
+          <span />
+          <strong>{locked ? '0°' : '90°'}</strong>
+        </div>
+        <div className="segment-control" role="group" aria-label="Vị trí servo khóa cửa">
+          <button
+            aria-pressed={locked}
+            className="segment-control__option"
+            onClick={() => void setState('locked')}
+            type="button"
+          >
+            Khóa cửa · 0°
+          </button>
+          <button
+            aria-pressed={!locked}
+            className="segment-control__option"
+            onClick={() => void setState('unlocked')}
+            type="button"
+          >
+            Mở khóa · 90°
+          </button>
+        </div>
+      </div>
+      <p className="control-feedback" role="status">Trạng thái ổn định cuối cùng được lưu lại và gửi lên hệ thống.</p>
+    </section>
   )
 }
 

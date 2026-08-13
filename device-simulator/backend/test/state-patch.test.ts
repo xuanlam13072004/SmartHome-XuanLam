@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { ProductCatalog } from '../src/catalog/loader';
 import {
+    applyOperationToState,
     evolveState,
     generateInitialState,
     patchDeviceState,
@@ -40,6 +41,94 @@ const current = {
     instances: { main: { reported: { temperature: 25, fixed_threshold: 68.4 }, desired: { mode: 'eco' } } },
     diagnostics: { main: { online: true, firmware_status: 'healthy' } },
 };
+
+const doorProduct: ProductCatalog = {
+    schema: 'compiled.product.v2',
+    product_id: 'prod_entrance_controller',
+    catalog_revision: 2,
+    model_name: 'Entrance Controller',
+    category: 'security',
+    presentation: {},
+    capability_instances: [{
+        capability_id: 'door_lock',
+        instance_id: 'main_lock',
+        properties: [{
+            id: 'lock_state',
+            channel: 'reported',
+            state_authority: 'device_firmware',
+            path: 'instances.main_lock.reported.lock_state',
+            type: 'string',
+            enum: ['locked', 'unlocked'],
+            default: 'locked',
+        }],
+        operations: [
+            {
+                id: 'lock',
+                permission: 'door.control',
+                risk: 'normal',
+                input: {},
+                effects: [{ type: 'expect_reported', property: 'lock_state', value: 'locked' }],
+            },
+            {
+                id: 'unlock',
+                permission: 'door.control',
+                risk: 'sensitive',
+                input: {},
+                effects: [{ type: 'expect_reported', property: 'lock_state', value: 'unlocked' }],
+            },
+        ],
+    }],
+    firmware_default_state: {
+        schema: 'device.state.v2',
+        state_version: 0,
+        instances: { main_lock: { reported: { lock_state: 'locked' }, desired: {} } },
+        diagnostics: {},
+    },
+    operations: {
+        'main_lock.lock': {
+            id: 'lock',
+            instance_id: 'main_lock',
+            capability_id: 'door_lock',
+            permission: 'door.control',
+            risk: 'normal',
+            input: {},
+            effects: [{ type: 'expect_reported', property: 'lock_state', value: 'locked' }],
+        },
+        'main_lock.unlock': {
+            id: 'unlock',
+            instance_id: 'main_lock',
+            capability_id: 'door_lock',
+            permission: 'door.control',
+            risk: 'sensitive',
+            input: {},
+            effects: [{ type: 'expect_reported', property: 'lock_state', value: 'unlocked' }],
+        },
+    },
+};
+
+test('new entrance devices start locked and store only stable servo-derived state', () => {
+    const initial = generateInitialState(doorProduct);
+    assert.deepEqual(initial.instances.main_lock, {
+        reported: { lock_state: 'locked' },
+        desired: {},
+    });
+
+    const unlocked = applyOperationToState(initial, doorProduct, {
+        instance_id: 'main_lock',
+        operation_name: 'unlock',
+        input: {},
+    });
+    assert.equal(unlocked.instances.main_lock.reported.lock_state, 'unlocked');
+    assert.deepEqual(unlocked.instances.main_lock.desired, {});
+
+    const locked = applyOperationToState(unlocked, doorProduct, {
+        instance_id: 'main_lock',
+        operation_name: 'lock',
+        input: {},
+    });
+    assert.equal(locked.instances.main_lock.reported.lock_state, 'locked');
+    assert.deepEqual(locked.instances.main_lock.desired, {});
+});
 
 test('manual state patch merges catalog-valid nested state and advances its version', () => {
     const next = patchDeviceState(current, product, {

@@ -63,7 +63,7 @@ class EntranceProductMiniCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final lock = device.capabilityMatching(
-      ids: const ['lock_state', 'target_lock_state'],
+      ids: const ['lock_state'],
       capabilityIds: const ['door_lock'],
     );
     final camera = device.capabilityMatching(
@@ -77,7 +77,7 @@ class EntranceProductMiniCard extends StatelessWidget {
       onTap: onTap,
       icon: locked ? Icons.lock_rounded : Icons.lock_open_rounded,
       eyebrow: 'CỬA CHÍNH',
-      statusLabel: locked ? 'Đã khóa' : 'Đang mở khóa',
+      statusLabel: locked ? 'Đã khóa' : 'Đã mở khóa',
       accent: locked ? context.colorScheme.primary : context.colorScheme.error,
       metrics: [
         ProductMiniMetric(

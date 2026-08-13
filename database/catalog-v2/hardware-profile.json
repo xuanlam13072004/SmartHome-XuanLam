@@ -8,12 +8,13 @@
       "confirmed": [
         "LCD character display with 4 rows and 20 columns",
         "SG90 servo drives the door lock mechanism",
+        "The lock has no independent latch-position sensor",
+        "Servo position 0 degrees represents locked and 90 degrees represents unlocked",
+        "The last stable locked or unlocked state is persisted and restored after restart",
         "ESP32-CAM captures faces and provides video",
         "4x4 keypad accepts PIN and local actions"
       ],
       "open_questions": [
-        "Servo angles and whether physical lock feedback exists",
-        "Auto-relock delay and jam detection strategy",
         "Camera transport, local recognition algorithm and enrollment format suitable for ESP32-CAM",
         "LCD character encoding",
         "PIN length, retry limit and lockout duration"

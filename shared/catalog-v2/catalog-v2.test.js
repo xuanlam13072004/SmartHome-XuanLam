@@ -35,8 +35,9 @@ test('compiler emits JSON-safe namespaced state without Map or Set values', () =
 
     assert.equal(entrance.ui_profile, 'entrance_controller');
     assert.equal(entrance.ui_profile_version, 1);
-    assert.equal(entrance.firmware_default_state.instances.main_lock.reported.lock_state, 'unknown');
-    assert.equal(entrance.firmware_default_state.instances.main_lock.desired.target_lock_state, 'locked');
+    assert.equal(entrance.catalog_revision, 2);
+    assert.equal(entrance.firmware_default_state.instances.main_lock.reported.lock_state, 'locked');
+    assert.deepEqual(entrance.firmware_default_state.instances.main_lock.desired, {});
     assert.deepEqual(entrance.firmware_default_state.instances.lcd.reported.displayed_lines, ['', '', '', '']);
     assert.equal(entrance.reported_state_seed_policy, 'device_report_only');
     assert.equal(
@@ -123,7 +124,7 @@ test('entrance physical operations execute on device and define offline and comp
         local_equivalent: true,
     });
     assert.deepEqual(unlock.ack_policy, {
-        success_condition: 'effect_applied',
+        success_condition: 'persisted',
         completion_signal: 'reported_state',
         reference: 'lock_state',
     });
@@ -131,8 +132,14 @@ test('entrance physical operations execute on device and define offline and comp
     assert.equal(lcd.offline_behavior.local_equivalent, false);
     assert.equal(lcd.ack_policy.reference, 'displayed_lines');
     const lockState = entrance.property_schemas['instances.main_lock.reported.lock_state'];
-    assert.equal(lockState.enum.includes('unknown'), true);
+    assert.deepEqual(lockState.enum, ['locked', 'unlocked']);
+    assert.equal(lockState.default, 'locked');
+    assert.equal(lockState.persistence, 'device_nvs');
     assert.equal(lockState.enum.includes('jammed'), false);
+    assert.equal(entrance.property_schemas['instances.main_lock.desired.target_lock_state'], undefined);
+    assert.deepEqual(unlock.effects, [
+        { type: 'expect_reported', property: 'lock_state', value: 'unlocked' },
+    ]);
     assert.equal(Object.keys(entrance.events).includes('main_lock.lock_jammed'), false);
 });
 
