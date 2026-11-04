@@ -16,6 +16,13 @@ version 201. There is no V1 compatibility layer.
 - Redis carries caches, topology leases/routes, durable-stream deliveries and
   realtime fan-out. Redis is never the source of truth.
 
+## MQTT identity
+
+Every MQTT client authenticates; anonymous access is disabled. Devices (real or
+virtual) log in with username = MAC and a per-device factory password, and the
+broker ACL limits each device to `smarthome/<its MAC>/...`. Details, roles and
+provisioning: [mqtt-security.md](mqtt-security.md).
+
 ## Hub–Node
 
 A network is identified by an opaque fingerprint under one owner. The first
