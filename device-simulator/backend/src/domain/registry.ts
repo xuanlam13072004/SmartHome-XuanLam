@@ -1,9 +1,10 @@
 import type { DeviceState } from '../generation/telemetry-generator';
 import type { EncryptedAuthSession } from '../security/auth-session';
+import type { IrrigationSession } from '../runtime/irrigation-controller';
 
 export type RetentionPolicy = 'ttl' | 'permanent';
 export type UserGenerationState = 'planned' | 'registered' | 'provisioning' | 'ready' | 'failed';
-export type DeviceProvisioningState = 'planned' | 'provisioned' | 'claimed' | 'failed';
+export type DeviceProvisioningState = 'planned' | 'provisioned' | 'claimed' | 'failed' | 'unpaired';
 export type DeviceRuntimeState =
     | 'claimed'
     | 'connecting'
@@ -63,6 +64,10 @@ export interface SimulatedDeviceRecord {
     active_hub_mac?: string | null;
     transport_mode?: TransportMode;
     secret: EncryptedValue;
+    /** Device's own broker password (factory secret, encrypted). Username is the MAC. */
+    mqtt_secret?: EncryptedValue;
+    /** Simulator-only secure storage. Never published to the main backend or MQTT. */
+    access_pin?: EncryptedValue;
     credential_private_key: EncryptedValue;
     credential_public_key_pem: string;
     factory_owned: boolean;
@@ -70,7 +75,13 @@ export interface SimulatedDeviceRecord {
     runtime_state: DeviceRuntimeState;
     desired_state: DeviceDesiredState;
     seq: number;
+    /** Bounded device-local outbox used while MQTT/Hub transport is unavailable. */
+    pending_device_events?: Array<{
+        event_id: string;
+        [key: string]: unknown;
+    }>;
     state_snapshot?: DeviceState;
+    irrigation_session?: IrrigationSession;
     retention_policy: RetentionPolicy;
     expires_at?: Date;
     last_error?: string | null;

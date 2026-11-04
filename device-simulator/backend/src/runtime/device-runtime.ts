@@ -23,11 +23,12 @@ import {
 } from '../generation/telemetry-generator';
 import { getMongoDb } from '../infrastructure/mongodb/client';
 import {
+    type BrokerCredentials,
     createDeviceMqttClient,
     resolveMqttTopic,
 } from '../infrastructure/mqtt/client';
 import { getRunMetricsService } from '../metrics/service';
-import { decrypt } from '../security/crypto';
+import { decrypt, encrypt } from '../security/crypto';
 import { startupDelayMs } from './scheduling';
 import { getTelemetryScheduler } from './telemetry-scheduler';
 import {
@@ -64,8 +65,24 @@ import {
     type OperationRoute,
     type TopologyAssignment,
 } from './topology';
+import {
+    assertVirtualDoorPositionAllowed,
+    beginRemoteLockOperation,
+    type DeviceEventDraft,
+    type EntranceSession,
+    type EntranceTimerKind,
+    type EntranceTransition,
+    handleEntranceKey,
+    handleEntranceTimer,
+    initializeEntranceController,
+    setEntranceDoorPosition,
+} from './entrance-controller';
+import {
+    advanceIrrigation, initializeIrrigation, irrigationOperation, physicalIrrigation,
+    stopIrrigation, type IrrigationSession, type IrrigationTransition,
+} from './irrigation-controller';
 
-export type BrokerMessageKind = 'telemetry' | 'operation_ack' | 'presence';
+export type BrokerMessageKind = 'telemetry' | 'device_event' | 'operation_ack' | 'presence';
 
 export interface RuntimeTransportCoordinator {
     isRelayAvailable(device: DeviceRuntime): boolean;
@@ -78,6 +95,10 @@ export interface RuntimeTransportCoordinator {
     deliverRelayedOperation(hubMac: string, rawPayload: Buffer): Promise<void>;
     onBrokerAvailable(device: DeviceRuntime): void;
     onBrokerUnavailable(device: DeviceRuntime): void;
+    /** Factory-issued broker credentials of this device (username = MAC). */
+    resolveBrokerCredentials(mac: string): Promise<BrokerCredentials>;
+    /** Retained assignment received on this device's own topology topic. */
+    onTopologyMessage(mac: string, payload: Buffer): Promise<void>;
 }
 
 interface OperationResult {
@@ -103,6 +124,12 @@ export class DeviceRuntime {
     private lastTopologyAckKey: string | null = null;
     private roofMotionTimer: NodeJS.Timeout | null = null;
     private sirenTimer: NodeJS.Timeout | null = null;
+    private entranceTimer: NodeJS.Timeout | null = null;
+    private entranceSession: EntranceSession | null = null;
+    private irrigationSession: IrrigationSession | null = null;
+    private irrigationTimer: NodeJS.Timeout | null = null;
+    private pendingIrrigationEvents: DeviceEventDraft[] = [];
+    private readonly bootedAt = Date.now();
     private disposed = false;
     private stateMutationQueue: Promise<void> = Promise.resolve();
     private readonly operationResults = new Map<string, OperationResult>();
@@ -120,6 +147,8 @@ export class DeviceRuntime {
         private readonly transportCoordinator: RuntimeTransportCoordinator,
         initialState?: DeviceState,
         initialAssignment?: TopologyAssignment,
+        private accessPin?: string,
+        storedIrrigationSession?: IrrigationSession,
     ) {
         this.seq = initialSeq;
         this.logger = logger.child({
@@ -133,7 +162,26 @@ export class DeviceRuntime {
                 : generateInitialState(product), product),
             product,
         ), product);
+        const entrance = initializeEntranceController(
+            this.state,
+            product,
+            Boolean(accessPin),
+        );
+        if (entrance) {
+            this.state = entrance.state;
+            this.entranceSession = entrance.session;
+            if (entrance.timer) {
+                this.scheduleEntranceTimer(entrance.timer.kind, entrance.timer.delay_ms);
+            }
+        }
         this.assignment = initialAssignment;
+        const irrigation = initializeIrrigation(this.state, product, storedIrrigationSession);
+        if (irrigation) {
+            this.state = irrigation.state;
+            this.irrigationSession = irrigation.session;
+            this.pendingIrrigationEvents = irrigation.events;
+            this.scheduleIrrigationTick();
+        }
         this.resumeRoofMotionFromState();
         this.resumeSirenTimerFromState();
     }
@@ -191,7 +239,13 @@ export class DeviceRuntime {
         this.disposed = true;
         this.cancelRoofMotion();
         this.cancelSirenTimer();
+        this.cancelEntranceTimer();
+        if (this.irrigationTimer) clearTimeout(this.irrigationTimer);
+        this.irrigationTimer = null;
         await this.stateMutationQueue.catch(() => undefined);
+        if (this.irrigationSession) {
+            await this.applyIrrigationTransition(stopIrrigation(this.state, this.irrigationSession, this.product, 'controller_restart'), false);
+        }
         await this.disconnect();
     }
 
@@ -236,12 +290,22 @@ export class DeviceRuntime {
         return this.serializeStateMutation(async () => {
             this.cancelRoofMotion();
             this.cancelSirenTimer();
+            this.cancelEntranceTimer();
+            const irrigation = initializeIrrigation(generateInitialState(this.product), this.product);
+            this.irrigationSession = irrigation?.session || null;
+            const previousStateVersion = this.state.state_version;
             const next = reconcileHazardSafetyState(
                 generateInitialState(this.product),
                 this.product,
             );
-            next.state_version = this.state.state_version + 1;
-            this.state = next;
+            const entrance = initializeEntranceController(
+                next,
+                this.product,
+                Boolean(this.accessPin),
+            );
+            this.state = entrance?.state || next;
+            this.entranceSession = entrance?.session || null;
+            this.state.state_version = previousStateVersion + 1;
             await this.persistRegistryState(new Date(), true);
             if (this.connected) await this.publishTelemetry(false);
             return this.state;
@@ -251,10 +315,30 @@ export class DeviceRuntime {
     async patchState(patch: DeviceStatePatch): Promise<DeviceState> {
         return this.serializeStateMutation(async () => {
             const product = this.product;
+            const pump = product.capability_instances.find(i => i.capability_id === 'irrigation_pump');
+            if (pump && patch.instances?.[pump.instance_id]) {
+                throw new Error('Pump state is controlled by virtual firmware; use the physical pump action or a backend operation');
+            }
             this.state = reconcileHazardSafetyState(
                 patchDeviceState(this.state, product, patch),
                 product,
             );
+            if (this.entranceSession) {
+                const lcd = product.capability_instances.find(
+                    (instance) => instance.capability_id === 'character_display_4x20',
+                );
+                const reportedPatch = lcd
+                    ? patch.instances?.[lcd.instance_id]?.reported
+                    : undefined;
+                if (lcd && reportedPatch?.display_source === 'custom') {
+                    const lines = this.state.instances[lcd.instance_id]?.reported.displayed_lines;
+                    this.entranceSession.custom_lcd_lines = Array.isArray(lines)
+                        ? Array.from({ length: 4 }, (_, index) => String(lines[index] || '').slice(0, 20))
+                        : undefined;
+                } else if (reportedPatch?.display_source === 'firmware') {
+                    this.entranceSession.custom_lcd_lines = undefined;
+                }
+            }
             const movementWasPatched = product.capability_instances.some(instance => (
                 instance.capability_id === 'cover_controller'
                 && Object.prototype.hasOwnProperty.call(
@@ -285,7 +369,18 @@ export class DeviceRuntime {
                 this.scheduleRoofMotion(automaticClose);
             }
             await this.persistRegistryState(new Date(), true);
+            if (this.irrigationSession) {
+                await this.applyIrrigationTransition(advanceIrrigation(this.state, this.irrigationSession, product), false);
+            }
             if (this.connected) await this.publishTelemetry(false);
+            return this.state;
+        });
+    }
+
+    async performPhysicalIrrigationAction(action: 'start' | 'stop'): Promise<DeviceState> {
+        return this.serializeStateMutation(async () => {
+            if (!this.irrigationSession) throw new Error('This virtual device has no irrigation controller');
+            await this.applyIrrigationTransition(physicalIrrigation(this.state, this.irrigationSession, this.product, action));
             return this.state;
         });
     }
@@ -340,6 +435,53 @@ export class DeviceRuntime {
                     duration_seconds: durationSeconds,
                 },
             });
+            return this.state;
+        });
+    }
+
+    get entranceStatus(): EntranceSession | null {
+        return this.entranceSession ? { ...this.entranceSession, pin_buffer: '' } : null;
+    }
+
+    async pressEntranceKey(key: string): Promise<DeviceState> {
+        return this.serializeStateMutation(async () => {
+            if (!this.entranceSession || !this.accessPin) {
+                throw new Error('This virtual device has no configured entrance keypad');
+            }
+            const next = handleEntranceKey(
+                this.state,
+                this.entranceSession,
+                this.product,
+                this.accessPin,
+                key,
+            );
+            await this.applyEntranceTransition(next);
+            return this.state;
+        });
+    }
+
+    async setEntranceDoorPosition(
+        angleDegrees: number,
+        sensorState: 'calibrating' | 'ready' | 'fault' = 'ready',
+    ): Promise<DeviceState> {
+        return this.serializeStateMutation(async () => {
+            if (!this.entranceSession) {
+                throw new Error('This virtual device has no MPU6050 door-position runtime');
+            }
+            assertVirtualDoorPositionAllowed(
+                this.state,
+                this.product,
+                angleDegrees,
+                sensorState,
+            );
+            const next = setEntranceDoorPosition(
+                this.state,
+                this.entranceSession,
+                this.product,
+                angleDegrees,
+                sensorState,
+            );
+            await this.applyEntranceTransition(next);
             return this.state;
         });
     }
@@ -430,6 +572,8 @@ export class DeviceRuntime {
         }
         const topicTemplate = kind === 'telemetry'
             ? env.MQTT_TELEMETRY_TOPIC
+            : kind === 'device_event'
+                ? env.MQTT_EVENT_TOPIC
             : kind === 'operation_ack'
                 ? env.MQTT_ACK_TOPIC
                 : kind === 'presence'
@@ -474,6 +618,7 @@ export class DeviceRuntime {
             await this.publishPresence('online').catch((error) => {
                 this.logger.warn({ err: error }, 'Could not publish virtual device online status');
             });
+            await this.flushPendingDeviceEvents();
             await this.publishTopologyReadyAck();
         } else {
             this.stopTelemetry();
@@ -486,8 +631,18 @@ export class DeviceRuntime {
         if (this.mqttClient?.connected) return;
         if (this.connectPromise) return this.connectPromise;
 
-        this.connectPromise = new Promise<void>((resolve, reject) => {
-            const client = createDeviceMqttClient(this.mac);
+        const connecting = this.transportCoordinator.resolveBrokerCredentials(this.mac)
+            .then(credentials => this.openBrokerConnection(credentials));
+        this.connectPromise = connecting;
+        connecting.catch(() => {
+            if (this.connectPromise === connecting) this.connectPromise = null;
+        });
+        return connecting;
+    }
+
+    private openBrokerConnection(credentials: BrokerCredentials): Promise<void> {
+        return new Promise<void>((resolve, reject) => {
+            const client = createDeviceMqttClient(this.mac, credentials);
             this.mqttClient = client;
             void this.updateRuntimeState('connecting');
 
@@ -525,7 +680,13 @@ export class DeviceRuntime {
 
             client.on('message', (topic, payload) => {
                 if (this.disposed) return;
-                if (topic === this.controlTopic()) {
+                if (topic === this.topologyTopic()) {
+                    void this.transportCoordinator.onTopologyMessage(this.mac, payload)
+                        .catch((error) => this.logger.warn(
+                            { err: error },
+                            'Failed to apply topology assignment',
+                        ));
+                } else if (topic === this.controlTopic()) {
                     void this.serializeStateMutation(
                         () => this.handleControlMessage(payload, this.mac),
                     );
@@ -559,8 +720,6 @@ export class DeviceRuntime {
                 }
             });
         });
-
-        return this.connectPromise;
     }
 
     private async releaseBrokerConnection(): Promise<void> {
@@ -579,7 +738,7 @@ export class DeviceRuntime {
     private async refreshSubscriptions(): Promise<void> {
         const client = this.mqttClient;
         if (!client?.connected) return;
-        const desiredTopics = [this.controlTopic()];
+        const desiredTopics = [this.controlTopic(), this.topologyTopic()];
         if (this.assignment?.role === 'hub') desiredTopics.push(this.hubControlTopic());
         await new Promise<void>((resolve, reject) => {
             client.subscribe(desiredTopics, { qos: 1 }, (error) => (
@@ -599,6 +758,10 @@ export class DeviceRuntime {
 
     private hubControlTopic(): string {
         return resolveMqttTopic(env.MQTT_HUB_CONTROL_TOPIC, this.mac);
+    }
+
+    private topologyTopic(): string {
+        return resolveMqttTopic(env.MQTT_TOPOLOGY_TOPIC, this.mac);
     }
 
     private startTelemetry(): void {
@@ -656,6 +819,9 @@ export class DeviceRuntime {
                     evolveState(this.state, product),
                     product,
                 );
+            }
+            if (this.irrigationSession) {
+                await this.applyIrrigationTransition(advanceIrrigation(this.state, this.irrigationSession, product), false);
             }
             this.setOnlineDiagnostic(true);
             const nextSeq = await this.reserveNextSequence();
@@ -759,7 +925,55 @@ export class DeviceRuntime {
             if (roofMotion?.movingState === 'opening' && rainProtection) {
                 throw new Error('Automatic rain protection prevents opening the roof');
             }
-            this.state = applyOperationToState(this.state, product, operation);
+            const operationInstance = product.capability_instances.find(
+                (instance) => instance.instance_id === operation?.instance_id,
+            );
+            const irrigation = this.irrigationSession
+                ? irrigationOperation(this.state, this.irrigationSession, product, operation)
+                : null;
+            if (irrigation) {
+                await this.applyIrrigationTransition(irrigation, false);
+            } else if (
+                this.entranceSession
+                && operationInstance?.capability_id === 'door_lock'
+                && (operation.operation_name === 'lock' || operation.operation_name === 'unlock')
+            ) {
+                const entrance = beginRemoteLockOperation(
+                    this.state,
+                    this.entranceSession,
+                    product,
+                    operation.operation_name,
+                );
+                await this.applyEntranceTransition(entrance, false, false);
+                if (entrance.timer) {
+                    if (!['servo_lock', 'servo_unlock'].includes(entrance.timer.kind)) {
+                        throw new Error('Door-lock operation produced an invalid completion timer');
+                    }
+                    await new Promise<void>((resolve) => {
+                        setTimeout(resolve, entrance.timer!.delay_ms);
+                    });
+                    if (!this.entranceSession) {
+                        throw new Error('Entrance controller session disappeared during operation');
+                    }
+                    const completed = handleEntranceTimer(
+                        this.state,
+                        this.entranceSession,
+                        product,
+                        entrance.timer.kind,
+                    );
+                    await this.applyEntranceTransition(completed, false);
+                    const finalLockState = this.state.instances[operation.instance_id]
+                        ?.reported?.lock_state;
+                    const expectedState = operation.operation_name === 'lock'
+                        ? 'locked'
+                        : 'unlocked';
+                    if (finalLockState !== expectedState) {
+                        throw new Error(`Door-lock actuator did not reach '${expectedState}'`);
+                    }
+                }
+            } else {
+                this.state = applyOperationToState(this.state, product, operation);
+            }
             if (sirenPlan) this.state = beginSirenTimer(this.state, sirenPlan, false);
             if (sirenResumeInstance) {
                 this.cancelSirenTimer();
@@ -777,6 +991,9 @@ export class DeviceRuntime {
                 scheduledMotion = automaticClose;
             }
             await this.persistRegistryState(new Date(), true);
+            if (this.irrigationSession) {
+                await this.applyIrrigationTransition(advanceIrrigation(this.state, this.irrigationSession, product), false);
+            }
             if (scheduledMotion) this.scheduleRoofMotion(scheduledMotion);
             if (sirenPlan) this.scheduleSirenTimer(sirenPlan);
             const resourceId = typeof operation.context.resource_id === 'string'
@@ -914,8 +1131,23 @@ export class DeviceRuntime {
             const instanceId = String(message.instance_id || '');
             const credentialName = String(message.credential_name || '');
             if (target !== this.mac) throw new Error('Credential target does not match device');
+            if (
+                String(message.product_id || '') !== this.product.product_id
+                || Number(message.catalog_revision) !== this.product.catalog_revision
+            ) {
+                throw new Error('Credential Product identity does not match device contract');
+            }
+            if (String(message.action || '') !== 'replace') {
+                throw new Error('Credential action is not supported');
+            }
             if (!/^[a-z][a-z0-9_]+$/.test(instanceId) || !/^[a-z][a-z0-9_]+$/.test(credentialName)) {
                 throw new Error('Credential identity is invalid');
+            }
+            const credentialDefinition = this.product.capability_instances
+                .find((instance) => instance.instance_id === instanceId)
+                ?.credentials?.find((credential) => credential.id === credentialName);
+            if (!credentialDefinition) {
+                throw new Error('Credential is not declared by the pinned Product contract');
             }
             if (!operationRouteMatchesAssignment(
                 route,
@@ -980,12 +1212,26 @@ export class DeviceRuntime {
             ) {
                 throw new Error('Credential envelope content is inconsistent');
             }
+            const isEntrancePin = this.product.product_id === 'prod_entrance_controller'
+                && instanceId === 'pin_auth'
+                && credentialName === 'pin';
+            if (isEntrancePin && !/^\d{6}$/.test(material.material)) {
+                throw new Error('Entrance PIN must contain exactly six digits');
+            }
             const digest = crypto.createHash('sha256').update(material.material).digest('hex');
             const digestPath = `secure_credential_digests.${instanceId}.${credentialName}`;
+            const accessPin = isEntrancePin ? encrypt(material.material) : undefined;
             await getMongoDb().collection<SimulatedDeviceRecord>('simulated_devices').updateOne(
                 { mac: this.mac },
-                { $set: { [digestPath]: digest, updated_at: new Date() } },
+                {
+                    $set: {
+                        [digestPath]: digest,
+                        ...(accessPin ? { access_pin: accessPin } : {}),
+                        updated_at: new Date(),
+                    },
+                },
             );
+            if (isEntrancePin) this.accessPin = material.material;
             const reported = this.state.instances[instanceId]?.reported;
             const configuredProperty = `${credentialName}_configured`;
             if (reported && Object.prototype.hasOwnProperty.call(reported, configuredProperty)) {
@@ -1140,6 +1386,32 @@ export class DeviceRuntime {
         this.roofMotionTimer = null;
     }
 
+    private scheduleIrrigationTick(): void {
+        if (this.disposed || !this.irrigationSession) return;
+        this.irrigationTimer = setTimeout(() => {
+            this.irrigationTimer = null;
+            void this.serializeStateMutation(async () => {
+                if (this.disposed || !this.irrigationSession) return;
+                const next = advanceIrrigation(this.state, this.irrigationSession, this.product);
+                next.events.unshift(...this.pendingIrrigationEvents);
+                this.pendingIrrigationEvents = [];
+                await this.applyIrrigationTransition(next);
+            }).catch(error => this.logger.error({ err: error }, 'Virtual irrigation tick failed'))
+                .finally(() => this.scheduleIrrigationTick());
+        }, 1000);
+        this.irrigationTimer.unref();
+    }
+
+    private async applyIrrigationTransition(next: IrrigationTransition, publish = true): Promise<void> {
+        const changed = next.state.state_version !== this.state.state_version || next.events.length > 0;
+        this.state = next.state;
+        this.irrigationSession = next.session;
+        if (!changed) return;
+        await this.persistRegistryState(new Date(), next.events.length > 0);
+        for (const event of next.events) await this.emitDeviceEvent(event);
+        if (publish && !this.isPaused && this.connected) await this.publishTelemetry(false);
+    }
+
     private resumeRoofMotionFromState(): void {
         if (this.disposed || this.roofMotionTimer) return;
         const plan = pendingRoofMotionFromState(this.product, this.state);
@@ -1246,6 +1518,135 @@ export class DeviceRuntime {
         }
     }
 
+    private cancelEntranceTimer(): void {
+        if (this.entranceTimer) clearTimeout(this.entranceTimer);
+        this.entranceTimer = null;
+    }
+
+    private scheduleEntranceTimer(kind: EntranceTimerKind, delayMs: number): void {
+        this.cancelEntranceTimer();
+        this.entranceTimer = setTimeout(() => {
+            this.entranceTimer = null;
+            void this.serializeStateMutation(async () => {
+                if (!this.entranceSession) return;
+                const next = handleEntranceTimer(
+                    this.state,
+                    this.entranceSession,
+                    this.product,
+                    kind,
+                );
+                await this.applyEntranceTransition(next);
+            }).catch((error) => this.logger.error(
+                { err: error, timerKind: kind },
+                'Virtual entrance-controller timer failed',
+            ));
+        }, delayMs);
+        this.entranceTimer.unref();
+    }
+
+    private async applyEntranceTransition(
+        next: EntranceTransition,
+        publishTelemetry = true,
+        scheduleTimer = true,
+    ): Promise<void> {
+        const hasWork = next.cancel_timer || Boolean(next.timer) || next.events.length > 0
+            || next.state.state_version !== this.state.state_version;
+        if (!hasWork) return;
+        this.state = next.state;
+        this.entranceSession = next.session;
+        if (next.cancel_timer) this.cancelEntranceTimer();
+        if (next.timer && scheduleTimer) {
+            this.scheduleEntranceTimer(next.timer.kind, next.timer.delay_ms);
+        }
+        await this.persistRegistryState(new Date(), true);
+        for (const event of next.events) await this.emitDeviceEvent(event);
+        if (publishTelemetry && !this.isPaused && this.connected) {
+            await this.publishTelemetry(false);
+        }
+    }
+
+    private async emitDeviceEvent(
+        draft: DeviceEventDraft,
+        occurredAt = new Date(),
+    ): Promise<void> {
+        const nextSeq = await this.reserveNextSequence();
+        const payload = {
+            schema: 'device.event.v2',
+            event_id: `${this.mac}:event:${nextSeq}`,
+            device_id: this.mac,
+            product_id: this.product.product_id,
+            catalog_revision: this.product.catalog_revision,
+            seq: nextSeq,
+            instance_id: draft.instance_id,
+            event_name: draft.event_name,
+            data: draft.data,
+            occurred_at: occurredAt.toISOString(),
+            device_uptime_ms: Math.max(0, Date.now() - this.bootedAt),
+            trace_id: crypto.randomUUID(),
+        };
+        if (!this.connected) {
+            await this.queueDeviceEvent(payload);
+            return;
+        }
+        try {
+            await this.transportCoordinator.publishDeviceMessage(this, 'device_event', payload);
+        } catch (error) {
+            await this.queueDeviceEvent(payload);
+            this.logger.warn(
+                { err: error, eventName: draft.event_name },
+                'Virtual device event persisted in the local outbox for retry',
+            );
+        }
+    }
+
+    private async flushPendingDeviceEvents(): Promise<void> {
+        const registry = await getMongoDb()
+            .collection<SimulatedDeviceRecord>('simulated_devices')
+            .findOne(
+                { mac: this.mac },
+                { projection: { pending_device_events: 1 } },
+            );
+        for (const pending of registry?.pending_device_events || []) {
+            if (!this.connected) return;
+            try {
+                await this.transportCoordinator.publishDeviceMessage(
+                    this,
+                    'device_event',
+                    pending,
+                );
+                await getMongoDb()
+                    .collection<SimulatedDeviceRecord>('simulated_devices')
+                    .updateOne(
+                        { mac: this.mac },
+                        { $pull: { pending_device_events: { event_id: pending.event_id } } },
+                    );
+            } catch (error) {
+                this.logger.warn(
+                    { err: error, eventId: pending.event_id },
+                    'Virtual device event outbox flush paused',
+                );
+                return;
+            }
+        }
+    }
+
+    private async queueDeviceEvent(payload: Record<string, unknown> & { event_id: string }): Promise<void> {
+        await getMongoDb()
+            .collection<SimulatedDeviceRecord>('simulated_devices')
+            .updateOne(
+                { mac: this.mac },
+                {
+                    $push: {
+                        pending_device_events: {
+                            $each: [payload],
+                            $slice: -100,
+                        },
+                    },
+                    $set: { updated_at: new Date() },
+                },
+            );
+    }
+
     private serializeStateMutation<T>(action: () => Promise<T>): Promise<T> {
         const result = this.stateMutationQueue.then(action, action);
         this.stateMutationQueue = result.then(
@@ -1265,6 +1666,7 @@ export class DeviceRuntime {
             {
                 $set: {
                     state_snapshot: this.state,
+                    ...(this.irrigationSession ? { irrigation_session: this.irrigationSession } : {}),
                     ...(this.lastTelemetryAt ? { last_telemetry: this.lastTelemetryAt } : {}),
                     runtime_state: this.isPaused
                         ? 'paused'

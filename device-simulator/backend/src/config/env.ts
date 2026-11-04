@@ -34,7 +34,8 @@ const envSchema = z.object({
     API_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120000).default(15000),
     STARTUP_RETRY_ATTEMPTS: z.coerce.number().int().min(1).max(120).default(30),
     STARTUP_RETRY_DELAY_MS: z.coerce.number().int().min(100).max(60000).default(2000),
-    REGISTRATION_DELAY_MS: z.coerce.number().int().min(0).max(120000).default(12500),
+    // Matches API Gateway RATE_LIMIT_REGISTER_PER_IP_PER_MINUTE=20 (one IP).
+    REGISTRATION_DELAY_MS: z.coerce.number().int().min(0).max(120000).default(3100),
     CLAIM_DELAY_MS: z.coerce.number().int().min(0).max(120000).default(6500),
     MAX_USERS_PER_RUN: z.coerce.number().int().min(1).max(100000).default(10000),
     MAX_DEVICES_PER_RUN: z.coerce.number().int().min(1).max(1000000).default(10000),
@@ -58,15 +59,20 @@ const envSchema = z.object({
     MAIN_MONGO_DEVICE_SHADOWS_COLLECTION: z.string().default('device_shadows'),
     MAIN_MONGO_TELEMETRY_COLLECTION: z.string().default('device_telemetry'),
     MAIN_MONGO_INGEST_RECEIPTS_COLLECTION: z.string().default('telemetry_ingest_receipts'),
+    MAIN_MONGO_DEVICE_EVENTS_COLLECTION: z.string().default('device_events'),
 
     MQTT_HOST: z.string(),
     MQTT_PORT: z.coerce.number().int().min(1).max(65535).default(1883),
-    MQTT_USERNAME: optionalString,
-    MQTT_PASSWORD: optionalString,
+    // The Simulator is the factory for virtual devices: this broker identity
+    // registers each device's own MQTT credentials (docs/architecture/mqtt-security.md).
+    MQTT_FACTORY_USERNAME: z.string().default('device-factory'),
+    MQTT_FACTORY_PASSWORD: optionalString,
+    MQTT_IDENTITY_BATCH_MS: z.coerce.number().int().min(0).max(5000).default(250),
     MQTT_CONNECT_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(10000),
     MQTT_CONTROL_TOPIC: z.string().default('smarthome/{device_id}/control'),
     MQTT_HUB_CONTROL_TOPIC: z.string().default('smarthome/{hub_id}/hub/control'),
     MQTT_TELEMETRY_TOPIC: z.string().default('smarthome/{device_id}/telemetry'),
+    MQTT_EVENT_TOPIC: z.string().default('smarthome/{device_id}/events'),
     MQTT_ACK_TOPIC: z.string().default('smarthome/{device_id}/ack'),
     MQTT_STATUS_TOPIC: z.string().default('smarthome/{device_id}/status'),
     MQTT_TOPOLOGY_TOPIC: z.string().default('smarthome/{device_id}/topology'),

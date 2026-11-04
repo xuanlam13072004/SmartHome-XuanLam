@@ -11,6 +11,24 @@ const logger = {
     error: () => undefined,
 } as any;
 
+test('unpair revokes the live runtime and prevents restart from claimed registry state', async () => {
+    const writes: any[] = [];
+    const db = { collection: () => ({ updateOne: async (...args: any[]) => { writes.push(args); } }) };
+    const manager = new RuntimeManager(logger, () => db as any);
+    const mac = 'AA:00:00:00:00:01';
+    let disposed = false;
+    (manager as any).devices.set(mac, { dispose: async () => { disposed = true; } });
+    (manager as any).assignments.set(mac, { network_id: 'network-a' });
+    await manager.onTopologyMessage(mac, Buffer.alloc(0));
+    assert.equal(disposed, true);
+    assert.equal(manager.getDevice(mac), undefined);
+    assert.equal((manager as any).assignments.has(mac), false);
+    assert.equal(writes[0][1].$set.provisioning_state, 'unpaired');
+    assert.equal(writes[0][1].$set.desired_state, 'offline');
+    assert.ok('state_snapshot' in writes[0][1].$unset);
+    assert.ok('device_id' in writes[0][1].$unset);
+});
+
 const hubAssignment = parseTopologyAssignment({
     schema: 'device.topology.assignment.v2',
     network_id: 'network-a',
@@ -149,4 +167,107 @@ test('Node opens direct fallback transport when its assigned Hub is unavailable'
         topology_epoch: 8,
         hub_mac: 'AA:00:00:00:00:01',
     });
+});
+
+const fakeRuntime = (id: string, brokerConnected: boolean) => {
+    const applied: any[] = [];
+    return {
+        id,
+        runId: 'run-a',
+        brokerConnected,
+        applied,
+        topology: undefined as any,
+        applyTopologyAssignment: async (assignment: any) => { applied.push(assignment); },
+        refreshTransportAvailability: async () => undefined,
+        dispose: async () => undefined,
+    };
+};
+
+const assignmentPayload = (overrides: Record<string, unknown> = {}) => Buffer.from(JSON.stringify({
+    schema: 'device.topology.assignment.v2',
+    network_id: 'network-a',
+    topology_epoch: 9,
+    topology_state: 'stable',
+    role: 'hub',
+    join_rank: 1,
+    active_hub_mac: 'AA:00:00:00:00:01',
+    transport_mode: 'hub',
+    members: [
+        { device_id: 'd1', mac: 'AA:00:00:00:00:01', join_rank: 1, role: 'hub' },
+        { device_id: 'd2', mac: 'AA:00:00:00:00:02', join_rank: 2, role: 'node' },
+        { device_id: 'd3', mac: 'AA:00:00:00:00:03', join_rank: 3, role: 'node' },
+    ],
+    ...overrides,
+}));
+
+test('Hub passes its assignment on to relay Nodes without their own broker connection', async () => {
+    const db = { collection: () => ({ updateOne: async () => undefined }) };
+    const manager = new RuntimeManager(logger, () => db as any);
+    const hub = fakeRuntime('AA:00:00:00:00:01', true);
+    const relayNode = fakeRuntime('AA:00:00:00:00:02', false);
+    const directNode = fakeRuntime('AA:00:00:00:00:03', true);
+    for (const device of [hub, relayNode, directNode]) (manager as any).devices.set(device.id, device);
+
+    await manager.onTopologyMessage(hub.id, assignmentPayload());
+
+    assert.equal(hub.applied[0].role, 'hub');
+    assert.equal(relayNode.applied.length, 1);
+    assert.equal(relayNode.applied[0].role, 'node');
+    assert.equal(relayNode.applied[0].join_rank, 2);
+    assert.equal(relayNode.applied[0].transport_mode, 'relay');
+    assert.equal(relayNode.applied[0].topology_epoch, 9);
+    // A Node with its own broker session reads its own retained assignment.
+    assert.equal(directNode.applied.length, 0);
+});
+
+test('a relay Node missing from a newer Hub epoch is treated as unpaired', async () => {
+    const writes: any[] = [];
+    const db = { collection: () => ({ updateOne: async (...args: any[]) => { writes.push(args); } }) };
+    const manager = new RuntimeManager(logger, () => db as any);
+    const hub = fakeRuntime('AA:00:00:00:00:01', true);
+    const removed = fakeRuntime('AA:00:00:00:00:04', false);
+    (manager as any).devices.set(hub.id, hub);
+    (manager as any).devices.set(removed.id, removed);
+    (manager as any).assignments.set(removed.id, { network_id: 'network-a', topology_epoch: 8 });
+
+    await manager.onTopologyMessage(hub.id, assignmentPayload());
+
+    assert.equal(manager.getDevice(removed.id), undefined);
+    assert.ok(writes.some(([filter, update]) => (
+        filter.mac === removed.id && update.$set?.provisioning_state === 'unpaired'
+    )));
+});
+
+test('broker credentials are generated once, stored encrypted and registered with the broker', async () => {
+    const records = new Map<string, any>([['AA:00:00:00:00:05', { mac: 'AA:00:00:00:00:05' }]]);
+    const db = { collection: () => ({
+        findOne: async ({ mac }: any) => records.get(mac) || null,
+        updateOne: async ({ mac }: any, update: any) => { Object.assign(records.get(mac), update.$set); },
+    }) };
+    const ensured: Array<[string, string]> = [];
+    const revoked: string[] = [];
+    const identities = () => ({
+        ensureDeviceIdentity: async (mac: string, password: string) => { ensured.push([mac, password]); },
+        revokeDeviceIdentity: async (mac: string) => { revoked.push(mac); },
+    });
+    const manager = new RuntimeManager(logger, () => db as any, identities);
+
+    const first = await manager.resolveBrokerCredentials('aa:00:00:00:00:05');
+    const again = await manager.resolveBrokerCredentials('AA:00:00:00:00:05');
+    assert.equal(first.username, 'AA:00:00:00:00:05');
+    assert.ok(first.password.length >= 40);
+    assert.deepEqual(again, first);
+    assert.equal(ensured.length, 1);
+    const stored = records.get('AA:00:00:00:00:05').mqtt_secret;
+    assert.ok(stored.encrypted && stored.iv && stored.authTag);
+    assert.ok(!JSON.stringify(stored).includes(first.password));
+
+    // After a restart the stored password is reused and re-registered.
+    const restarted = new RuntimeManager(logger, () => db as any, identities);
+    assert.deepEqual(await restarted.resolveBrokerCredentials('AA:00:00:00:00:05'), first);
+    assert.equal(ensured.length, 2);
+    assert.equal(ensured[1][1], first.password);
+
+    await restarted.revokeBrokerIdentity('AA:00:00:00:00:05');
+    assert.deepEqual(revoked, ['AA:00:00:00:00:05']);
 });

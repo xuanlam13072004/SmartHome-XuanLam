@@ -1,13 +1,16 @@
 import type { FastifyBaseLogger } from 'fastify';
 import type { ProductCatalog } from '../catalog/loader';
-import type { MqttClient } from 'mqtt';
 import { env } from '../config/env';
 import type { DeviceState } from '../generation/telemetry-generator';
+import type { EncryptedValue, SimulatedDeviceRecord } from '../domain/registry';
 import {
-    createDeviceMqttClient,
-    resolveMqttTopic,
-} from '../infrastructure/mqtt/client';
+    type BrokerIdentityRegistry,
+    generateDeviceMqttPassword,
+    getBrokerIdentityRegistry,
+} from '../infrastructure/mqtt/broker-identity';
+import { probeMqtt, type BrokerCredentials } from '../infrastructure/mqtt/client';
 import { getMongoDb } from '../infrastructure/mongodb/client';
+import { decrypt, encrypt } from '../security/crypto';
 import type { RuntimeMetricStats } from '../metrics/service';
 import {
     type BrokerMessageKind,
@@ -15,6 +18,7 @@ import {
     type RuntimeTransportCoordinator,
 } from './device-runtime';
 import { getTelemetryScheduler } from './telemetry-scheduler';
+import type { IrrigationSession } from './irrigation-controller';
 import {
     parseTopologyAssignment,
     shouldApplyAssignment,
@@ -25,17 +29,21 @@ import {
 
 const normalizeMac = (value: string): string => value.trim().toUpperCase();
 
-const extractDeviceId = (topic: string): string => {
-    const [prefix, suffix] = env.MQTT_TOPOLOGY_TOPIC.split('{device_id}');
-    if (
-        suffix === undefined
-        || !topic.startsWith(prefix)
-        || !topic.endsWith(suffix)
-    ) {
-        return '';
-    }
-    return normalizeMac(topic.slice(prefix.length, topic.length - suffix.length));
-};
+const decryptSecret = (value: EncryptedValue): string => decrypt(value.iv, value.encrypted, value.authTag);
+
+/** Same derivation MQTT Worker uses when it publishes per-member assignments. */
+export const deriveMemberAssignment = (
+    hubAssignment: TopologyAssignment,
+    member: TopologyAssignment['members'][number],
+): TopologyAssignment => ({
+    ...hubAssignment,
+    role: member.role,
+    join_rank: Number(member.join_rank),
+    transport_mode: member.role === 'hub'
+        ? 'hub'
+        : (hubAssignment.topology_state === 'stable' ? 'relay' : 'direct_fallback'),
+});
+
 
 export class RuntimeManager implements RuntimeTransportCoordinator {
     private readonly devices = new Map<string, DeviceRuntime>();
@@ -43,62 +51,66 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
     private readonly assignmentTasks = new Map<string, Promise<void>>();
     private readonly stoppingRuns = new Set<string>();
     private logger: FastifyBaseLogger;
-    private topologyClient: MqttClient | null = null;
-    private startPromise: Promise<void> | null = null;
+    private readonly brokerCredentials = new Map<string, Promise<BrokerCredentials>>();
     private shuttingDown = false;
 
-    constructor(logger: FastifyBaseLogger) {
+    constructor(
+        logger: FastifyBaseLogger,
+        private readonly registryDb = getMongoDb,
+        private readonly brokerIdentities: () => Pick<
+            BrokerIdentityRegistry,
+            'ensureDeviceIdentity' | 'revokeDeviceIdentity'
+        > = getBrokerIdentityRegistry,
+    ) {
         this.logger = logger.child({ module: 'RuntimeManager' });
     }
 
+    /**
+     * Verifies that the broker accepts the factory identity. Virtual devices
+     * then connect with their own credentials and subscribe only to their own
+     * topics, exactly like physical devices; there is no shared wildcard
+     * subscription (docs/architecture/mqtt-security.md).
+     */
     async start(): Promise<void> {
-        if (this.topologyClient?.connected) return;
-        if (this.startPromise) return this.startPromise;
         this.shuttingDown = false;
-        this.startPromise = new Promise<void>((resolve, reject) => {
-            const clientId = `device-simulator-topology-${process.pid}`;
-            const client = createDeviceMqttClient(clientId);
-            this.topologyClient = client;
+        await probeMqtt();
+    }
 
-            const onInitialError = (error: Error) => {
-                client.off('connect', onInitialConnect);
-                client.end(true);
-                if (this.topologyClient === client) this.topologyClient = null;
-                this.startPromise = null;
-                reject(error);
-            };
-            const onInitialConnect = () => {
-                client.off('error', onInitialError);
-                this.startPromise = null;
-                resolve();
-            };
-            client.once('error', onInitialError);
-            client.once('connect', onInitialConnect);
-
-            client.on('connect', () => {
-                const wildcard = resolveMqttTopic(env.MQTT_TOPOLOGY_TOPIC, '+');
-                client.subscribe(wildcard, { qos: 1 }, (error) => {
-                    if (error) {
-                        this.logger.error(
-                            { err: error, topic: wildcard },
-                            'Failed to subscribe to topology assignments',
-                        );
-                    } else {
-                        this.logger.info(
-                            { topic: wildcard },
-                            'Simulator topology control plane connected',
-                        );
-                    }
-                });
-            });
-            client.on('message', (topic, payload) => {
-                void this.handleTopologyMessage(topic, payload);
-            });
-            client.on('error', (error) => {
-                this.logger.error({ err: error }, 'Simulator topology control plane MQTT error');
-            });
+    /**
+     * Returns the device's factory-issued broker credentials, creating them on
+     * first use (devices provisioned before broker authentication existed are
+     * "re-flashed" here). The identity is (re)registered once per process so a
+     * reset broker database heals itself.
+     */
+    resolveBrokerCredentials(macInput: string): Promise<BrokerCredentials> {
+        const mac = normalizeMac(macInput);
+        const cached = this.brokerCredentials.get(mac);
+        if (cached) return cached;
+        const resolved = (async () => {
+            const devices = this.registryDb().collection<SimulatedDeviceRecord>('simulated_devices');
+            const record = await devices.findOne({ mac }, { projection: { mqtt_secret: 1 } });
+            let password: string;
+            if (record?.mqtt_secret) {
+                password = decryptSecret(record.mqtt_secret);
+            } else {
+                password = generateDeviceMqttPassword();
+                await devices.updateOne({ mac }, { $set: { mqtt_secret: encrypt(password) } });
+            }
+            await this.brokerIdentities().ensureDeviceIdentity(mac, password);
+            return { username: mac, password };
+        })();
+        this.brokerCredentials.set(mac, resolved);
+        resolved.catch(() => {
+            if (this.brokerCredentials.get(mac) === resolved) this.brokerCredentials.delete(mac);
         });
-        return this.startPromise;
+        return resolved;
+    }
+
+    /** Factory retirement: the broker deletes the identity and drops its session. */
+    async revokeBrokerIdentity(macInput: string): Promise<void> {
+        const mac = normalizeMac(macInput);
+        this.brokerCredentials.delete(mac);
+        await this.brokerIdentities().revokeDeviceIdentity(mac);
     }
 
     addDevice(
@@ -111,6 +123,8 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
         initialSeq: number,
         initialState?: DeviceState,
         initialAssignment?: TopologyAssignment,
+        accessPin?: string,
+        irrigationSession?: IrrigationSession,
     ): DeviceRuntime {
         const mac = normalizeMac(macInput);
         if (this.devices.has(mac)) {
@@ -145,6 +159,8 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
             this,
             initialState,
             assignment,
+            accessPin,
+            irrigationSession,
         );
         this.devices.set(mac, device);
         return device;
@@ -169,6 +185,28 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
         const device = this.devices.get(mac);
         if (device) await device.dispose();
         this.devices.delete(mac);
+    }
+
+    async revokeDeviceOwnership(macInput: string): Promise<void> {
+        const mac = normalizeMac(macInput);
+        this.assignments.delete(mac);
+        await this.assignmentTasks.get(mac)?.catch(() => undefined);
+        await this.removeDevice(mac);
+        await this.registryDb().collection('simulated_devices').updateOne(
+            { mac },
+            {
+                $set: {
+                    topology_state: 'empty', active_hub_mac: null,
+                    provisioning_state: 'unpaired', runtime_state: 'offline',
+                    desired_state: 'offline', updated_at: new Date(),
+                },
+                $unset: {
+                    network_id: '', topology_role: '', topology_epoch: '', join_rank: '',
+                    device_id: '', state_snapshot: '', irrigation_session: '',
+                    pending_device_events: '', transport_mode: '',
+                },
+            },
+        );
     }
 
     async stopRun(runId: string): Promise<number> {
@@ -358,66 +396,75 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
             [...this.devices.values()].map((device) => device.dispose()),
         );
         this.devices.clear();
-        const client = this.topologyClient;
-        this.topologyClient = null;
-        this.startPromise = null;
-        if (client) {
-            await new Promise<void>((resolve) => {
-                client.end(false, {}, () => resolve());
-            });
-        }
     }
 
-    private async handleTopologyMessage(topic: string, payload: Buffer): Promise<void> {
-        const mac = extractDeviceId(topic);
-        if (!mac) return;
+    /** Retained assignment received on the device's own `smarthome/<mac>/topology`. */
+    async onTopologyMessage(macInput: string, payload: Buffer): Promise<void> {
+        const mac = normalizeMac(macInput);
         if (payload.length === 0) {
-            this.assignments.delete(mac);
-            await getMongoDb().collection('simulated_devices').updateOne(
-                { mac },
-                {
-                    $set: {
-                        topology_state: 'empty',
-                        transport_mode: 'offline',
-                        active_hub_mac: null,
-                        updated_at: new Date(),
-                    },
-                    $unset: {
-                        network_id: '',
-                        topology_role: '',
-                        topology_epoch: '',
-                        join_rank: '',
-                    },
-                },
-            );
+            await this.revokeDeviceOwnership(mac);
             return;
         }
         try {
             const assignment = parseTopologyAssignment(JSON.parse(payload.toString()));
-            const current = this.assignments.get(mac);
-            if (!shouldApplyAssignment(current, assignment)) return;
-            this.assignments.set(mac, assignment);
-            await getMongoDb().collection('simulated_devices').updateOne(
-                { mac },
-                {
-                    $set: {
-                        network_id: assignment.network_id,
-                        join_rank: assignment.join_rank,
-                        topology_role: assignment.role,
-                        topology_epoch: assignment.topology_epoch,
-                        topology_state: assignment.topology_state,
-                        active_hub_mac: assignment.active_hub_mac,
-                        transport_mode: assignment.transport_mode,
-                        updated_at: new Date(),
-                    },
-                },
-            );
-            await this.queueAssignment(mac, assignment);
+            await this.applyAssignment(mac, assignment);
+            if (assignment.role === 'hub') await this.relayTopologyToNodes(mac, assignment);
         } catch (error) {
             this.logger.warn(
-                { err: error, topic },
+                { err: error, mac },
                 'Rejected invalid or stale topology assignment',
             );
+        }
+    }
+
+    private async applyAssignment(mac: string, assignment: TopologyAssignment): Promise<boolean> {
+        const current = this.assignments.get(mac);
+        if (!shouldApplyAssignment(current, assignment)) return false;
+        this.assignments.set(mac, assignment);
+        await this.registryDb().collection('simulated_devices').updateOne(
+            { mac },
+            {
+                $set: {
+                    network_id: assignment.network_id,
+                    join_rank: assignment.join_rank,
+                    topology_role: assignment.role,
+                    topology_epoch: assignment.topology_epoch,
+                    topology_state: assignment.topology_state,
+                    active_hub_mac: assignment.active_hub_mac,
+                    transport_mode: assignment.transport_mode,
+                    updated_at: new Date(),
+                },
+            },
+        );
+        await this.queueAssignment(mac, assignment);
+        return true;
+    }
+
+    /**
+     * Simulated Hub radio: a relay Node has no broker connection, so the Hub
+     * passes on the member list from its own assignment. Nodes connected to the
+     * broker read their own retained assignment instead. A Node that disappears
+     * from a newer epoch of its network was unpaired.
+     */
+    private async relayTopologyToNodes(hubMac: string, hubAssignment: TopologyAssignment): Promise<void> {
+        const members = new Set(hubAssignment.members.map(member => normalizeMac(member.mac)));
+        for (const member of hubAssignment.members) {
+            const mac = normalizeMac(member.mac);
+            if (mac === hubMac) continue;
+            const node = this.devices.get(mac);
+            if (!node || node.brokerConnected) continue;
+            await this.applyAssignment(mac, deriveMemberAssignment(hubAssignment, member));
+        }
+        for (const [mac, assignment] of [...this.assignments.entries()]) {
+            if (
+                mac !== hubMac
+                && !members.has(mac)
+                && assignment.network_id === hubAssignment.network_id
+                && assignment.topology_epoch < hubAssignment.topology_epoch
+                && this.devices.get(mac)?.brokerConnected === false
+            ) {
+                await this.revokeDeviceOwnership(mac);
+            }
         }
     }
 

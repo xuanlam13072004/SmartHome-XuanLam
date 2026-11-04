@@ -22,10 +22,8 @@
 #define SMARTHOME_MQTT_PORT 1883
 #endif
 
-#ifndef SMARTHOME_MQTT_USERNAME
-#define SMARTHOME_MQTT_USERNAME ""
-#endif
-
+// Lab fallback only. Shipped devices read their per-device password from NVS
+// (namespace "factory", key "mqttPassword"); the MQTT username is always the MAC.
 #ifndef SMARTHOME_MQTT_PASSWORD
 #define SMARTHOME_MQTT_PASSWORD ""
 #endif
@@ -64,7 +62,6 @@ inline constexpr char WIFI_SSID[] = SMARTHOME_WIFI_SSID;
 inline constexpr char WIFI_PASSWORD[] = SMARTHOME_WIFI_PASSWORD;
 inline constexpr char MQTT_HOST[] = SMARTHOME_MQTT_HOST;
 inline constexpr std::uint16_t MQTT_PORT = SMARTHOME_MQTT_PORT;
-inline constexpr char MQTT_USERNAME[] = SMARTHOME_MQTT_USERNAME;
 inline constexpr char MQTT_PASSWORD[] = SMARTHOME_MQTT_PASSWORD;
 
 inline constexpr char PRODUCT_ID[] = "prod_hazard_mitigation";

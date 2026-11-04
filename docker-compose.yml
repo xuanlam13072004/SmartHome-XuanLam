@@ -52,19 +52,43 @@ services:
 
 
   mosquitto:
-    image: eclipse-mosquitto:2
+    # 2.1+ is required: Dynamic Security %u ACL patterns (docs/architecture/mqtt-security.md).
+    image: eclipse-mosquitto:2.1.2-alpine
     container_name: mosquitto
+    environment:
+      # Applied only when dynamic-security.json is created for the first time.
+      MOSQUITTO_DYNSEC_PASSWORD: ${MQTT_ADMIN_PASSWORD:?Set MQTT_ADMIN_PASSWORD in the root .env (see .env.example)}
     ports:
       - "1883:1883"
     volumes:
-      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - "E:/smarthome_data/mosquitto:/mosquitto/data"
     networks:
       - smarthome_net
     healthcheck:
-      test: [ "CMD-SHELL", "mosquitto_sub -t '$$SYS/#' -C 1 || exit 1" ]
+      test: [ "CMD-SHELL", "mosquitto_sub -u admin -P \"$$MOSQUITTO_DYNSEC_PASSWORD\" -t '$$SYS/broker/uptime' -C 1 -W 5 || exit 1" ]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  mqtt-initialize:
+    # Idempotent: creates broker roles/ACLs and the worker/factory identities.
+    build:
+      context: .
+      dockerfile: mqtt-worker-service/Dockerfile
+    container_name: mqtt-initialize
+    environment:
+      MQTT_BROKER_URL: mqtt://mosquitto:1883
+      MQTT_ADMIN_PASSWORD: ${MQTT_ADMIN_PASSWORD:?Set MQTT_ADMIN_PASSWORD in the root .env}
+      MQTT_WORKER_PASSWORD: ${MQTT_WORKER_PASSWORD:?Set MQTT_WORKER_PASSWORD in the root .env}
+      MQTT_FACTORY_PASSWORD: ${MQTT_FACTORY_PASSWORD:?Set MQTT_FACTORY_PASSWORD in the root .env}
+    command: [ "node", "src/tools/initializeBroker.js" ]
+    networks:
+      - smarthome_net
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    restart: "no"
 
   db-initialize:
     build:
@@ -118,6 +142,9 @@ services:
     networks:
       - smarthome_net
     depends_on:
+      # WebSocket auth verifies account status/token_version through the Gateway.
+      api-gateway:
+        condition: service_started
       redis:
         condition: service_healthy
       mongodb:
@@ -132,6 +159,9 @@ services:
     container_name: mqtt-worker-service
     env_file:
       - mqtt-worker-service/.env.docker
+    environment:
+      MQTT_USERNAME: mqtt-worker-service
+      MQTT_PASSWORD: ${MQTT_WORKER_PASSWORD:?Set MQTT_WORKER_PASSWORD in the root .env}
     networks:
       - smarthome_net
     depends_on:
@@ -139,6 +169,8 @@ services:
         condition: service_healthy
       mosquitto:
         condition: service_healthy
+      mqtt-initialize:
+        condition: service_completed_successfully
       mongodb:
         condition: service_healthy
       db-initialize:

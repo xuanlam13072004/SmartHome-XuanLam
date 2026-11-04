@@ -16,6 +16,7 @@ import {
     pingMongo,
 } from './infrastructure/mongodb/client';
 import { probeMqtt } from './infrastructure/mqtt/client';
+import { closeBrokerIdentityRegistry } from './infrastructure/mqtt/broker-identity';
 import { apiGateway } from './infrastructure/api-gateway/client';
 import { loadCatalog, getCachedCatalog } from './catalog/loader';
 import { createRunsRoutes } from './api/routes/runs';
@@ -26,6 +27,7 @@ import streamRoutes from './api/routes/stream';
 import catalogRoutes from './api/routes/catalog';
 import { CleanupCronjob } from './cleanup/cronjob';
 import { RecoveryService } from './recovery/service';
+import { getGenerationQueue } from './generation/queue';
 import { getRuntimeManager } from './runtime/manager';
 import { getRunMetricsService } from './metrics/service';
 import { getTelemetryScheduler } from './runtime/telemetry-scheduler';
@@ -196,8 +198,10 @@ export const buildApp = async (): Promise<{
     await app.register(catalogRoutes);
 
     app.addHook('onClose', async () => {
-        cleanupJob.stop();
+        await cleanupJob.stop();
+        await getGenerationQueue(app.log).stopAll();
         await runtimeManager.disconnectAll();
+        await closeBrokerIdentityRegistry().catch(() => undefined);
         getTelemetryScheduler().stop();
         stopPresenceHeartbeatScheduler();
         await metricsService.stop();
@@ -211,8 +215,17 @@ export const start = async (): Promise<void> => {
     const { app, cleanupJob } = await buildApp();
     await app.listen({ port: env.PORT, host: env.HOST });
     app.log.info({ host: env.HOST, port: env.PORT }, 'Device Simulator backend listening');
-    cleanupJob.start();
+    await cleanupJob.recoverInterruptedCleanups();
     await new RecoveryService(app.log).recover();
+    cleanupJob.start();
+    const shutdown = () => {
+        void app.close().catch(error => {
+            app.log.error({ err: error }, 'Simulator shutdown failed');
+            process.exitCode = 1;
+        });
+    };
+    process.once('SIGTERM', shutdown);
+    process.once('SIGINT', shutdown);
 };
 
 if (require.main === module) {

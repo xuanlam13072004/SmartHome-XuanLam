@@ -18,7 +18,8 @@ registry stores only a verifier digest, never plaintext PIN material.
 Start the full stack from the repository root:
 
 ```powershell
-docker compose up --build
+docker compose up -d api-gateway real-time-service mqtt-worker-service
+docker compose -f device-simulator/docker-compose.yml up -d --build simulator-backend simulator-dashboard
 ```
 
 Open `http://localhost:4000`. Configure the number of users, the min/max device
@@ -27,3 +28,35 @@ accounts and their initial passwords are shown in the simulator dashboard.
 Automatic runs expire after 24 hours; manually retained runs remain until
 explicit cleanup. Persistent PostgreSQL and MongoDB data live under
 `E:\smarthome_data` as configured by the root Compose file.
+
+## Recovering incomplete generation
+
+The user list shows **created / planned** device counts and a separate claimed
+count. A registered account can exist before login and device provisioning finish;
+an account appearing in the list does not mean all its devices have been created.
+
+On HTTP 429, the simulator honors `Retry-After` (or the server's retry message),
+waits and retries up to five times. API Gateway authentication limits remain in
+place. Pause/cancel interrupts the wait, and the run history records the retry.
+Other API failures are reported rather than automatically replaying writes.
+
+For a `partial` run, open **Lần chạy** and select **Tạo bù thiết bị còn thiếu**.
+Existing accounts/devices are reused; completed users are skipped and explicitly
+unpaired devices are not reclaimed. Once generation finishes successfully, the
+run becomes `completed` even if its historical error counter is nonzero.
+Runs already cleaned cannot be recovered by this action.
+
+Both API Gateway and simulator backend must be running before verifying the
+dashboard admin token. HTTP 502/504 indicates the dashboard cannot obtain a
+backend response; an invalid token is reported as HTTP 401.
+
+## MQTT identity of virtual devices
+
+The Simulator acts as the factory for virtual devices. Each virtual device
+gets its own broker password on first connection (stored encrypted in
+`simulated_devices.mqtt_secret`), registered through the broker's Dynamic
+Security API with the `MQTT_FACTORY_*` identity, and connects with
+username = MAC like a physical device. Devices subscribe only to their own
+topics; relay Nodes receive topology from their Hub's assignment. Cleanup that
+retires a factory record also revokes the device's broker identity. See
+`docs/architecture/mqtt-security.md`.

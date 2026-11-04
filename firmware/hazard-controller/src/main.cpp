@@ -58,6 +58,7 @@ SensorSnapshot sensors;
 TopologyAssignment topology;
 
 String deviceMac;
+String mqttPassword;
 String directControlTopic;
 String hubControlTopic;
 String topologyTopic;
@@ -562,20 +563,31 @@ void connectWifi() {
     WiFi.begin(BoardConfig::WIFI_SSID, BoardConfig::WIFI_PASSWORD);
 }
 
+// Broker identity (docs/architecture/mqtt-security.md): username is always the
+// device MAC; the password is a per-device factory secret in NVS
+// namespace "factory", key "mqttPassword". The build flag is a lab fallback only.
+String loadMqttPassword() {
+    Preferences factory;
+    String password;
+    if (factory.begin("factory", true)) {
+        password = factory.getString("mqttPassword", "");
+        factory.end();
+    }
+    if (password.isEmpty()) password = BoardConfig::MQTT_PASSWORD;
+    return password;
+}
+
 void connectMqtt() {
     if (mqtt.connected() || WiFi.status() != WL_CONNECTED) return;
     const auto current = nowMillis();
     if (current - lastReconnectAt < BoardConfig::MQTT_RECONNECT_INTERVAL_MS) return;
     lastReconnectAt = current;
 
-    const bool hasCredentials = BoardConfig::MQTT_USERNAME[0] != '\0';
-    const bool connected = hasCredentials
-        ? mqtt.connect(
-            deviceMac.c_str(),
-            BoardConfig::MQTT_USERNAME,
-            BoardConfig::MQTT_PASSWORD
-        )
-        : mqtt.connect(deviceMac.c_str());
+    const bool connected = mqtt.connect(
+        deviceMac.c_str(),
+        deviceMac.c_str(),
+        mqttPassword.c_str()
+    );
     if (!connected) return;
     subscribeRuntimeTopics();
     publishTopologyAck();
@@ -649,6 +661,7 @@ void setup() {
     WiFi.mode(WIFI_STA);
     deviceMac = WiFi.macAddress();
     deviceMac.toUpperCase();
+    mqttPassword = loadMqttPassword();
     buildTopics();
 
     preferences.begin("hazard-v2", false);

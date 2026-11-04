@@ -46,6 +46,24 @@ pio device monitor
 Không đưa mật khẩu thật vào Git. Với môi trường triển khai, truyền secret qua
 build flags/CI secret hoặc cơ chế provisioning riêng.
 
+## Danh tính MQTT
+
+Broker bắt buộc xác thực (`docs/architecture/mqtt-security.md`). Firmware luôn
+đăng nhập với username = MAC của thiết bị và chỉ được dùng topic
+`smarthome/<MAC>/...`. Mật khẩu là secret riêng của từng thiết bị, cấp ở bước
+factory:
+
+```powershell
+cd mqtt-worker-service
+$env:MQTT_BROKER_URL="mqtt://192.168.1.10:1883"; $env:MQTT_FACTORY_PASSWORD="<root .env>"
+node src/tools/provisionDeviceIdentity.js AA:BB:CC:DD:EE:FF
+```
+
+Ghi giá trị `mqttPassword` in ra vào NVS namespace `factory`, key
+`mqttPassword`. Chạy lại lệnh sẽ xoay mật khẩu; thêm `--revoke` để thu hồi.
+Riêng mạng lab có thể dùng `-D SMARTHOME_MQTT_PASSWORD=\"...\"` làm dự phòng
+khi NVS chưa có giá trị. Kết nối chưa có TLS nên chỉ dùng trong mạng tin cậy.
+
 ## Giới hạn phần cứng chưa được phép đoán
 
 `database/catalog-v2/hardware-profile.json` vẫn chưa chốt GPIO thực tế, hiệu
