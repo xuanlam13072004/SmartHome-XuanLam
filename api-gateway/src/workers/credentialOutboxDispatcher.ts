@@ -53,7 +53,11 @@ export class CredentialOutboxDispatcher {
                 const payload = typeof row.payload === 'string'
                     ? row.payload
                     : JSON.stringify(row.payload);
-                await this.redis.xadd(env.REDIS_CREDENTIAL_STREAM, '*', 'data', payload);
+                await this.redis.xadd(
+                    env.REDIS_CREDENTIAL_STREAM,
+                    'MAXLEN', '~', env.REDIS_STREAM_MAXLEN,
+                    '*', 'data', payload,
+                );
                 const client = await this.pgPool.connect();
                 try {
                     await client.query('BEGIN');

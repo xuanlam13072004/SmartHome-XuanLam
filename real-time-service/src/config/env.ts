@@ -10,6 +10,9 @@ const envSchema = z.object({
     PORT: z.coerce.number().int().positive().default(3001),
 
     JWT_SECRET: z.string().min(8),
+    // API Gateway is the authority for account status and token_version.
+    API_GATEWAY_URL: z.string().url().default('http://localhost:3000'),
+    AUTH_VERIFY_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
 
     MONGO_URI: z.string().url(),
     MONGO_DB_NAME: z.string().default('SmartHomeDB'),

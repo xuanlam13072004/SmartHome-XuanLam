@@ -30,11 +30,22 @@ const envSchema = z.object({
     REDIS_OPERATION_STATUS_STREAM: z.string().default('operation.status.stream'),
     REDIS_CREDENTIAL_STREAM: z.string().default('device.credentials'),
     REDIS_CREDENTIAL_STATUS_STREAM: z.string().default('credential.status.stream'),
+    // Approximate cap per Redis Stream; durable state lives in PostgreSQL outboxes.
+    REDIS_STREAM_MAXLEN: z.coerce.number().int().positive().default(100000),
     REDIS_CACHE_OWNER_PREFIX: z.string().default('owner_of:'),
     REDIS_CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
     OPERATION_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(30),
     TOPOLOGY_ELECTION_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(30),
     TOPOLOGY_HUB_LEASE_SECONDS: z.coerce.number().int().positive().default(15),
+
+    // Rate limits (requests per minute). Keyed by account/email/session, not IP,
+    // except the coarse per-IP ceilings. Raise them in a load-test environment.
+    RATE_LIMIT_REGISTER_PER_IP_PER_MINUTE: z.coerce.number().int().positive().default(20),
+    RATE_LIMIT_LOGIN_PER_EMAIL_PER_MINUTE: z.coerce.number().int().positive().default(5),
+    RATE_LIMIT_LOGIN_PER_IP_PER_MINUTE: z.coerce.number().int().positive().default(100),
+    RATE_LIMIT_REFRESH_PER_SESSION_PER_MINUTE: z.coerce.number().int().positive().default(10),
+    RATE_LIMIT_CLAIM_PER_ACCOUNT_PER_MINUTE: z.coerce.number().int().positive().default(10),
+    RATE_LIMIT_OPERATIONS_PER_ACCOUNT_PER_MINUTE: z.coerce.number().int().positive().default(30),
 });
 
 const parseResult = envSchema.safeParse(process.env);

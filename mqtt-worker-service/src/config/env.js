@@ -35,6 +35,8 @@ const envSchema = z.object({
     REDIS_CLAIM_IDLE_MS: z.coerce.number().positive().default(60000),
     REDIS_CLAIM_COUNT: z.coerce.number().positive().default(50),
     REDIS_CLAIM_INTERVAL_MS: z.coerce.number().positive().default(5000),
+    // Approximate cap per Redis Stream; durable state lives in PostgreSQL outboxes.
+    REDIS_STREAM_MAXLEN: z.coerce.number().int().positive().default(100000),
 
     // MQTT
     MQTT_BROKER_URL: z.string().url().default('mqtt://localhost:1883'),
@@ -47,6 +49,8 @@ const envSchema = z.object({
     MQTT_HUB_CONTROL_TOPIC: z.string().default('smarthome/{hub_id}/hub/control'),
     MQTT_TOPOLOGY_TOPIC: z.string().default('smarthome/{device_id}/topology'),
     MQTT_TELEMETRY_TOPIC: z.string().default('smarthome/+/telemetry'),
+    MQTT_EVENT_TOPIC: z.string().default('smarthome/+/events'),
+    MQTT_EVENT_MAX_PAYLOAD_BYTES: z.coerce.number().int().min(256).max(65536).default(16384),
     MQTT_ACK_TOPIC: z.string().default('smarthome/+/ack'),
     MQTT_TOPOLOGY_ACK_TOPIC: z.string().default('smarthome/+/topology/ack'),
     MQTT_STATUS_TOPIC: z.string().default('smarthome/+/status'),
@@ -59,6 +63,7 @@ const envSchema = z.object({
     MONGO_DB_NAME: z.string().default('SmartHomeDB'),
     MONGO_DEVICE_SHADOWS_COLLECTION: z.string().default('device_shadows'),
     MONGO_TELEMETRY_COLLECTION: z.string().default('device_telemetry'),
+    MONGO_DEVICE_EVENTS_COLLECTION: z.string().default('device_events'),
     MONGO_INGEST_RECEIPTS_COLLECTION: z.string().default('telemetry_ingest_receipts'),
     TELEMETRY_BATCH_SIZE: z.coerce.number().positive().default(200),
     TELEMETRY_BATCH_FLUSH_MS: z.coerce.number().positive().default(1000),

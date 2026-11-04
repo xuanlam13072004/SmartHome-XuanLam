@@ -28,6 +28,9 @@ const credentialSchema = z.object({
 async function updateCredentialStatus(redis, config, jobId, status, reasonCode = null) {
     await redis.xadd(
         config.REDIS_CREDENTIAL_STATUS_STREAM,
+        'MAXLEN',
+        '~',
+        config.REDIS_STREAM_MAXLEN,
         '*',
         'data',
         JSON.stringify({ job_id: jobId, status, reason_code: reasonCode }),

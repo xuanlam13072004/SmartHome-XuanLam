@@ -109,6 +109,8 @@ const COLLECTIONS = [
             { key: { owner_id: 1, updated_at: -1 }, options: { name: 'idx_device_shadows_owner' } },
             { key: { is_online: 1, last_seen: -1 }, options: { name: 'idx_device_shadows_presence' } },
             { key: { product_id: 1, catalog_revision: 1 }, options: { name: 'idx_device_shadows_product_revision' } },
+            // Realtime initial_state looks up every device an account can access.
+            { key: { access_account_ids: 1 }, options: { name: 'idx_device_shadows_access_accounts' } },
         ],
     },
     {
@@ -132,20 +134,43 @@ const COLLECTIONS = [
             validator: {
                 $jsonSchema: {
                     bsonType: 'object',
-                    required: ['event_id', 'device_id', 'owner_id', 'product_id', 'catalog_revision', 'instance_id', 'type', 'severity', 'source', 'occurred_at', 'data'],
+                    required: ['event_id', 'device_id', 'owner_id', 'product_id', 'catalog_revision', 'capability_id', 'instance_id', 'event_name', 'type', 'severity', 'retention', 'source', 'seq', 'occurred_at', 'received_at', 'device_time_trusted', 'transport', 'data'],
                     properties: {
                         event_id: { bsonType: 'string' },
                         device_id: { bsonType: 'string', pattern: '^([0-9A-F]{2}:){5}[0-9A-F]{2}$' },
                         owner_id: { bsonType: 'string' },
                         product_id: { bsonType: 'string', pattern: '^prod_[a-z0-9_]+$' },
                         catalog_revision: { bsonType: 'int', minimum: 1 },
+                        capability_id: { bsonType: 'string', pattern: '^[a-z][a-z0-9_]+$' },
                         instance_id: { bsonType: 'string' },
+                        event_name: { bsonType: 'string', pattern: '^[a-z][a-z0-9_]+$' },
                         type: { bsonType: 'string' },
                         severity: { enum: ['info', 'warning', 'critical'] },
+                        retention: { enum: ['timeline', 'incident'] },
                         source: { bsonType: 'string' },
+                        // The Node.js BSON encoder promotes integral numbers
+                        // above Int32.MAX_VALUE to double. Uptime crosses that
+                        // boundary after about 24.8 days, so double is valid
+                        // after ingress has already enforced an integer value.
+                        seq: { bsonType: ['int', 'long', 'double'], minimum: 0 },
+                        device_uptime_ms: { bsonType: ['int', 'long', 'double', 'null'], minimum: 0 },
                         incident_id: { bsonType: ['string', 'null'] },
                         correlation_id: { bsonType: ['string', 'null'] },
                         occurred_at: { bsonType: 'date' },
+                        received_at: { bsonType: 'date' },
+                        device_time_trusted: { bsonType: 'bool' },
+                        transport: {
+                            bsonType: 'object',
+                            required: ['mode', 'network_id', 'topology_epoch', 'mqtt_origin'],
+                            properties: {
+                                mode: { enum: ['hub', 'relay', 'direct_fallback'] },
+                                network_id: { bsonType: 'string' },
+                                topology_epoch: { bsonType: ['int', 'long'], minimum: 0 },
+                                hub_mac: { bsonType: ['string', 'null'] },
+                                mqtt_origin: { bsonType: 'string' },
+                            },
+                        },
+                        trace_id: { bsonType: ['string', 'null'] },
                         data: { bsonType: 'object' },
                     },
                 },
@@ -154,9 +179,10 @@ const COLLECTIONS = [
             validationAction: 'error',
         },
         indexes: [
-            { key: { event_id: 1 }, options: { unique: true, name: 'uq_device_events_event_id' } },
-            { key: { device_id: 1, occurred_at: -1 }, options: { name: 'idx_device_events_device_time' } },
-            { key: { owner_id: 1, occurred_at: -1 }, options: { name: 'idx_device_events_owner_time' } },
+            { key: { device_id: 1, event_id: 1 }, options: { unique: true, name: 'device_event_identity_unique' } },
+            { key: { device_id: 1, received_at: -1, _id: -1 }, options: { name: 'device_event_device_timeline' } },
+            { key: { owner_id: 1, received_at: -1 }, options: { name: 'device_event_owner_timeline' } },
+            { key: { event_name: 1, received_at: -1 }, options: { name: 'device_event_type_timeline' } },
             { key: { incident_id: 1, occurred_at: 1 }, options: { name: 'idx_device_events_incident', partialFilterExpression: { incident_id: { $type: 'string' } } } },
         ],
     },
@@ -214,6 +240,8 @@ const COLLECTIONS = [
         },
         indexes: [
             { key: { device_id: 1, updated_at: -1 }, options: { name: 'idx_active_operations_device' } },
+            // Realtime initial_state lists the operations started by the connecting account.
+            { key: { 'operation.actor_account_id': 1 }, options: { name: 'idx_active_operations_actor' } },
             { key: { expires_at: 1 }, options: { name: 'ttl_active_operations', expireAfterSeconds: 0 } },
         ],
     },

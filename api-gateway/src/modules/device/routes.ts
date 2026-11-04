@@ -1,9 +1,11 @@
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { typedRouteConfig } from '../../plugins/validation';
+import { rateLimitLimits } from '../../plugins/rateLimit';
 import {
     claimSchema,
     credentialListSchema,
     deviceStateSchema,
+    deviceEventsSchema,
     operationSchema,
     replaceCredentialSchema,
     resourceSessionSchema,
@@ -17,6 +19,7 @@ import {
     createDeviceResourceSession,
     getDeviceResourceSession,
     getDeviceState,
+    listDeviceEvents,
     listDeviceCredentials,
     listDevices,
     replaceDeviceCredential,
@@ -53,7 +56,7 @@ const deviceRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         config: typedRouteConfig({
             zodSchema: claimSchema,
             rateLimit: {
-                max: 10,
+                max: rateLimitLimits.claimPerAccount(),
                 timeWindow: '1 minute',
             },
         }),
@@ -79,7 +82,7 @@ const deviceRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         config: typedRouteConfig({
             zodSchema: operationSchema,
             rateLimit: {
-                max: 30,
+                max: rateLimitLimits.operationsPerAccount(),
                 timeWindow: '1 minute',
             },
         }),
@@ -177,6 +180,27 @@ const deviceRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         const params = request.params as any;
         const state = await getDeviceState(app, params.mac, (request.user as any).userId);
         return { success: true, state };
+    });
+
+    app.get('/devices/:mac/events', {
+        preHandler: [app.authenticate],
+        config: typedRouteConfig({
+            zodSchema: deviceEventsSchema,
+        }),
+    }, async (request) => {
+        const params = request.params as any;
+        const query = request.query as any;
+        const result = await listDeviceEvents(
+            app,
+            params.mac,
+            (request.user as any).userId,
+            {
+                limit: query.limit,
+                cursor: query.cursor,
+                eventName: query.event_name,
+            },
+        );
+        return { success: true, ...result };
     });
 
     app.patch('/devices/:mac', {

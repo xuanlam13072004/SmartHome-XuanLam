@@ -67,7 +67,11 @@ export class OperationOutboxDispatcher {
                 const payload = typeof row.payload === 'string'
                     ? row.payload
                     : JSON.stringify(row.payload);
-                await this.redis.xadd(env.REDIS_OPERATION_STREAM, '*', 'data', payload);
+                await this.redis.xadd(
+                    env.REDIS_OPERATION_STREAM,
+                    'MAXLEN', '~', env.REDIS_STREAM_MAXLEN,
+                    '*', 'data', payload,
+                );
 
                 const client = await this.pgPool.connect();
                 try {

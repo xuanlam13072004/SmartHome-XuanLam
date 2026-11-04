@@ -1,5 +1,6 @@
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { typedRouteConfig } from '../../plugins/validation';
+import { bodyFieldKey, ipKey, rateLimitLimits } from '../../plugins/rateLimit';
 import { loginSchema, logoutSchema, reauthenticateSchema, refreshSchema, registerSchema } from './schemas';
 import { loginUser, logoutSession, reauthenticateUser, refreshSession, registerUser } from './service';
 
@@ -17,8 +18,9 @@ const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         config: typedRouteConfig({
             zodSchema: registerSchema,
             rateLimit: {
-                max: 5,
+                max: rateLimitLimits.registerPerIp(),
                 timeWindow: '1 minute',
+                keyGenerator: ipKey,
             },
         }),
     }, async (request) => {
@@ -28,11 +30,15 @@ const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
     });
 
     app.post('/auth/login', {
+        // Coarse per-IP ceiling against credential stuffing across many emails.
+        preHandler: [app.limitBy('login-ip', ipKey, rateLimitLimits.loginPerIp())],
         config: typedRouteConfig({
             zodSchema: loginSchema,
+            // Per-account brute-force protection; users behind one NAT do not block each other.
             rateLimit: {
-                max: 5,
+                max: rateLimitLimits.loginPerEmail(),
                 timeWindow: '1 minute',
+                keyGenerator: bodyFieldKey('email'),
             },
         }),
     }, async (request) => {
@@ -45,8 +51,9 @@ const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         config: typedRouteConfig({
             zodSchema: refreshSchema,
             rateLimit: {
-                max: 5,
+                max: rateLimitLimits.refreshPerSession(),
                 timeWindow: '1 minute',
+                keyGenerator: bodyFieldKey('session_id'),
             },
         }),
     }, async (request) => {
@@ -61,6 +68,7 @@ const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
             rateLimit: {
                 max: 10,
                 timeWindow: '1 minute',
+                keyGenerator: bodyFieldKey('session_id'),
             },
         }),
     }, async (request) => {

@@ -37,6 +37,9 @@ async function updateOperationStatus(
 ) {
     await redis.xadd(
         config.REDIS_OPERATION_STATUS_STREAM,
+        'MAXLEN',
+        '~',
+        config.REDIS_STREAM_MAXLEN,
         '*',
         'data',
         JSON.stringify({

@@ -1,27 +1,38 @@
 import { WebSocket } from 'ws';
 import { IncomingMessage } from 'http';
-import jwt from 'jsonwebtoken';
-import { env } from '../config/env.js';
 import { addConnection, removeConnection, sendInitialState } from '../services/connectionManager.js';
+import { AccessTokenRejectedError, verifyAccessToken } from '../services/accessTokenVerifier.js';
 import { safeSend } from '../utils/safeSend.js';
 
-interface JWTPayload {
-    userId: string;
-    purpose?: string;
-    email?: string;
-    iat?: number;
-    exp?: number;
-}
+const AUTH_TIMEOUT_MS = 5000;
+// setTimeout cannot exceed a signed 32-bit delay.
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 export function handleConnection(socket: WebSocket, req: IncomingMessage): void {
     let isAuthenticated = false;
+    let authInProgress = false;
     let ownerId: string | null = null;
     let isAlive = true;
+    let closed = false;
 
-    // Timeout timer for unauthenticated connections
     let authTimeout: NodeJS.Timeout | null = null;
+    let expiryTimer: NodeJS.Timeout | null = null;
 
-    // Helper to send error and close connection
+    const cleanup = () => {
+        if (authTimeout) {
+            clearTimeout(authTimeout);
+            authTimeout = null;
+        }
+        if (expiryTimer) {
+            clearTimeout(expiryTimer);
+            expiryTimer = null;
+        }
+        if (isAuthenticated && ownerId) {
+            removeConnection(ownerId, socket);
+        }
+        isAuthenticated = false;
+    };
+
     const rejectConnection = (reason: string, closeCode: number = 4001) => {
         safeSend(socket, JSON.stringify({ event: 'error', message: reason }));
         if (socket.readyState === WebSocket.OPEN) {
@@ -30,61 +41,73 @@ export function handleConnection(socket: WebSocket, req: IncomingMessage): void 
         cleanup();
     };
 
-    const cleanup = () => {
-        if (authTimeout) {
-            clearTimeout(authTimeout);
-            authTimeout = null;
-        }
-        if (isAuthenticated && ownerId) {
-            removeConnection(ownerId, socket);
+    /**
+     * Authenticates once per connection. The access token is checked against
+     * API Gateway (account status + token_version) and the socket is closed when
+     * the token expires, so the client reconnects with a refreshed token and a
+     * revoked account cannot keep receiving device data.
+     */
+    const authenticate = async (token: string, acknowledge: boolean) => {
+        authInProgress = true;
+        try {
+            const access = await verifyAccessToken(token);
+            if (closed) return;
+            if (access.expiresAtMs <= Date.now()) {
+                rejectConnection('Access token expired');
+                return;
+            }
+            if (!addConnection(access.userId, socket)) {
+                rejectConnection('Connection limit exceeded', 4008);
+                return;
+            }
+            isAuthenticated = true;
+            ownerId = access.userId;
+            if (authTimeout) {
+                clearTimeout(authTimeout);
+                authTimeout = null;
+            }
+            expiryTimer = setTimeout(() => {
+                safeSend(socket, JSON.stringify({ event: 'token_expired', message: 'Access token expired' }));
+                rejectConnection('Access token expired');
+            }, Math.min(access.expiresAtMs - Date.now(), MAX_TIMER_DELAY_MS));
+            expiryTimer.unref();
+
+            console.log(`✅ User ${ownerId} authenticated.`);
+            if (acknowledge) {
+                safeSend(socket, JSON.stringify({ event: 'auth_success', message: 'Authenticated successfully' }));
+            }
+            await sendInitialState(access.userId, socket);
+        } catch (err) {
+            if (err instanceof AccessTokenRejectedError) {
+                console.warn('⚠️ WebSocket authentication rejected:', err.message);
+                rejectConnection(err.message);
+            } else {
+                console.error('❌ WebSocket authentication unavailable:', err);
+                rejectConnection('Authentication service unavailable', 1013);
+            }
+        } finally {
+            authInProgress = false;
         }
     };
 
-    // Try token auth via HTTP Authorization header first
+    // Unauthenticated connections must complete auth within AUTH_TIMEOUT_MS.
+    authTimeout = setTimeout(() => {
+        if (!isAuthenticated) {
+            console.log('⏰ Authentication timeout. Closing connection.');
+            rejectConnection('Authentication Timeout');
+        }
+    }, AUTH_TIMEOUT_MS);
+
+    // Token via HTTP Authorization header, otherwise the first message must be "auth".
     const authHeader = req.headers['authorization'];
     if (authHeader && authHeader.startsWith('Bearer ')) {
-        const token = authHeader.substring(7);
-        try {
-            const decoded = jwt.verify(token, env.JWT_SECRET) as JWTPayload;
-            if (decoded && decoded.userId && !decoded.purpose) {
-                isAuthenticated = true;
-                ownerId = decoded.userId;
-                if (!addConnection(ownerId, socket)) {
-                    isAuthenticated = false;
-                    rejectConnection('Connection limit exceeded', 4008);
-                    return;
-                }
-                console.log(`✅ User ${ownerId} authenticated via Authorization header.`);
-                
-                // Send initial state
-                sendInitialState(ownerId, socket).catch((err) => {
-                    console.error('Error sending initial state:', err);
-                });
-            } else {
-                rejectConnection('Invalid token payload');
-                return;
-            }
-        } catch (err) {
-            console.warn('⚠️ Header auth failed, closing connection:', err);
-            rejectConnection('Invalid authentication token');
-            return;
-        }
-    } else {
-        // Fallback: Message-based authentication (must happen within 5 seconds)
-        authTimeout = setTimeout(() => {
-            if (!isAuthenticated) {
-                console.log('⏰ Authentication timeout. Closing connection.');
-                rejectConnection('Authentication Timeout');
-            }
-        }, 5000);
+        void authenticate(authHeader.substring(7), false);
     }
 
-    // Ping/Pong Heartbeat Keep-Alive setup
     socket.on('pong', () => {
         isAlive = true;
     });
 
-    // Handle incoming messages
     socket.on('message', async (data) => {
         try {
             const messageStr = data.toString();
@@ -101,50 +124,23 @@ export function handleConnection(socket: WebSocket, req: IncomingMessage): void 
             }
 
             if (!isAuthenticated) {
-                // The first event must be "auth"
+                if (authInProgress) return;
                 if (parsed.event === 'auth') {
                     const token = parsed.payload?.token || parsed.token;
-                    if (!token) {
+                    if (typeof token !== 'string' || !token) {
                         rejectConnection('Token missing in auth payload');
                         return;
                     }
-
-                    try {
-                        const decoded = jwt.verify(token, env.JWT_SECRET) as JWTPayload;
-                        if (decoded && decoded.userId && !decoded.purpose) {
-                            isAuthenticated = true;
-                            ownerId = decoded.userId;
-                            if (authTimeout) {
-                                clearTimeout(authTimeout);
-                                authTimeout = null;
-                            }
-                            if (!addConnection(ownerId, socket)) {
-                                isAuthenticated = false;
-                                rejectConnection('Connection limit exceeded', 4008);
-                                return;
-                            }
-                            console.log(`✅ User ${ownerId} authenticated via auth message.`);
-                            
-                            safeSend(socket, JSON.stringify({ event: 'auth_success', message: 'Authenticated successfully' }));
-
-                            // Push initial state
-                            await sendInitialState(ownerId, socket);
-                        } else {
-                            rejectConnection('Invalid token payload');
-                        }
-                    } catch (err) {
-                        console.warn('⚠️ Message auth failed:', err);
-                        rejectConnection('Invalid authentication token');
-                    }
+                    await authenticate(token, true);
                 } else {
                     rejectConnection('Authentication required');
                 }
-            } else {
-                // Client is already authenticated.
-                // WS server is primarily push-only, but let's handle a manual text 'ping' as well
-                if (parsed.event === 'ping') {
-                    safeSend(socket, JSON.stringify({ event: 'pong', timestamp: new Date().toISOString() }));
-                }
+                return;
+            }
+
+            // Authenticated sockets are push-only apart from an application-level ping.
+            if (parsed.event === 'ping') {
+                safeSend(socket, JSON.stringify({ event: 'pong', timestamp: new Date().toISOString() }));
             }
         } catch (err) {
             console.error('Error handling WebSocket message:', err);
@@ -152,6 +148,7 @@ export function handleConnection(socket: WebSocket, req: IncomingMessage): void 
     });
 
     socket.on('close', (code, reason) => {
+        closed = true;
         console.log(`🔌 WebSocket connection closed. Code: ${code}, Reason: ${reason}`);
         cleanup();
     });
@@ -161,7 +158,7 @@ export function handleConnection(socket: WebSocket, req: IncomingMessage): void 
         cleanup();
     });
 
-    // Periodically verify that this socket is still alive (checked by index.ts ping interval)
+    // Checked by the ping interval in server.ts
     (socket as any).isAlive = () => isAlive;
     (socket as any).setDead = () => { isAlive = false; };
 }
