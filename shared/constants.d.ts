@@ -1,5 +1,6 @@
 export declare const REDIS_CHANNELS: {
     readonly DEVICE_TELEMETRY: 'device.telemetry';
+    readonly DEVICE_EVENT: 'device.event';
     readonly DEVICE_STATUS: 'device.status';
     readonly DEVICE_OPERATION: 'device.operation';
     readonly DEVICE_CREDENTIAL: 'device.credential';

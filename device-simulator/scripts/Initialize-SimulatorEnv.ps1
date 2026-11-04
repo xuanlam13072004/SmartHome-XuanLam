@@ -73,6 +73,11 @@ $overrides = @{
     MAIN_MONGO_DB_NAME               = $upstream['MONGO_DB_NAME']
     MAIN_MONGO_DEVICE_SHADOWS_COLLECTION = $upstream['MONGO_DEVICE_SHADOWS_COLLECTION']
     MAIN_MONGO_TELEMETRY_COLLECTION      = $upstream['MONGO_TELEMETRY_COLLECTION']
+    MAIN_MONGO_DEVICE_EVENTS_COLLECTION   = if ($upstream['MONGO_DEVICE_EVENTS_COLLECTION']) {
+        $upstream['MONGO_DEVICE_EVENTS_COLLECTION']
+    } else {
+        'device_events'
+    }
 }
 
 $outputLines = foreach ($line in [System.IO.File]::ReadAllLines($templatePath)) {

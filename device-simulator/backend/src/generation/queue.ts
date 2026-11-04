@@ -34,9 +34,11 @@ import {
     assertClaimedProductIdentity,
     resolveDeviceProduct,
 } from '../catalog/device-contract';
-
-const delay = (milliseconds: number) =>
-    new Promise((resolve) => setTimeout(resolve, milliseconds));
+import { ensureAccessPin } from '../security/device-pin';
+import { GenerationTaskLifecycle } from './task-lifecycle';
+import { verifyLiveDeviceOwnership } from '../provisioning/ownership';
+import { setTimeout as wait } from 'node:timers/promises';
+import type { RequestOptions } from '../infrastructure/api-gateway/rate-limit-retry';
 
 interface AccountRow {
     id: string;
@@ -49,24 +51,25 @@ type LoginSession = Awaited<ReturnType<typeof apiGateway.login>>;
 
 export class GenerationQueue {
     private readonly logger: FastifyBaseLogger;
-    private readonly runningTasks = new Set<string>();
+    private readonly tasks = new GenerationTaskLifecycle();
 
-    constructor(logger: FastifyBaseLogger) {
+    constructor(logger: FastifyBaseLogger, private readonly registryDb = getMongoDb) {
         this.logger = logger.child({ module: 'GenerationQueue' });
     }
 
     isRunning(runId: string): boolean {
-        return this.runningTasks.has(runId);
+        return this.tasks.isActive(runId);
     }
 
     async startRun(runInput: SimulationRun): Promise<void> {
-        if (this.runningTasks.has(runInput.id)) return;
-        this.runningTasks.add(runInput.id);
+        await this.tasks.run(runInput.id, () => this.executeRun(runInput));
+    }
 
-        const db = getMongoDb();
+    private async executeRun(runInput: SimulationRun): Promise<void> {
+
+        const db = this.registryDb();
         const run = await db.collection<SimulationRun>('simulation_runs').findOne({ id: runInput.id });
-        if (!run || ['cancelled', 'cleaning', 'cleaned', 'cleanup_blocked'].includes(run.status)) {
-            this.runningTasks.delete(runInput.id);
+        if (!this.tasks.isActive(runInput.id) || !run || !['queued', 'running'].includes(run.status)) {
             return;
         }
 
@@ -83,7 +86,7 @@ export class GenerationQueue {
 
         try {
             for (let index = 0; index < run.config.user_count; index += 1) {
-                if (!this.runningTasks.has(run.id)) {
+                if (!this.tasks.isActive(run.id)) {
                     this.logger.info({ runId: run.id }, 'Simulation generation stopped');
                     return;
                 }
@@ -91,6 +94,7 @@ export class GenerationQueue {
                 try {
                     await this.processUserGeneration(run, index);
                 } catch (error) {
+                    if (!this.tasks.isActive(run.id)) return;
                     const message = error instanceof Error ? error.message : String(error);
                     this.logger.error({ err: error, runId: run.id, userIndex: index }, 'User generation failed');
                     await this.recordError(run.id, message);
@@ -116,16 +120,18 @@ export class GenerationQueue {
 
                 await this.syncProgress(run.id);
                 if (index < run.config.user_count - 1 && env.REGISTRATION_DELAY_MS > 0) {
-                    await delay(env.REGISTRATION_DELAY_MS);
+                    await wait(env.REGISTRATION_DELAY_MS, undefined, { signal: this.tasks.signal(run.id) });
                 }
             }
 
-            if (!this.runningTasks.has(run.id)) return;
+            if (!this.tasks.isActive(run.id)) return;
 
             await this.syncProgress(run.id);
-            const refreshed = await db.collection<SimulationRun>('simulation_runs').findOne({ id: run.id });
+            const readyUsers = await db.collection<SimulatedUserRecord>('simulated_users').countDocuments({
+                run_id: run.id, generation_state: 'ready', account_id: { $type: 'string' },
+            });
             const completedAt = new Date();
-            const status: RunStatus = (refreshed?.total_errors || 0) > 0 ? 'partial' : 'completed';
+            const status: RunStatus = readyUsers === run.config.user_count ? 'completed' : 'partial';
             const cleanupAfter = run.config.cleanup_policy === 'auto_24h'
                 ? new Date(completedAt.getTime() + env.CLEANUP_RETENTION_HOURS * 60 * 60 * 1000)
                 : undefined;
@@ -133,6 +139,7 @@ export class GenerationQueue {
             const completionFields: Record<string, unknown> = {
                 completed_at: completedAt,
                 cleanup_after: cleanupAfter,
+                ...(status === 'completed' ? { last_error: null } : {}),
             };
             await this.updateRunStatus(run.id, status, completionFields);
 
@@ -172,6 +179,7 @@ export class GenerationQueue {
                 data: { status, cleanup_after: cleanupAfter?.toISOString() },
             });
         } catch (error) {
+            if (!this.tasks.isActive(run.id)) return;
             const message = error instanceof Error ? error.message : String(error);
             this.logger.error({ err: error, runId: run.id }, 'Simulation run failed');
             await this.recordError(run.id, message);
@@ -188,17 +196,34 @@ export class GenerationQueue {
                 message: 'Simulation run failed',
                 data: { error: message },
             });
-        } finally {
-            this.runningTasks.delete(run.id);
         }
     }
 
-    stopRun(runId: string): void {
-        this.runningTasks.delete(runId);
+    async stopRun(runId: string): Promise<void> {
+        await this.tasks.stop(runId);
+    }
+
+    async stopAll(): Promise<void> {
+        await this.tasks.stopAll();
+    }
+
+    private requestOptions(runId: string, accountId?: string): RequestOptions {
+        return {
+            signal: this.tasks.signal(runId),
+            onRateLimit: async ({ path, attempt, delayMs }) => {
+                this.logger.warn({ runId, path, attempt, delayMs }, 'API throttled; waiting before retry');
+                await this.safeEvent({
+                    type: 'run.api_rate_limited', severity: 'warning', run_id: runId,
+                    ...(accountId ? { account_id: accountId } : {}),
+                    message: `API đang giới hạn yêu cầu; sẽ thử lại sau ${Math.ceil(delayMs / 1000)} giây.`,
+                    data: { path, attempt, delay_ms: delayMs },
+                });
+            },
+        };
     }
 
     private async processUserGeneration(run: SimulationRun, index: number): Promise<void> {
-        const db = getMongoDb();
+        const db = this.registryDb();
         const seed = run.config.random_seed || run.id;
         let user: SimulatedUserRecord | null =
             await db.collection<SimulatedUserRecord>('simulated_users').findOne({
@@ -239,6 +264,17 @@ export class GenerationQueue {
         }
         if (!user) throw new Error(`Failed to initialize simulated user ${index}`);
 
+        // A retry creates only missing work; completed users do not need another login.
+        if (user.account_id && user.generation_state === 'ready') {
+            const settledDevices = await db.collection<SimulatedDeviceRecord>('simulated_devices').countDocuments({
+                run_id: run.id, simulator_user_id: user.account_id,
+                generation_index: { $gte: 0, $lt: user.target_device_count },
+                provisioning_state: { $in: ['claimed', 'unpaired'] },
+            });
+            if (settledDevices === user.target_device_count) return;
+        }
+        const options = this.requestOptions(run.id, user.account_id);
+
         const password = decrypt(
             user.credential.iv,
             user.credential.encrypted,
@@ -256,8 +292,8 @@ export class GenerationQueue {
                 [user.email.toLowerCase()],
             );
             if (existingAccount.rows.length > 0) {
-                session = await this.loginForOwnershipRecovery(user.email, password);
-                const authenticated = await apiGateway.getCurrentUser(session.accessToken);
+                session = await this.loginForOwnershipRecovery(user.email, password, options);
+                const authenticated = await apiGateway.getCurrentUser(session.accessToken, options);
                 accountId = verifyRecoverableGeneratedAccount(
                     {
                         email: user.email,
@@ -276,7 +312,7 @@ export class GenerationQueue {
                     email: user.email,
                     password,
                     full_name: user.full_name,
-                });
+                }, options);
                 accountId = registered.id;
                 accountProvenance = 'registered';
             }
@@ -314,8 +350,8 @@ export class GenerationQueue {
             if (existingAccount.rows.length !== 1) {
                 throw new Error('ACCOUNT_OWNERSHIP_UNVERIFIED: registry account no longer exists');
             }
-            session = await this.loginForOwnershipRecovery(user.email, password);
-            const authenticated = await apiGateway.getCurrentUser(session.accessToken);
+            session = await this.loginForOwnershipRecovery(user.email, password, options);
+            const authenticated = await apiGateway.getCurrentUser(session.accessToken, options);
             accountId = verifyRecoverableGeneratedAccount(
                 {
                     email: user.email,
@@ -348,12 +384,13 @@ export class GenerationQueue {
             });
         }
 
-        session ||= await apiGateway.login({ email: user.email, password });
+        session ||= await apiGateway.login({ email: user.email, password }, options);
         await db.collection<SimulatedUserRecord>('simulated_users').updateOne(
             { run_id: run.id, generation_index: index },
             {
                 $set: {
                     generation_state: 'provisioning',
+                    last_error: null,
                     auth_session: encryptAuthSession(session),
                     updated_at: new Date(),
                 },
@@ -361,7 +398,7 @@ export class GenerationQueue {
         );
 
         for (let deviceIndex = 0; deviceIndex < user.target_device_count; deviceIndex += 1) {
-            if (!this.runningTasks.has(run.id)) return;
+            if (!this.tasks.isActive(run.id)) return;
             await this.ensureDevice(run, {
                 accountId,
                 userIndex: index,
@@ -370,7 +407,7 @@ export class GenerationQueue {
                 accessToken: session.accessToken,
             });
             if (deviceIndex < user.target_device_count - 1 && env.CLAIM_DELAY_MS > 0) {
-                await delay(env.CLAIM_DELAY_MS);
+                await wait(env.CLAIM_DELAY_MS, undefined, { signal: this.tasks.signal(run.id) });
             }
         }
 
@@ -390,10 +427,12 @@ export class GenerationQueue {
     private async loginForOwnershipRecovery(
         email: string,
         password: string,
+        options: RequestOptions,
     ): Promise<LoginSession> {
         try {
-            return await apiGateway.login({ email, password });
-        } catch {
+            return await apiGateway.login({ email, password }, options);
+        } catch (error) {
+            if ((error as { statusCode?: number }).statusCode !== 401) throw error;
             throw new Error(
                 'ACCOUNT_IDENTITY_COLLISION: existing email is not controlled by this simulator identity',
             );
@@ -410,7 +449,7 @@ export class GenerationQueue {
             accessToken: string;
         },
     ): Promise<void> {
-        const db = getMongoDb();
+        const db = this.registryDb();
         const seed = run.config.random_seed || run.id;
         const configuredNetworkCount = deterministicInteger(
             seed,
@@ -462,6 +501,16 @@ export class GenerationQueue {
                 simulated_network_index: simulatedNetworkIndex,
                 network_fingerprint: networkFingerprint,
                 secret: encrypt(identity.rawSecret),
+                ...(product.product_id === 'prod_entrance_controller' ? {
+                    access_pin: encrypt(
+                        deterministicInteger(
+                            seed,
+                            `run:${run.id}:user:${input.userIndex}:device:${input.deviceIndex}:access-pin`,
+                            0,
+                            999999,
+                        ).toString().padStart(6, '0'),
+                    ),
+                } : {}),
                 credential_private_key: encrypt(identity.credentialPrivateKeyPem),
                 credential_public_key_pem: identity.credentialPublicKeyPem,
                 factory_owned: false,
@@ -490,6 +539,9 @@ export class GenerationQueue {
             device.network_fingerprint = networkFingerprint;
         }
         if (!device) throw new Error(`Failed to initialize virtual device ${input.deviceIndex}`);
+
+        // An explicit user unpair must never be undone by restart/generation recovery.
+        if (device.provisioning_state === 'unpaired') return;
 
         const rawSecret = decrypt(device.secret.iv, device.secret.encrypted, device.secret.authTag);
         if (device.provisioning_state === 'planned' || device.provisioning_state === 'failed') {
@@ -534,7 +586,7 @@ export class GenerationQueue {
                     secret_key: rawSecret,
                     name: device.name,
                     network_fingerprint: device.network_fingerprint,
-                });
+                }, this.requestOptions(run.id, input.accountId));
             } catch (error) {
                 const existing = await getPgPool().query(
                     `SELECT d.id, d.mac, d.owner_id, d.product_id, d.catalog_revision, d.network_id,
@@ -621,7 +673,8 @@ export class GenerationQueue {
             });
         }
 
-        if (device.desired_state === 'online' && this.runningTasks.has(run.id)) {
+        if (device.desired_state === 'online' && this.tasks.isActive(run.id)) {
+            if (!await verifyLiveDeviceOwnership(device, getRuntimeManager(this.logger))) return;
             const product = await resolveDeviceProduct(device);
             const runtime = getRuntimeManager(this.logger).addDevice(
                 run.id,
@@ -633,6 +686,8 @@ export class GenerationQueue {
                 device.seq || 0,
                 device.state_snapshot,
                 assignmentFromClaim(device),
+                await ensureAccessPin(device),
+                device.irrigation_session,
             );
             await runtime.connect();
         }
@@ -661,7 +716,7 @@ export class GenerationQueue {
             const identity = await createMockDeviceIdentity(seed, `${scope}:attempt:${attempt}`);
             const [factoryRecord, registryRecord] = await Promise.all([
                 getPgPool().query('SELECT 1 FROM factory_devices WHERE mac = $1', [identity.mac]),
-                getMongoDb().collection('simulated_devices').findOne({ mac: identity.mac }),
+                this.registryDb().collection('simulated_devices').findOne({ mac: identity.mac }),
             ]);
             if (factoryRecord.rows.length === 0 && !registryRecord) return identity;
         }
@@ -669,7 +724,7 @@ export class GenerationQueue {
     }
 
     private async syncProgress(runId: string): Promise<void> {
-        const db = getMongoDb();
+        const db = this.registryDb();
         const [usersCreated, deviceProgress] = await Promise.all([
             db.collection<SimulatedUserRecord>('simulated_users').countDocuments({
                 run_id: runId,
@@ -723,14 +778,14 @@ export class GenerationQueue {
         status: RunStatus,
         extraFields: Record<string, unknown> = {},
     ): Promise<void> {
-        await getMongoDb().collection<SimulationRun>('simulation_runs').updateOne(
+        await this.registryDb().collection<SimulationRun>('simulation_runs').updateOne(
             { id: runId },
             { $set: { status, ...extraFields, updated_at: new Date() } },
         );
     }
 
     private async recordError(runId: string, errorMessage: string): Promise<void> {
-        await getMongoDb().collection<SimulationRun>('simulation_runs').updateOne(
+        await this.registryDb().collection<SimulationRun>('simulation_runs').updateOne(
             { id: runId },
             {
                 $inc: { total_errors: 1 },

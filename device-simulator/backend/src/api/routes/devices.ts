@@ -10,6 +10,7 @@ import {
     generateInitialState,
     patchDeviceState,
     type DeviceState,
+    type DeviceStatePatch,
     validateDeviceStatePatch,
 } from '../../generation/telemetry-generator';
 import {
@@ -19,9 +20,16 @@ import {
 import { getPgPool } from '../../infrastructure/postgres/client';
 import { getRuntimeManager, type RuntimeManager } from '../../runtime/manager';
 import { decrypt } from '../../security/crypto';
+import { ensureAccessPin } from '../../security/device-pin';
 import { assignmentFromClaim } from '../../runtime/topology';
+import { initializeEntranceController } from '../../runtime/entrance-controller';
 
-const deviceProjection = { secret: 0 } as const;
+const deviceProjection = {
+    secret: 0,
+    access_pin: 0,
+    credential_private_key: 0,
+    pending_device_events: 0,
+} as const;
 const statePatchSchema = z.object({
     instances: z.record(z.string(), z.object({
         reported: z.record(z.string(), z.unknown()).optional(),
@@ -69,6 +77,15 @@ const physicalSirenActionSchema = z.object({
     }
 });
 
+const physicalKeypadSchema = z.object({
+    key: z.string().trim().toUpperCase().regex(/^[0-9A-D*#]$/),
+}).strict();
+
+const physicalDoorSchema = z.object({
+    angle_degrees: z.number().finite().min(0).max(180),
+    sensor_state: z.enum(['calibrating', 'ready', 'fault']).default('ready'),
+}).strict();
+
 const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
     const runtimeManager = getRuntimeManager(app.log);
 
@@ -96,11 +113,12 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
             .findOne({ mac }, { projection: deviceProjection });
         if (!device) return reply.status(404).send({ success: false, error: 'Device not found' });
 
-        const [backendShadow, telemetry, operations, events] = await Promise.all([
+        const [backendShadow, telemetry, operations, events, deviceEvents] = await Promise.all([
             loadBackendShadow(mac),
             loadTelemetry(mac, 100),
             loadOperations(mac, 100),
             loadEvents(mac, 100),
+            loadDeviceEvents(mac, 100),
         ]);
         let productContractCompatible = true;
         let product;
@@ -110,6 +128,9 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
             productContractCompatible = false;
             product = getProduct(device.product_id);
         }
+        const runtime = runtimeManager.getDevice(mac);
+        const accessPin = await loadVirtualAccessPin(mac);
+        reply.header('Cache-Control', 'no-store');
         return {
             success: true,
             device,
@@ -119,6 +140,13 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
             telemetry,
             operations,
             events,
+            device_events: deviceEvents,
+            virtual_hardware: accessPin
+                ? {
+                    access_pin: accessPin,
+                    entrance: runtime?.entranceStatus || null,
+                }
+                : null,
         };
     });
 
@@ -137,6 +165,7 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
             device,
             backend_shadow: backendShadow,
             latest_telemetry: latestTelemetry[0] || null,
+            entrance: runtimeManager.getDevice(mac)?.entranceStatus || null,
         };
     });
 
@@ -283,9 +312,19 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         const context = await getDeviceContext(mac);
         if (!context) return reply.status(404).send({ success: false, error: 'Device not found' });
         const runtime = runtimeManager.getDevice(mac);
-        const state = runtime
-            ? await runtime.resetState()
-            : generateInitialState(await resolveDeviceProduct(context.device));
+        const product = await resolveDeviceProduct(context.device);
+        let state: DeviceState;
+        if (runtime) {
+            state = await runtime.resetState();
+        } else {
+            const initial = generateInitialState(product);
+            const entrance = initializeEntranceController(
+                initial,
+                product,
+                Boolean(await ensureAccessPin(context.device)),
+            );
+            state = entrance?.state || initial;
+        }
         if (!runtime) {
             state.state_version = (context.device.state_snapshot?.state_version || 0) + 1;
         }
@@ -303,6 +342,16 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         const context = await getDeviceContext(mac);
         if (!context) return reply.status(404).send({ success: false, error: 'Device not found' });
         const product = await resolveDeviceProduct(context.device);
+        const managedPatch = findManagedEntrancePatch(product, parsed.data);
+        if (managedPatch) {
+            return reply.status(409).send({
+                success: false,
+                error: {
+                    code: 'FIRMWARE_MANAGED_STATE',
+                    message: `${managedPatch} is controlled by the virtual firmware. Use the physical keypad/door API or a backend command.`,
+                },
+            });
+        }
         try {
             validateDeviceStatePatch(product, parsed.data);
         } catch (error) {
@@ -314,7 +363,9 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
                 },
             });
         }
-        const runtime = runtimeManager.getDevice(mac);
+        const runtime = runtimeManager.getDevice(mac)
+            || (product.capability_instances.some(i => i.capability_id === 'irrigation_pump')
+                ? await getOrCreateRuntime(runtimeManager, context) : undefined);
         const baseState = context.device.state_snapshot
             || generateInitialState(product);
         const state = runtime
@@ -332,6 +383,23 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
             state,
             delivery: runtime?.connected ? 'publish_requested' : 'stored_offline',
         };
+    });
+
+    app.post('/api/devices/:mac/physical-pump', async (request, reply) => {
+        const mac = normalizeMac((request.params as { mac: string }).mac);
+        const parsed = z.object({ action: z.enum(['start', 'stop']) }).strict().safeParse(request.body);
+        if (!parsed.success) return reply.status(400).send({ success: false, error: parsed.error.flatten() });
+        const context = await getDeviceContext(mac);
+        if (!context) return reply.status(404).send({ success: false, error: 'Device not found' });
+        try {
+            const runtime = await getOrCreateRuntime(runtimeManager, context);
+            const state = await runtime.performPhysicalIrrigationAction(parsed.data.action);
+            return { success: true, state, delivery: runtime.connected ? 'publish_requested' : 'queued_offline' };
+        } catch (error) {
+            return reply.status(409).send({ success: false, error: {
+                code: 'PHYSICAL_PUMP_ACTION_REJECTED', message: error instanceof Error ? error.message : 'Pump action failed',
+            } });
+        }
     });
 
     app.post('/api/devices/:mac/physical-siren', async (request, reply) => {
@@ -359,6 +427,65 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
                 error: {
                     code: 'PHYSICAL_SIREN_ACTION_REJECTED',
                     message: error instanceof Error ? error.message : 'Physical siren action failed',
+                },
+            });
+        }
+    });
+
+    app.post('/api/devices/:mac/physical-keypad', async (request, reply) => {
+        const mac = normalizeMac((request.params as { mac: string }).mac);
+        const parsed = physicalKeypadSchema.safeParse(request.body);
+        if (!parsed.success) {
+            return reply.status(400).send({ success: false, error: parsed.error.flatten() });
+        }
+        const context = await getDeviceContext(mac);
+        if (!context) return reply.status(404).send({ success: false, error: 'Device not found' });
+        try {
+            const runtime = await getOrCreateRuntime(runtimeManager, context);
+            const state = await runtime.pressEntranceKey(parsed.data.key);
+            return {
+                success: true,
+                state,
+                entrance: runtime.entranceStatus,
+                delivery: runtime.connected ? 'publish_requested' : 'queued_offline',
+            };
+        } catch (error) {
+            return reply.status(409).send({
+                success: false,
+                error: {
+                    code: 'PHYSICAL_KEYPAD_ACTION_REJECTED',
+                    message: error instanceof Error ? error.message : 'Physical keypad action failed',
+                },
+            });
+        }
+    });
+
+    app.post('/api/devices/:mac/physical-door', async (request, reply) => {
+        const mac = normalizeMac((request.params as { mac: string }).mac);
+        const parsed = physicalDoorSchema.safeParse(request.body);
+        if (!parsed.success) {
+            return reply.status(400).send({ success: false, error: parsed.error.flatten() });
+        }
+        const context = await getDeviceContext(mac);
+        if (!context) return reply.status(404).send({ success: false, error: 'Device not found' });
+        try {
+            const runtime = await getOrCreateRuntime(runtimeManager, context);
+            const state = await runtime.setEntranceDoorPosition(
+                parsed.data.angle_degrees,
+                parsed.data.sensor_state,
+            );
+            return {
+                success: true,
+                state,
+                entrance: runtime.entranceStatus,
+                delivery: runtime.connected ? 'publish_requested' : 'queued_offline',
+            };
+        } catch (error) {
+            return reply.status(409).send({
+                success: false,
+                error: {
+                    code: 'PHYSICAL_DOOR_ACTION_REJECTED',
+                    message: error instanceof Error ? error.message : 'Physical door action failed',
                 },
             });
         }
@@ -429,6 +556,41 @@ const loadEvents = async (mac: string, limit: number) =>
         .limit(limit)
         .toArray();
 
+const loadDeviceEvents = async (mac: string, limit: number) =>
+    getMainMongoDb().collection(env.MAIN_MONGO_DEVICE_EVENTS_COLLECTION)
+        .find({ device_id: mac })
+        .sort({ received_at: -1, _id: -1 })
+        .limit(limit)
+        .toArray();
+
+const loadVirtualAccessPin = async (mac: string): Promise<string | undefined> => {
+    const device = await getMongoDb().collection<SimulatedDeviceRecord>('simulated_devices')
+        .findOne({ mac });
+    return device ? ensureAccessPin(device) : undefined;
+};
+
+const findManagedEntrancePatch = (
+    product: Awaited<ReturnType<typeof resolveDeviceProduct>>,
+    patch: DeviceStatePatch,
+): string | null => {
+    const firmwareManagedCapabilities = new Set([
+        'door_lock',
+        'door_position',
+        'pin_authentication',
+        'keypad_input',
+        'irrigation_pump',
+    ]);
+    for (const instanceId of Object.keys(patch.instances || {})) {
+        const instance = product.capability_instances.find(
+            (candidate) => candidate.instance_id === instanceId,
+        );
+        if (instance && firmwareManagedCapabilities.has(instance.capability_id)) {
+            return instanceId;
+        }
+    }
+    return null;
+};
+
 const getDeviceContext = async (mac: string): Promise<{
     device: SimulatedDeviceRecord;
     run: SimulationRun;
@@ -447,6 +609,20 @@ const requireClaimedDevice = async (mac: string, reply: any) => {
     if (!context) {
         reply.status(404).send({ success: false, error: 'Device not found' });
         return null;
+    }
+    if (context.device.provisioning_state === 'unpaired') {
+        const claimed = await getPgPool().query<{ id: string }>(
+            'SELECT id::text FROM device_metadata WHERE mac = $1 AND owner_id = $2 AND is_active = true',
+            [mac, context.device.simulator_user_id],
+        );
+        if (claimed.rows[0]) {
+            context.device.provisioning_state = 'claimed';
+            context.device.device_id = claimed.rows[0].id;
+            await getMongoDb().collection<SimulatedDeviceRecord>('simulated_devices').updateOne(
+                { mac },
+                { $set: { provisioning_state: 'claimed', device_id: claimed.rows[0].id, updated_at: new Date() } },
+            );
+        }
     }
     if (context.device.provisioning_state !== 'claimed') {
         reply.status(409).send({ success: false, error: 'Device is not claimed' });
@@ -470,6 +646,8 @@ const getOrCreateRuntime = async (
         context.device.seq || 0,
         context.device.state_snapshot,
         assignmentFromClaim(context.device),
+        await ensureAccessPin(context.device),
+        context.device.irrigation_session,
     );
 };
 

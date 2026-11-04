@@ -108,6 +108,12 @@ const realisticNumbers: Record<string, number> = {
     uptime: 0,
 };
 
+// Only explicit simulated measurements are allowed to drift automatically.
+// Other numeric reported values (for example an MPU6050 door angle or pump
+// runtime) represent physical state and must change only through their
+// dedicated device logic.
+const autoEvolvingReportedProperties = new Set(Object.keys(realisticNumbers));
+
 const seedValue = (property: CapabilityProperty): unknown => {
     if (
         ['calibration_state', 'sensor_state'].includes(property.id)
@@ -182,6 +188,7 @@ export const evolveState = (current: DeviceState, product: ProductCatalog): Devi
             if (!['number', 'integer'].includes(property.type)) continue;
             if (property.channel === 'reported') {
                 if (controlled.has(`${instance.instance_id}.${property.id}`)) continue;
+                if (!autoEvolvingReportedProperties.has(property.id)) continue;
                 const value = next.instances[instance.instance_id]?.reported[property.id];
                 if (typeof value === 'number') {
                     next.instances[instance.instance_id].reported[property.id] = randomWalk(value, property);

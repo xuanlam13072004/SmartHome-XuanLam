@@ -19,6 +19,7 @@ import {
 import { getRuntimeManager } from '../../runtime/manager';
 import { evaluateWorkloadBudget } from '../../workload/budget';
 import { restoreRunDevices } from '../../runtime/restore-run';
+import { claimRunResume } from '../../generation/resume';
 
 const terminalStatuses = new Set([
     'completed',
@@ -170,7 +171,7 @@ export const createRunsRoutes = (cleanupJob: CleanupCronjob): FastifyPluginAsync
             if (terminalStatuses.has(run.status)) {
                 return reply.status(409).send({ success: false, error: 'Terminal run cannot be paused' });
             }
-            generationQueue.stopRun(id);
+            await generationQueue.stopRun(id);
             await getRuntimeManager(app.log).pauseRun(id);
             const pausedAt = new Date();
             await Promise.all([
@@ -198,18 +199,21 @@ export const createRunsRoutes = (cleanupJob: CleanupCronjob): FastifyPluginAsync
 
         app.post('/api/simulation-runs/:id/resume', async (request, reply) => {
             const { id } = request.params as { id: string };
-            const run = await getMongoDb().collection<SimulationRun>('simulation_runs').findOne({ id });
-            if (!run) return reply.status(404).send({ success: false, error: 'Run not found' });
-            if (run.status !== 'paused' && run.status !== 'failed') {
-                return reply.status(409).send({ success: false, error: 'Only paused or failed runs can resume' });
+            const runs = getMongoDb().collection<SimulationRun>('simulation_runs');
+            const resumedRun = await claimRunResume(runs, id);
+            let runtimeRecovery;
+            try {
+                runtimeRecovery = await restoreRunDevices(resumedRun, app.log);
+            } catch (error) {
+                await runs.updateOne({ id, status: 'queued' }, { $set: {
+                    status: 'failed', last_error: error instanceof Error ? error.message : String(error),
+                    updated_at: new Date(),
+                } });
+                throw error;
             }
-            const resumedRun: SimulationRun = { ...run, status: 'queued' };
-            await getMongoDb().collection('simulation_runs').updateOne(
-                { id },
-                { $set: { status: 'queued', updated_at: new Date() } },
-            );
-            const runtimeRecovery = await restoreRunDevices(resumedRun, app.log);
-            void generationQueue.startRun(resumedRun);
+            void generationQueue.startRun(resumedRun).catch(error => {
+                app.log.error({ err: error, runId: id }, 'Unhandled generation queue error');
+            });
             await recordSimulatorEvent({
                 type: 'run.resumed',
                 severity: runtimeRecovery.failed > 0 ? 'warning' : 'info',
@@ -231,7 +235,7 @@ export const createRunsRoutes = (cleanupJob: CleanupCronjob): FastifyPluginAsync
             if (terminalStatuses.has(run.status)) {
                 return reply.status(409).send({ success: false, error: 'Run is already terminal' });
             }
-            generationQueue.stopRun(id);
+            await generationQueue.stopRun(id);
             const completedAt = new Date();
             const cleanupAfter = run.config.cleanup_policy === 'auto_24h'
                 ? new Date(completedAt.getTime() + env.CLEANUP_RETENTION_HOURS * 60 * 60 * 1000)

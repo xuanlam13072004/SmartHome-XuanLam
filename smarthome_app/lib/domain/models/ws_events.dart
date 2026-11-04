@@ -60,6 +60,18 @@ class CredentialStatusEvent extends WsEvent {
   }) : super('credential_status');
 }
 
+class DeviceEventEvent extends WsEvent {
+  final String mac;
+  final Map<String, dynamic> payload;
+  final String timestamp;
+
+  DeviceEventEvent({
+    required this.mac,
+    required this.payload,
+    required this.timestamp,
+  }) : super('device_event');
+}
+
 class ActiveOperationsEvent extends WsEvent {
   final List<dynamic> operations;
 
@@ -143,6 +155,14 @@ class WsEventParser {
             payload:
                 data['payload'] as Map<String, dynamic>? ?? <String, dynamic>{},
             timestamp: data['timestamp'] as String? ?? '',
+          );
+        case 'device_event':
+          return DeviceEventEvent(
+            mac: data['mac']?.toString().toUpperCase() ?? '',
+            payload: data['payload'] is Map
+                ? Map<String, dynamic>.from(data['payload'] as Map)
+                : <String, dynamic>{},
+            timestamp: data['timestamp']?.toString() ?? '',
           );
         case 'active_operations':
           return ActiveOperationsEvent(

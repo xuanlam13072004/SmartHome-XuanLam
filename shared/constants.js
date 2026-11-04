@@ -2,6 +2,7 @@
 
 const REDIS_CHANNELS = {
     DEVICE_TELEMETRY: 'device.telemetry',
+    DEVICE_EVENT: 'device.event',
     DEVICE_STATUS: 'device.status',
     DEVICE_OPERATION: 'device.operation',
     DEVICE_CREDENTIAL: 'device.credential',

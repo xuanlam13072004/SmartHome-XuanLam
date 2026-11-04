@@ -213,8 +213,8 @@ export default function RunsList({
                     {['queued', 'running'].includes(run.status) && (
                       <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void act(run, 'pause')} type="button">Tạm dừng</button>
                     )}
-                    {['paused', 'failed'].includes(run.status) && (
-                      <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void act(run, 'resume')} type="button">Tiếp tục</button>
+                    {['paused', 'failed', 'partial'].includes(run.status) && (
+                      <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void act(run, 'resume')} type="button">{run.status === 'partial' ? 'Tạo bù thiết bị còn thiếu' : 'Tiếp tục'}</button>
                     )}
                     {!['completed', 'partial', 'failed', 'cancelled', 'cleaned', 'cleaning'].includes(run.status) && (
                       <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void act(run, 'cancel')} type="button">Hủy</button>
@@ -243,8 +243,10 @@ export default function RunsList({
                   <dl className="run-spec">
                     <div><dt>Dọn dữ liệu</dt><dd>{retainedPermanently ? 'Thủ công' : run.cleanup_after ? formatDate(run.cleanup_after) : 'Bắt đầu sau khi hoàn tất'}</dd></div>
                     <div><dt>Telemetry</dt><dd>Mỗi {run.config.telemetry_interval} giây</dd></div>
-                    <div><dt>Lỗi</dt><dd>{run.total_errors}</dd></div>
+                    <div><dt>Lỗi đã ghi nhận</dt><dd>{run.total_errors}</dd></div>
                   </dl>
+
+                  {run.last_error && <p className="notice notice--error" role="alert">{run.last_error}</p>}
 
                   <div className="entity-columns">
                     <EntityList title="Người dùng đã tạo" empty="Chưa có tài khoản nào được đăng ký.">

@@ -6,8 +6,10 @@ import { getGenerationQueue } from '../generation/queue';
 import { getRuntimeManager } from '../runtime/manager';
 import { recordSimulatorEvent } from '../events/service';
 import { shouldRestoreRunRuntime } from '../runtime/recovery-policy';
+import { ensureAccessPin } from '../security/device-pin';
 import { assignmentFromClaim } from '../runtime/topology';
 import { resolveDeviceProduct } from '../catalog/device-contract';
+import { verifyLiveDeviceOwnership } from '../provisioning/ownership';
 
 export class RecoveryService {
     private readonly logger: FastifyBaseLogger;
@@ -65,6 +67,7 @@ export class RecoveryService {
                 continue;
             }
             try {
+                if (!await verifyLiveDeviceOwnership(device, manager)) continue;
                 const product = await resolveDeviceProduct(device);
                 const runtime = manager.addDevice(
                     run.id,
@@ -76,6 +79,8 @@ export class RecoveryService {
                     device.seq || 0,
                     device.state_snapshot,
                     assignmentFromClaim(device),
+                    await ensureAccessPin(device),
+                    device.irrigation_session,
                 );
                 await runtime.connect();
                 recoveredDevices += 1;

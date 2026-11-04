@@ -73,6 +73,7 @@ export interface SimulationRun {
     completed_at?: Date;
     cleanup_after?: Date;
     cleanup_retries: number;
+    cleanup_unpaired_macs?: string[];
     last_cleanup_error?: string | null;
     created_at: Date;
     updated_at: Date;

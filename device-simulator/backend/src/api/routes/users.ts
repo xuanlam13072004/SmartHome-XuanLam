@@ -16,13 +16,14 @@ import {
 } from '../../security/auth-session';
 import { recordSimulatorEvent } from '../../events/service';
 import type { CleanupCronjob } from '../../cleanup/cronjob';
+import { withDeviceCounts } from '../user-device-counts';
 
 const userProjection = {
     credential: 0,
     'auth_session.access_token': 0,
     'auth_session.refresh_token': 0,
 } as const;
-const deviceProjection = { secret: 0 } as const;
+const deviceProjection = { secret: 0, access_pin: 0, credential_private_key: 0, pending_device_events: 0 } as const;
 const extendSchema = z.object({
     hours: z.coerce.number().int().min(1).max(720),
 }).strict();
@@ -38,7 +39,7 @@ export const createUsersRoutes = (cleanupJob: CleanupCronjob): FastifyPluginAsyn
                 .sort({ created_at: -1 })
                 .limit(limit)
                 .toArray();
-            return { success: true, users };
+            return { success: true, users: await withDeviceCounts(getMongoDb(), users) };
         });
 
         app.get('/api/users/:accountId', async (request, reply) => {

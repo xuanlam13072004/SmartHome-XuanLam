@@ -11,6 +11,7 @@ import '../../dashboard/widgets/capabilities/capability_section_panel.dart';
 import '../../dashboard/widgets/device_hero_card.dart';
 import '../../dashboard/widgets/device_topology_panel.dart';
 import '../product_capability_query.dart';
+import 'entrance_lcd_panel.dart';
 import 'hazard_control_panel.dart';
 import 'irrigation_control_panel.dart';
 import 'product_mini_cards.dart';
@@ -60,6 +61,7 @@ class EntranceProductDetail extends StatelessWidget {
     required this.onCapabilityChanged,
     this.onOpenResource,
     this.onReplaceCredential,
+    this.activitySection,
   });
 
   final DeviceModel device;
@@ -68,6 +70,7 @@ class EntranceProductDetail extends StatelessWidget {
       onOpenResource;
   final Future<void> Function(DeviceCredentialDefinition credential)?
       onReplaceCredential;
+  final Widget? activitySection;
 
   @override
   Widget build(BuildContext context) {
@@ -76,16 +79,14 @@ class EntranceProductDetail extends StatelessWidget {
       ids: const ['lock_state'],
       capabilityIds: const ['door_lock'],
     );
-    final camera = device.capabilityMatching(
-      ids: const ['is_streaming', 'camera_state'],
-      capabilityIds: const ['camera_stream'],
+    final lcdLines = device.capabilityMatching(
+      ids: const ['displayed_lines'],
+      capabilityIds: const ['character_display_4x20'],
     );
-    final liveStream = device.resources
-        .where((item) => item.definition.id == 'live_stream')
-        .firstOrNull;
-    final snapshot = device.resources
-        .where((item) => item.definition.id == 'snapshot')
-        .firstOrNull;
+    final lcdSource = device.capabilityMatching(
+      ids: const ['display_source'],
+      capabilityIds: const ['character_display_4x20'],
+    );
     final pin = device.credentials
         .where((item) => item.definition.kind == 'pin')
         .firstOrNull;
@@ -104,18 +105,6 @@ class EntranceProductDetail extends StatelessWidget {
       ],
       section: CapabilitySection.control,
     );
-    final interface = _take(
-      device,
-      used,
-      hints: const [
-        'camera',
-        'stream',
-        'snapshot',
-        'lcd',
-        'display',
-        'keypad',
-      ],
-    );
     return ProductDetailWorkbench(
       device: device,
       heroIcon: Icons.door_front_door_rounded,
@@ -129,11 +118,14 @@ class EntranceProductDetail extends StatelessWidget {
               ? context.colorScheme.primary
               : context.colorScheme.error,
         ),
-        ProductStatusFact(
-          icon: Icons.videocam_rounded,
-          label: 'Camera',
-          value: _truthy(camera?.value) ? 'Đang truyền' : 'Sẵn sàng',
-        ),
+        if (lcdLines != null)
+          ProductStatusFact(
+            icon: Icons.developer_board_rounded,
+            label: 'LCD 4×20',
+            value: '${lcdSource?.value}'.toLowerCase() == 'custom'
+                ? 'Nội dung tùy chỉnh'
+                : 'Theo firmware',
+          ),
         const ProductStatusFact(
           icon: Icons.verified_user_rounded,
           label: 'Kiểm soát',
@@ -147,40 +139,8 @@ class EntranceProductDetail extends StatelessWidget {
           icon: Icons.admin_panel_settings_rounded,
           capabilities: access,
         ),
-        ProductCapabilityGroup(
-          title: 'Camera, LCD & bàn phím',
-          description: 'Tương tác trực tiếp với phần cứng tại cửa chính',
-          icon: Icons.space_dashboard_rounded,
-          capabilities: interface,
-        ),
-        ..._remainingGroups(device, used),
       ],
       customSections: [
-        if (liveStream != null || snapshot != null)
-          _ProtectedActionPanel(
-            icon: Icons.videocam_rounded,
-            title: 'Camera cửa chính',
-            description:
-                'Mỗi lần xem tạo một phiên riêng có thời hạn và được backend kiểm tra quyền.',
-            actions: [
-              if (liveStream != null)
-                FilledButton.icon(
-                  onPressed: onOpenResource == null
-                      ? null
-                      : () => onOpenResource!(liveStream),
-                  icon: const Icon(Icons.play_arrow_rounded),
-                  label: const Text('Xem trực tiếp'),
-                ),
-              if (snapshot != null)
-                OutlinedButton.icon(
-                  onPressed: onOpenResource == null
-                      ? null
-                      : () => onOpenResource!(snapshot),
-                  icon: const Icon(Icons.camera_alt_rounded),
-                  label: const Text('Chụp ảnh'),
-                ),
-            ],
-          ),
         if (pin != null)
           _ProtectedActionPanel(
             icon: Icons.password_rounded,
@@ -197,6 +157,16 @@ class EntranceProductDetail extends StatelessWidget {
               ),
             ],
           ),
+      ],
+      postTopologySections: [
+        if (lcdLines != null)
+          EntranceLcdPanel(
+            linesCapability: lcdLines,
+            sourceCapability: lcdSource,
+            deviceOnline: device.status == DeviceStatus.online,
+            onCapabilityChanged: onCapabilityChanged,
+          ),
+        if (activitySection != null) activitySection!,
       ],
     );
   }

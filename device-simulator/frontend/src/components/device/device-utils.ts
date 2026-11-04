@@ -27,6 +27,8 @@ const knownLabels: Record<string, string> = {
   unlocked: 'Đã mở khóa',
   locking: 'Đang khóa',
   unlocking: 'Đang mở khóa',
+  closed: 'Đã đóng',
+  open: 'Đã mở',
   opening: 'Đang mở',
   closing: 'Đang đóng',
   stopped: 'Đã dừng',

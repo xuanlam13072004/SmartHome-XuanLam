@@ -106,6 +106,7 @@ export function UserDetail({
       {loading && <div className="skeleton-list" />}
       {user && (
         <>
+          {user.last_error && <p className="notice notice--error" role="alert">Lần tạo chưa hoàn tất: {user.last_error}. Mở mục Lần chạy để tiếp tục tạo phần còn thiếu.</p>}
           <div className="device-toolbar">
             <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void act('relogin')} type="button">Đăng nhập lại</button>
             <button className="button button--quiet" disabled={Boolean(acting) || !user.auth_session} onClick={() => void act('refresh-session')} type="button">Làm mới phiên</button>
@@ -128,7 +129,7 @@ export function UserDetail({
             />
             <Spec label="Lưu giữ" value={user.retention_policy === 'ttl' ? `Đến ${formatDate(user.expires_at)}` : 'Vĩnh viễn'} />
             <Spec label="Phiên đăng nhập" value={user.auth_session ? `${user.auth_session.session_id} · ${formatDate(user.auth_session.updated_at)}` : 'Chưa lưu'} mono />
-            <Spec label="Số thiết bị mục tiêu" value={String(user.target_device_count)} />
+            <Spec label="Thiết bị đã tạo / dự kiến" value={`${devices.length}/${user.target_device_count}`} />
           </dl>
 
           <section className="credential-panel" aria-labelledby="credential-title">
@@ -148,7 +149,7 @@ export function UserDetail({
 
           <section className="detail-section">
             <div className="section-heading section-heading--compact">
-              <div><h3>Thiết bị sở hữu</h3><p>{devices.length} thiết bị đang được registry quản lý.</p></div>
+              <div><h3>Thiết bị mô phỏng</h3><p>{devices.length}/{user.target_device_count} thiết bị đã tạo; {devices.filter(device => device.provisioning_state === 'claimed').length} thiết bị đã ghép.</p></div>
             </div>
             <div className="entity-list entity-list--full">
               {devices.map((device) => (

@@ -35,10 +35,15 @@ test('compiler emits JSON-safe namespaced state without Map or Set values', () =
 
     assert.equal(entrance.ui_profile, 'entrance_controller');
     assert.equal(entrance.ui_profile_version, 1);
-    assert.equal(entrance.catalog_revision, 2);
+    assert.equal(entrance.catalog_revision, 5);
     assert.equal(entrance.firmware_default_state.instances.main_lock.reported.lock_state, 'locked');
     assert.deepEqual(entrance.firmware_default_state.instances.main_lock.desired, {});
-    assert.deepEqual(entrance.firmware_default_state.instances.lcd.reported.displayed_lines, ['', '', '', '']);
+    assert.deepEqual(entrance.firmware_default_state.instances.lcd.reported.displayed_lines, [
+        'Xin chao!',
+        'Cua dang khoa',
+        'Nhan A de mo khoa',
+        '',
+    ]);
     assert.equal(entrance.reported_state_seed_policy, 'device_report_only');
     assert.equal(
         entrance.property_schemas['instances.main_lock.reported.lock_state'].path,
@@ -132,7 +137,7 @@ test('entrance physical operations execute on device and define offline and comp
     assert.equal(lcd.offline_behavior.local_equivalent, false);
     assert.equal(lcd.ack_policy.reference, 'displayed_lines');
     const lockState = entrance.property_schemas['instances.main_lock.reported.lock_state'];
-    assert.deepEqual(lockState.enum, ['locked', 'unlocked']);
+    assert.deepEqual(lockState.enum, ['locked', 'unlocking', 'unlocked', 'locking', 'fault']);
     assert.equal(lockState.default, 'locked');
     assert.equal(lockState.persistence, 'device_nvs');
     assert.equal(lockState.enum.includes('jammed'), false);
@@ -143,18 +148,18 @@ test('entrance physical operations execute on device and define offline and comp
     assert.equal(Object.keys(entrance.events).includes('main_lock.lock_jammed'), false);
 });
 
-test('camera resource is device-produced but backend-authorized', () => {
+test('camera and face authentication remain planned until firmware support exists', () => {
     const entrance = compileCatalog(loadCatalogV2()).product_index.prod_entrance_controller;
-    const camera = entrance.capability_instances.find(instance => instance.instance_id === 'door_camera');
-    const stream = entrance.resources['door_camera.live_stream'];
-    const openStream = entrance.operations['door_camera.create_stream_session'];
-
-    assert.equal(camera.runtime.execution_authority, 'hybrid_session');
-    assert.equal(camera.runtime.offline_behavior, 'local_core_only');
-    assert.equal(stream.producer, 'device_firmware');
-    assert.equal(stream.authorization_authority, 'backend');
-    assert.equal(openStream.ack_policy.completion_signal, 'resource');
-    assert.equal(openStream.ack_policy.reference, 'live_stream');
+    assert.equal(
+        entrance.capability_instances.some(instance => instance.instance_id === 'door_camera'),
+        false,
+    );
+    assert.deepEqual(
+        entrance.planned_capability_instances.map(instance => instance.instance_id),
+        ['door_camera', 'face_auth'],
+    );
+    assert.equal(entrance.resources['door_camera.live_stream'], undefined);
+    assert.equal(entrance.operations['door_camera.create_stream_session'], undefined);
 });
 
 test('entrance local policies keep authentication and credential commit on device', () => {
@@ -178,6 +183,43 @@ test('LCD contract enforces four lines with at most twenty characters', () => {
     assert.equal(lines.min_items, 4);
     assert.equal(lines.max_items, 4);
     assert.equal(lines.items.max_length, 20);
+    assert.deepEqual(Object.keys(lcdOperation.input), ['lines']);
+    assert.deepEqual(lcdOperation.effects, [
+        { type: 'expect_reported', property: 'displayed_lines', value_from: 'input.lines' },
+        { type: 'expect_reported', property: 'display_source', value: 'custom' },
+    ]);
+});
+
+test('entrance contract separates lock state from MPU6050-derived door position', () => {
+    const compiled = compileCatalog(loadCatalogV2());
+    const entrance = compiled.product_index.prod_entrance_controller;
+    const lock = entrance.capability_instances.find(item => item.instance_id === 'main_lock');
+    const position = entrance.capability_instances.find(item => item.instance_id === 'door_position');
+
+    assert.deepEqual(
+        lock.properties.find(property => property.id === 'lock_state').enum,
+        ['locked', 'unlocking', 'unlocked', 'locking', 'fault'],
+    );
+    assert.deepEqual(
+        position.properties.find(property => property.id === 'door_state').enum,
+        ['closed', 'opening', 'open', 'closing', 'unknown'],
+    );
+    assert.equal(
+        position.properties.find(property => property.id === 'door_angle_degrees').unit,
+        'degree',
+    );
+    assert.ok(entrance.events['door_position.door_opened']);
+    assert.ok(entrance.events['pin_auth.pin_access_granted']);
+    assert.deepEqual(entrance.credentials['pin_auth.pin'].constraints, {
+        type: 'string',
+        format: 'numeric_secret',
+        min_length: 6,
+        max_length: 6,
+    });
+    assert.deepEqual(
+        entrance.events['pin_auth.pin_locked_out'].data,
+        { lockout_seconds: { type: 'integer', minimum: 1, maximum: 3600 } },
+    );
 });
 
 test('roof uses rain semantics and physical buttons are event-only', () => {

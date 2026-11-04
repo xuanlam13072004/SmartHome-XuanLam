@@ -1,4 +1,5 @@
 import { env } from '../../config/env';
+import { fetchWithRateLimitRetry, type RequestOptions } from './rate-limit-retry';
 import type {
     TopologyRole,
     TopologyState,
@@ -46,26 +47,20 @@ export class ApiGatewayClient {
     private async request<T>(
         path: string,
         init: RequestInit = {},
+        options: RequestOptions = {},
     ): Promise<T> {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), env.API_REQUEST_TIMEOUT_MS);
-        try {
-            const response = await fetch(`${this.baseUrl}${path}`, {
-                ...init,
-                signal: controller.signal,
-            });
-            const body = await response.json().catch(() => null) as T | ApiErrorEnvelope | null;
-            if (!response.ok) {
-                const error = new Error(getErrorMessage(body, `API Gateway returned HTTP ${response.status}`)) as Error & {
-                    statusCode?: number;
-                };
-                error.statusCode = response.status;
-                throw error;
-            }
-            return body as T;
-        } finally {
-            clearTimeout(timer);
+        const response = await fetchWithRateLimitRetry(`${this.baseUrl}${path}`, init, {
+            ...options, timeoutMs: env.API_REQUEST_TIMEOUT_MS,
+        });
+        const body = await response.json().catch(() => null) as T | ApiErrorEnvelope | null;
+        if (!response.ok) {
+            const error = new Error(getErrorMessage(body, `API Gateway returned HTTP ${response.status}`)) as Error & {
+                statusCode?: number;
+            };
+            error.statusCode = response.status;
+            throw error;
         }
+        return body as T;
     }
 
     async health(): Promise<void> {
@@ -76,7 +71,7 @@ export class ApiGatewayClient {
         email: string;
         password: string;
         full_name: string;
-    }): Promise<{ id: string; email: string; full_name: string }> {
+    }, options: RequestOptions = {}): Promise<{ id: string; email: string; full_name: string }> {
         const data = await this.request<{
             success: boolean;
             user: { id: string; email: string; full_name: string };
@@ -84,7 +79,7 @@ export class ApiGatewayClient {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(user),
-        });
+        }, options);
         if (!data.success || !data.user) {
             throw new Error('API Gateway returned an invalid register response');
         }
@@ -94,7 +89,7 @@ export class ApiGatewayClient {
     async login(credentials: {
         email: string;
         password: string;
-    }): Promise<{ accessToken: string; refreshToken: string; sessionId: string }> {
+    }, options: RequestOptions = {}): Promise<{ accessToken: string; refreshToken: string; sessionId: string }> {
         const data = await this.request<{
             success: boolean;
             access_token: string;
@@ -104,7 +99,7 @@ export class ApiGatewayClient {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(credentials),
-        });
+        }, options);
         if (!data.success || !data.access_token || !data.refresh_token || !data.session_id) {
             throw new Error('API Gateway returned an invalid login response');
         }
@@ -115,7 +110,7 @@ export class ApiGatewayClient {
         };
     }
 
-    async getCurrentUser(accessToken: string): Promise<{ id: string; email: string }> {
+    async getCurrentUser(accessToken: string, options: RequestOptions = {}): Promise<{ id: string; email: string }> {
         const data = await this.request<{
             success: boolean;
             user: { id: string; email: string };
@@ -123,7 +118,7 @@ export class ApiGatewayClient {
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
             },
-        });
+        }, options);
         if (!data.success || !data.user?.id || !data.user?.email) {
             throw new Error('API Gateway returned an invalid current-user response');
         }
@@ -165,6 +160,7 @@ export class ApiGatewayClient {
             name?: string;
             network_fingerprint?: string;
         },
+        options: RequestOptions = {},
     ): Promise<ClaimedDevice> {
         const data = await this.request<{
             success: boolean;
@@ -176,7 +172,7 @@ export class ApiGatewayClient {
                 'Authorization': `Bearer ${accessToken}`,
             },
             body: JSON.stringify(claimData),
-        });
+        }, options);
         if (!data.success || !data.device) {
             throw new Error('API Gateway returned an invalid claim response');
         }

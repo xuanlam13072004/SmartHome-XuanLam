@@ -50,6 +50,7 @@ class ProductUiRegistry {
     Future<void> Function(DeviceResourceDefinition resource)? onOpenResource,
     Future<void> Function(DeviceCredentialDefinition credential)?
         onReplaceCredential,
+    Widget? entranceActivitySection,
   }) {
     final profile = _supportedProfile(device);
     return switch (profile) {
@@ -58,6 +59,7 @@ class ProductUiRegistry {
           onCapabilityChanged: onCapabilityChanged,
           onOpenResource: onOpenResource,
           onReplaceCredential: onReplaceCredential,
+          activitySection: entranceActivitySection,
         ),
       ProductUiProfile.roofController => RoofProductDetail(
           device: device,

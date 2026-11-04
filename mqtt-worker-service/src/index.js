@@ -11,6 +11,7 @@ const { startCredentialConsumer } = require('./workers/credentialConsumer');
 const { startTelemetrySubscriber } = require('./workers/telemetrySubscriber');
 const { startPresenceWorker } = require('./workers/presenceWorker');
 const { startTopologySubscriber } = require('./workers/topologySubscriber');
+const { startDeviceEventSubscriber } = require('./workers/deviceEventSubscriber');
 const { startHealthMonitor } = require('./monitoring/healthMonitor');
 
 const { TelemetryBatchWriter } = require('./services/telemetryBatchWriter');
@@ -18,6 +19,7 @@ const { ShadowBatchWriter } = require('./services/shadowBatchWriter');
 const { initTelemetryProcessor } = require('./services/telemetryProcessor');
 const { TelemetrySanitizer } = require('./services/telemetrySanitizer');
 const { RealtimePublisher } = require('./services/realtimePublisher');
+const { ensureDeviceEventIndexes } = require('./services/deviceEventProcessor');
 const http = require('http');
 const { getPrometheusMetrics } = require('./monitoring/metrics');
 
@@ -41,6 +43,7 @@ const state = {
     presenceWorkerTask: null,
     presenceWorkerCleanup: null,
     topologySubscriberCleanup: null,
+    deviceEventSubscriberCleanup: null,
     telemetryWriter: null,
     shadowWriter: null,
     telemetryProcessorCleanup: null,
@@ -149,6 +152,14 @@ async function shutdown(signal) {
     }
 
     try {
+        if (state.deviceEventSubscriberCleanup) {
+            state.deviceEventSubscriberCleanup();
+        }
+    } catch (err) {
+        logger.error({ err }, 'Error stopping device-event subscriber');
+    }
+
+    try {
         if (state.telemetryProcessorCleanup) {
             await state.telemetryProcessorCleanup();
         }
@@ -218,6 +229,7 @@ async function start() {
     state.shadowWriter = new ShadowBatchWriter(state.mongoClient, config, logger);
     state.telemetrySanitizer = new TelemetrySanitizer(logger);
     state.realtimePublisher = new RealtimePublisher(state.redis, logger);
+    await ensureDeviceEventIndexes(state.mongoClient, config);
 
     startHeartbeat();
 
@@ -239,6 +251,12 @@ async function start() {
         clients,
         config,
         logger
+    );
+    state.deviceEventSubscriberCleanup = await startDeviceEventSubscriber(
+        state.mqttClient,
+        clients,
+        config,
+        logger,
     );
 
     // Khởi chạy Prometheus Metrics server (port 9100 mặc định hoặc từ METRICS_PORT)

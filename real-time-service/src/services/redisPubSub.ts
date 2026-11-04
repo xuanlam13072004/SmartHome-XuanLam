@@ -4,6 +4,7 @@ import { REDIS_CHANNELS } from '../../../shared/constants.js';
 
 const CHANNELS = [
     REDIS_CHANNELS.DEVICE_TELEMETRY,
+    REDIS_CHANNELS.DEVICE_EVENT,
     REDIS_CHANNELS.DEVICE_STATUS,
     REDIS_CHANNELS.DEVICE_OPERATION,
     REDIS_CHANNELS.DEVICE_CREDENTIAL,
@@ -56,6 +57,8 @@ export function startRedisPubSubListener(): void {
             let eventName = 'notification';
             if (channel === REDIS_CHANNELS.DEVICE_TELEMETRY) {
                 eventName = 'telemetry';
+            } else if (channel === REDIS_CHANNELS.DEVICE_EVENT) {
+                eventName = 'device_event';
             } else if (channel === REDIS_CHANNELS.DEVICE_STATUS) {
                 eventName = 'device_status';
             } else if (channel === REDIS_CHANNELS.DEVICE_OPERATION) {

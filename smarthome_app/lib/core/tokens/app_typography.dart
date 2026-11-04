@@ -7,6 +7,14 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 abstract final class AppTypography {
+  /// Kiểu chữ đơn cách dành riêng cho lưới ký tự của LCD vật lý.
+  static const TextStyle lcdCharacter = TextStyle(
+    fontFamily: 'monospace',
+    fontSize: 13,
+    fontWeight: FontWeight.w700,
+    height: 1,
+  );
+
   /// Tạo TextTheme đầy đủ M3 với font pairing: Outfit + Inter.
   /// [colorScheme] để set màu mặc định cho text.
   static TextTheme buildTextTheme(ColorScheme colorScheme) {

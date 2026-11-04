@@ -811,6 +811,83 @@ export async function getDeviceState(app: FastifyInstance, macInput: string, acc
     };
 }
 
+type DeviceEventCursor = { receivedAt: string; id: string };
+
+function decodeDeviceEventCursor(value: string): DeviceEventCursor {
+    try {
+        const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as DeviceEventCursor;
+        if (
+            typeof parsed.receivedAt !== 'string'
+            || Number.isNaN(Date.parse(parsed.receivedAt))
+            || typeof parsed.id !== 'string'
+            || parsed.id.length === 0
+        ) {
+            throw new Error('Invalid cursor fields');
+        }
+        return parsed;
+    } catch {
+        throw buildError('Invalid device-event cursor', 400, 'INVALID_EVENT_CURSOR');
+    }
+}
+
+function encodeDeviceEventCursor(event: any): string {
+    return Buffer.from(JSON.stringify({
+        receivedAt: new Date(event.received_at).toISOString(),
+        id: String(event._id),
+    })).toString('base64url');
+}
+
+export async function listDeviceEvents(
+    app: FastifyInstance,
+    macInput: string,
+    accountId: string,
+    options: { limit?: number; cursor?: string; eventName?: string } = {},
+) {
+    const mac = normalizeMac(macInput);
+    const device = await loadAccessibleDevice(app, mac, accountId);
+    if (!device) throw buildError('Forbidden', 403, 'DEVICE_FORBIDDEN');
+    if (device.role !== 'owner') {
+        throw buildError(
+            'Only the device owner may view physical access history',
+            403,
+            'DEVICE_EVENT_HISTORY_FORBIDDEN',
+        );
+    }
+
+    const limit = Math.min(Math.max(Number(options.limit) || 50, 1), 200);
+    const filter: Record<string, any> = {
+        device_id: mac,
+        // Ownership is snapshotted at ingest time. Together with the owner-only
+        // guard above, this prevents members and future owners from reading a
+        // previous owner's physical access history.
+        owner_id: device.owner_id,
+    };
+    if (options.eventName) filter.event_name = options.eventName;
+    if (options.cursor) {
+        const cursor = decodeDeviceEventCursor(options.cursor);
+        const receivedAt = new Date(cursor.receivedAt);
+        filter.$or = [
+            { received_at: { $lt: receivedAt } },
+            { received_at: receivedAt, _id: { $lt: cursor.id } },
+        ];
+    }
+
+    const rows = await app.mongo.db
+        .collection<any>(env.MONGO_DEVICE_EVENTS_COLLECTION)
+        .find(filter)
+        .sort({ received_at: -1, _id: -1 })
+        .limit(limit + 1)
+        .toArray();
+    const hasMore = rows.length > limit;
+    const events = hasMore ? rows.slice(0, limit) : rows;
+    return {
+        events,
+        next_cursor: hasMore && events.length > 0
+            ? encodeDeviceEventCursor(events[events.length - 1])
+            : null,
+    };
+}
+
 export async function updateDeviceName(
     app: FastifyInstance,
     macInput: string,

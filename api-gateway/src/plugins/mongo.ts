@@ -20,6 +20,24 @@ const mongoPlugin: FastifyPluginAsync = async (app: FastifyInstance) => {
         db: client.db(env.MONGO_DB_NAME),
     });
 
+    const deviceEvents = client
+        .db(env.MONGO_DB_NAME)
+        .collection(env.MONGO_DEVICE_EVENTS_COLLECTION);
+    await Promise.all([
+        deviceEvents.createIndex(
+            { device_id: 1, event_id: 1 },
+            { unique: true, name: 'device_event_identity_unique' },
+        ),
+        deviceEvents.createIndex(
+            { device_id: 1, received_at: -1, _id: -1 },
+            { name: 'device_event_device_timeline' },
+        ),
+        deviceEvents.createIndex(
+            { owner_id: 1, received_at: -1 },
+            { name: 'device_event_owner_timeline' },
+        ),
+    ]);
+
     app.addHook('onClose', async () => {
         await client.close();
     });

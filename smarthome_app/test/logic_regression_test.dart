@@ -578,4 +578,23 @@ void main() {
     expect(event, isA<CredentialStatusEvent>());
     expect((event as CredentialStatusEvent).payload['status'], 'applied');
   });
+
+  test('parses sanitized physical device events from realtime transport', () {
+    final event = WsEventParser.parse(
+      '{"event":"device_event","mac":"aa:bb:cc:dd:ee:ff",'
+      '"payload":{"event_id":"event-1","instance_id":"pin_auth",'
+      '"event_name":"pin_access_denied","severity":"warning",'
+      '"data":{"attempts_remaining":2}},'
+      '"timestamp":"2026-08-14T00:00:00Z"}',
+    );
+
+    expect(event, isA<DeviceEventEvent>());
+    final physicalEvent = event as DeviceEventEvent;
+    expect(physicalEvent.mac, 'AA:BB:CC:DD:EE:FF');
+    expect(physicalEvent.payload['event_name'], 'pin_access_denied');
+    expect(
+      (physicalEvent.payload['data'] as Map)['attempts_remaining'],
+      2,
+    );
+  });
 }

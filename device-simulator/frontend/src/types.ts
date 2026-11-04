@@ -104,6 +104,9 @@ export interface SimulatedUser {
   email: string
   full_name: string
   target_device_count: number
+  created_device_count?: number
+  claimed_device_count?: number
+  last_error?: string | null
   generation_state: string
   status: string
   retention_policy: 'ttl' | 'permanent'
@@ -180,6 +183,41 @@ export interface SimulatorEvent {
   message: string
   data?: Record<string, unknown>
   created_at: string
+}
+
+export interface DeviceEventRecord {
+  _id?: string
+  event_id: string
+  device_id: string
+  capability_id: string
+  instance_id: string
+  event_name: string
+  severity: 'debug' | 'info' | 'warning' | 'error' | 'critical'
+  data: Record<string, unknown>
+  occurred_at: string
+  received_at: string
+  transport?: Record<string, unknown>
+}
+
+export interface EntranceRuntimeStatus {
+  phase:
+    | 'idle'
+    | 'pin_entry'
+    | 'unlocking'
+    | 'unlocked_wait_open'
+    | 'door_open'
+    | 'closed_wait_relock'
+    | 'locking'
+    | 'sensor_fault'
+    | 'pin_locked_out'
+  attempts_remaining: number
+  lockout_until?: string
+  pending_lock_reason?: string
+}
+
+export interface VirtualHardwareDetail {
+  access_pin: string
+  entrance: EntranceRuntimeStatus | null
 }
 
 export interface CatalogProduct {
@@ -287,12 +325,15 @@ export interface DeviceDetailPayload {
   telemetry: Record<string, unknown>[]
   operations: DeviceOperation[]
   events: SimulatorEvent[]
+  device_events: DeviceEventRecord[]
+  virtual_hardware: VirtualHardwareDetail | null
 }
 
 export interface DeviceLivePayload {
   device: SimulatedDevice
   backend_shadow: Record<string, unknown> | null
   latest_telemetry: Record<string, unknown> | null
+  entrance: EntranceRuntimeStatus | null
 }
 
 export interface PreflightCheck {

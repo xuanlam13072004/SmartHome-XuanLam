@@ -11,21 +11,16 @@ const {
 } = require('../services/topologyRuntime');
 const { recordActivity, markDeviceOffline } = require('../services/presenceManager');
 const { REDIS_CHANNELS } = require('../../../shared/constants');
-
-function extractTopicOrigin(topic) {
-    const parts = topic.split('/').filter(Boolean);
-    return parts.length >= 2 ? parts[parts.length - 2].toUpperCase() : '';
-}
+const {
+    extractTopicOrigin,
+    sharedTopic,
+    subscribe,
+    topicRegex,
+} = require('./mqttTopicUtils');
 
 function extractTopologyAckOrigin(topic) {
     const parts = topic.split('/').filter(Boolean);
     return parts.length >= 3 ? parts[parts.length - 3].toUpperCase() : '';
-}
-
-function sharedTopic(config, topic) {
-    return config.MQTT_SHARED_GROUP
-        ? `$share/${config.MQTT_SHARED_GROUP}/${topic}`
-        : topic;
 }
 
 function assertPresenceProductIdentity(status, context) {
@@ -40,18 +35,6 @@ function assertPresenceProductIdentity(status, context) {
     ) {
         throw new Error('Presence Product identity does not match the claimed device');
     }
-}
-
-function subscribe(mqttClient, topic, qos, logger) {
-    return new Promise((resolve, reject) => {
-        mqttClient.subscribe(topic, { qos }, error => {
-            if (error) reject(error);
-            else {
-                logger.info({ topic }, 'MQTT subscription ready');
-                resolve();
-            }
-        });
-    });
 }
 
 async function handleTelemetryMessage(topic, payload, clients, config, logger) {
@@ -235,10 +218,6 @@ async function handleStatusMessage(topic, payload, clients, config, logger) {
     } catch (error) {
         logger.warn({ err: error, topic }, 'Presence message rejected');
     }
-}
-
-function topicRegex(template) {
-    return new RegExp(`^${template.replace(/\+/g, '[^/]+')}$`);
 }
 
 function setupMessageHandlers(mqttClient, clients, config, logger) {

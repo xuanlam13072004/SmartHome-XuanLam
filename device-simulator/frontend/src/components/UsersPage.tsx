@@ -38,7 +38,7 @@ export function UsersPage({
     void load()
     if (!enabled) return
     return subscribeStream((event) => {
-      if (event.account_id || event.type.startsWith('user.')) void load()
+      if (event.account_id || event.type.startsWith('user.') || event.type.startsWith('device.') || event.type.startsWith('run.')) void load()
     })
   }, [enabled, load])
 
@@ -101,7 +101,7 @@ export function UsersPage({
             >
               <span className="user-row__avatar" aria-hidden="true">{initials(user.full_name)}</span>
               <span><strong>{user.full_name}</strong><small>{user.email}</small></span>
-              <span><small>Thiết bị</small><strong>{user.target_device_count}</strong></span>
+              <span><small>Đã tạo / dự kiến</small><strong>{user.created_device_count ?? '—'}/{user.target_device_count}</strong><small>Đã ghép: {user.claimed_device_count ?? '—'}</small></span>
               <span><small>Trạng thái</small><strong>{humanize(user.status)}</strong></span>
               <span><small>Lưu trữ</small><strong>{user.retention_policy === 'permanent' ? 'Cố định' : '24 giờ'}</strong></span>
               <Icon name="arrow" />

@@ -5,8 +5,9 @@ capabilities but declares an explicit `ui_profile` for its mini card and detail
 screen. Adding a truly new Product may therefore require a new Flutter profile;
 existing capability widgets remain reusable.
 
-- `prod_entrance_controller`: SG90 door lock, ESP32-CAM protected sessions,
-  local face/PIN authentication, 4x4 keypad events and LCD 4x20 messages.
+- `prod_entrance_controller`: SG90 door lock, MPU6050 door position, local
+  six-digit PIN authentication, 4x4 keypad events and LCD 4x20 messages.
+  ESP32-CAM streaming and face authentication remain planned capabilities.
 - `prod_roof_controller`: water sensor, step motor and one local toggle button.
   Rain auto-close is firmware-local and can be enabled/disabled by the app.
 - `prod_hazard_monitor`: flame sensor, MQ2, DHT11, buzzer and temporary local

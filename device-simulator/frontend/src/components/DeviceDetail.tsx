@@ -4,14 +4,18 @@ import {
   fetchDevice,
   fetchDeviceLive,
   performPhysicalSirenAction,
+  performPhysicalPumpAction,
+  pressPhysicalKeypad,
   revealDeviceSecret,
   sendDeviceTelemetry,
+  setPhysicalDoorPosition,
   setDeviceConnection,
   updateDeviceState,
 } from '../api'
 import type {
   CapabilityInstance,
   DeviceDetailPayload,
+  DeviceEventRecord,
   DeviceOperation,
   DeviceStatePatch,
   SimulatedDevice,
@@ -20,6 +24,7 @@ import type {
 import { CopyButton } from './CopyButton'
 import { CapabilityControl } from './device/CapabilityControl'
 import { DeviceTelemetryPanel } from './device/DeviceTelemetryPanel'
+import { EntrancePhysicalWorkbench } from './device/EntrancePhysicalWorkbench'
 import { LcdSimulator } from './device/LcdSimulator'
 import {
   formatValue,
@@ -71,6 +76,9 @@ export function DeviceDetail({
         ...current,
         device: live.device,
         backend_shadow: live.backend_shadow,
+        virtual_hardware: current.virtual_hardware
+          ? { ...current.virtual_hardware, entrance: live.entrance }
+          : null,
       } : current)
       setLatestTelemetry(live.latest_telemetry)
     } catch {
@@ -158,6 +166,64 @@ export function DeviceDetail({
       setError(readError(caught, 'Thiết bị từ chối thao tác còi.'))
     } finally {
       setActing('')
+    }
+  }
+
+  const runPhysicalPump = async (action: 'start' | 'stop') => {
+    setActing(`pump-${action}`)
+    try {
+      const result = await performPhysicalPumpAction(mac, action)
+      setPayload(current => current ? {
+        ...current, device: { ...current.device, state_snapshot: result.state },
+      } : current)
+      setError('')
+    } catch (caught) {
+      setError(readError(caught, 'Không thể thao tác bơm. Kiểm tra nguồn nước và thời gian nghỉ.'))
+    } finally {
+      setActing('')
+    }
+  }
+
+  const pressKeypad = async (key: string) => {
+    try {
+      const result = await pressPhysicalKeypad(mac, key)
+      setPayload((current) => current ? {
+        ...current,
+        device: { ...current.device, state_snapshot: result.state },
+        virtual_hardware: current.virtual_hardware
+          ? { ...current.virtual_hardware, entrance: result.entrance }
+          : null,
+      } : current)
+      window.setTimeout(() => void refreshLive(), 650)
+      window.setTimeout(() => void refreshLive(), 3300)
+      if (['A', '#', '*'].includes(key)) {
+        window.setTimeout(() => void load(), 900)
+      }
+      setError('')
+    } catch (caught) {
+      throw new Error(readError(caught, 'Firmware ảo từ chối phím vừa nhập.'))
+    }
+  }
+
+  const setDoorPosition = async (
+    angleDegrees: number,
+    sensorState: 'calibrating' | 'ready' | 'fault',
+  ) => {
+    try {
+      const result = await setPhysicalDoorPosition(mac, angleDegrees, sensorState)
+      setPayload((current) => current ? {
+        ...current,
+        device: { ...current.device, state_snapshot: result.state },
+        virtual_hardware: current.virtual_hardware
+          ? { ...current.virtual_hardware, entrance: result.entrance }
+          : null,
+      } : current)
+      window.setTimeout(() => void refreshLive(), 650)
+      window.setTimeout(() => void refreshLive(), 3300)
+      window.setTimeout(() => void load(), 900)
+      setError('')
+    } catch (caught) {
+      throw new Error(readError(caught, 'Firmware ảo từ chối tín hiệu MPU6050.'))
     }
   }
 
@@ -256,7 +322,14 @@ export function DeviceDetail({
       <nav aria-label="Nội dung thiết bị" className="detail-tabs">
         <DetailTab active={tab === 'controls'} label="Thiết bị vật lý" onClick={() => setTab('controls')} />
         <DetailTab active={tab === 'data'} label="Dữ liệu đang gửi" onClick={() => setTab('data')} />
-        <DetailTab active={tab === 'history'} label="Lịch sử" onClick={() => setTab('history')} />
+        <DetailTab
+          active={tab === 'history'}
+          label="Lịch sử"
+          onClick={() => {
+            setTab('history')
+            void load()
+          }}
+        />
         <DetailTab active={tab === 'technical'} label="Kỹ thuật" onClick={() => setTab('technical')} />
       </nav>
 
@@ -265,8 +338,12 @@ export function DeviceDetail({
           acting={acting}
           device={device}
           instances={product.capability_instances}
+          onDoorPosition={setDoorPosition}
+          onKeypad={pressKeypad}
           onPatch={applyPatch}
           onSirenAction={runPhysicalSiren}
+          onPumpAction={runPhysicalPump}
+          virtualHardware={payload.virtual_hardware}
         />
       )}
 
@@ -279,7 +356,11 @@ export function DeviceDetail({
       )}
 
       {tab === 'history' && (
-        <HistoryView events={events} operations={operations} />
+        <HistoryView
+          deviceEvents={payload.device_events}
+          events={events}
+          operations={operations}
+        />
       )}
 
       {tab === 'technical' && (
@@ -302,12 +383,23 @@ function PhysicalWorkbench({
   acting,
   device,
   instances,
+  virtualHardware,
+  onDoorPosition,
+  onKeypad,
   onPatch,
   onSirenAction,
+  onPumpAction,
 }: {
   acting: string
+  onPumpAction: (action: 'start' | 'stop') => Promise<void>
   device: SimulatedDevice
   instances: CapabilityInstance[]
+  virtualHardware: DeviceDetailPayload['virtual_hardware']
+  onDoorPosition: (
+    angleDegrees: number,
+    sensorState: 'calibrating' | 'ready' | 'fault',
+  ) => Promise<void>
+  onKeypad: (key: string) => Promise<void>
   onPatch: (patch: DeviceStatePatch) => Promise<void>
   onSirenAction: (
     action: 'test_siren' | 'mute_siren' | 'resume_siren',
@@ -330,8 +422,30 @@ function PhysicalWorkbench({
     && !isCameraInstance(instance)
     && !isDiagnosticOnlyInstance(instance)
     && instance.capability_id !== 'door_lock'
+    && !(device.product_id === 'prod_irrigation_manager' && instance.capability_id === 'local_button')
   ))
   const doorLock = ordered.find((instance) => instance.capability_id === 'door_lock')
+
+  if (device.product_id === 'prod_entrance_controller') {
+    return (
+      <EntrancePhysicalWorkbench
+        device={device}
+        instances={ordered}
+        onDoorPosition={onDoorPosition}
+        onKeypad={onKeypad}
+        onPatch={onPatch}
+        virtualHardware={virtualHardware}
+        wifiControl={diagnostics && wifiRssi ? (
+          <WifiSignalControl
+            device={device}
+            instance={diagnostics}
+            onPatch={onPatch}
+            property={wifiRssi}
+          />
+        ) : null}
+      />
+    )
+  }
 
   if (device.product_id === 'prod_hazard_mitigation') {
     return (
@@ -383,7 +497,16 @@ function PhysicalWorkbench({
 
         <div className="capability-stack">
           {standard.map((instance) => (
-            <CapabilitySection
+            instance.capability_id === 'irrigation_pump' ? (
+              <IrrigationPhysicalControl
+                acting={acting}
+                device={device}
+                instance={instance}
+                key={instance.instance_id}
+                onAction={onPumpAction}
+                policy={ordered.find(item => item.capability_id === 'irrigation_policy')}
+              />
+            ) : <CapabilitySection
               device={device}
               instance={instance}
               key={instance.instance_id}
@@ -411,6 +534,37 @@ function PhysicalWorkbench({
         )}
       </aside>
     </div>
+  )
+}
+
+function IrrigationPhysicalControl({ acting, device, instance, policy, onAction }: {
+  acting: string
+  device: SimulatedDevice
+  instance: CapabilityInstance
+  policy?: CapabilityInstance
+  onAction: (action: 'start' | 'stop') => Promise<void>
+}) {
+  const values = device.state_snapshot?.instances[instance.instance_id]?.reported || {}
+  const running = values.pump_output_state === 'running'
+  const duration = Number(policy?.properties.find(p => p.id === 'default_cycle_duration_seconds')?.default || 300)
+  const reasons: Record<string, string> = {
+    completed: 'Đã hoàn tất', user_request: 'Đã dừng bằng thao tác', low_water: 'Nguồn nước không đủ',
+    reservoir_sensor_fault: 'Cảm biến nước chưa sẵn sàng', maximum_runtime: 'Đạt giới hạn an toàn', controller_restart: 'Thiết bị khởi động lại',
+  }
+  return (
+    <section className="work-panel">
+      <header className="work-panel__heading">
+        <div><h3>Bơm tưới</h3><p>Nút vật lý bắt đầu chu kỳ cố định {duration} giây. Lệnh từ app dùng thời gian bạn chọn.</p></div>
+        <strong>{running ? 'Đang tưới' : 'Đã dừng'}</strong>
+      </header>
+      <p>Thời gian chu kỳ: {Number(values.runtime_seconds || 0)} giây.</p>
+      {!running && Boolean(values.stop_reason) && <p>{reasons[String(values.stop_reason)] || String(values.stop_reason)}</p>}
+      <div className="device-actions">
+        <button className="button button--primary" disabled={running || acting.startsWith('pump-')} onClick={() => void onAction('start')} type="button">Tưới nước</button>
+        <button className="button" disabled={!running || acting.startsWith('pump-')} onClick={() => void onAction('stop')} type="button">Dừng tưới</button>
+      </div>
+      <p className="field-hint">Chỉ chạy khi cảm biến bể sẵn sàng, nguồn nước khả dụng và bơm đã nghỉ đủ thời gian.</p>
+    </section>
   )
 }
 
@@ -757,8 +911,8 @@ function CapabilitySection({
       {eventOnly && (
         <div className="event-transport-gap">
           <strong>{instance.events.map((event) => humanize(event.id)).join(' · ')}</strong>
-          <p>Catalog đã khai báo sự kiện vật lý, nhưng hệ thống chính chưa có MQTT event transport để nhận sự kiện này.</p>
-          <button disabled type="button">Mô phỏng nút vật lý — chưa hỗ trợ</button>
+          <p>Backend đã nhận được Device Event qua MQTT; model này chưa có bảng thao tác vật lý chuyên biệt trong Simulator.</p>
+          <button disabled type="button">Chưa có bộ điều khiển cục bộ</button>
         </div>
       )}
     </section>
@@ -794,12 +948,23 @@ function CameraPlaceholder({
 function HistoryView({
   operations,
   events,
+  deviceEvents,
 }: {
   operations: DeviceOperation[]
   events: SimulatorEvent[]
+  deviceEvents: DeviceEventRecord[]
 }) {
   return (
     <div className="history-grid">
+      <section className="history-panel history-panel--full">
+        <header className="work-panel__heading">
+          <div>
+            <h3>Sự kiện vật lý đã vào hệ thống chính</h3>
+            <p>PIN thô không xuất hiện ở đây; chỉ lưu kết quả xác thực, khóa và trạng thái cánh cửa.</p>
+          </div>
+        </header>
+        <DeviceEventRows events={deviceEvents} />
+      </section>
       <section className="history-panel">
         <header className="work-panel__heading"><div><h3>Lệnh từ backend</h3><p>{operations.length} lệnh gần nhất được tải.</p></div></header>
         {operations.length > 0 ? (
@@ -822,6 +987,37 @@ function HistoryView({
     </div>
   )
 }
+
+function DeviceEventRows({ events }: { events: DeviceEventRecord[] }) {
+  if (events.length === 0) {
+    return <EmptyHistory label="Chưa có sự kiện vật lý nào được MQTT Worker lưu lại." />
+  }
+  return (
+    <ol className="event-list">
+      {events.map((event) => (
+        <li key={event.event_id}>
+          <div>
+            <strong>{deviceEventLabel(event.event_name)}</strong>
+            <small>{event.instance_id} · {humanize(event.severity)}</small>
+          </div>
+          <time>{formatDate(event.occurred_at || event.received_at)}</time>
+          {Object.keys(event.data || {}).length > 0 && <code>{JSON.stringify(event.data)}</code>}
+        </li>
+      ))}
+    </ol>
+  )
+}
+
+const deviceEventLabel = (value: string): string => ({
+  keypad_action: 'Thao tác bàn phím',
+  pin_access_granted: 'PIN hợp lệ',
+  pin_access_denied: 'PIN không hợp lệ',
+  pin_locked_out: 'Bàn phím bị khóa tạm thời',
+  lock_changed: 'Trạng thái khóa thay đổi',
+  door_opened: 'Cửa đã mở',
+  door_closed: 'Cửa đã đóng',
+  door_position_fault: 'Cảm biến vị trí cửa có vấn đề',
+}[value] || humanize(value))
 
 function TechnicalView({
   device,

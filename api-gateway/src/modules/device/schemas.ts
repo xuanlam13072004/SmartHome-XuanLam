@@ -76,6 +76,17 @@ export const deviceStateSchema = z.object({
     }),
 });
 
+export const deviceEventsSchema = z.object({
+    params: z.object({
+        mac: macSchema,
+    }),
+    query: z.object({
+        limit: z.coerce.number().int().min(1).max(200).default(50),
+        cursor: z.string().min(1).max(512).optional(),
+        event_name: z.string().regex(/^[a-z][a-z0-9_]{1,63}$/).optional(),
+    }),
+});
+
 export const updateDeviceSchema = z.object({
     params: z.object({
         mac: macSchema,

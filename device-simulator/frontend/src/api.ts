@@ -66,7 +66,9 @@ const request = async <T>(
   if (!response.ok && !acceptedErrorStatuses.includes(response.status)) {
     const message = typeof data?.error === 'string'
       ? data.error
-      : data?.error?.message || `Simulator API returned HTTP ${response.status}`
+      : data?.error?.message || ([502, 504].includes(response.status)
+        ? 'Web chưa kết nối được với backend simulator. Kiểm tra backend simulator và API Gateway đã khởi động; lỗi này chưa xác định token đúng hay sai.'
+        : `Simulator API returned HTTP ${response.status}`)
     const code = typeof data?.error === 'object' ? data.error.code : undefined
     throw new ApiError(message, response.status, code)
   }
@@ -162,6 +164,12 @@ export const updateDeviceState = (
   body: JSON.stringify(state),
 })
 
+export const performPhysicalPumpAction = (mac: string, action: 'start' | 'stop') =>
+  request<{ state: NonNullable<SimulatedDevice['state_snapshot']> }>(
+    `/devices/${encodeURIComponent(mac)}/physical-pump`,
+    { method: 'POST', body: JSON.stringify({ action }) },
+  )
+
 export const performPhysicalSirenAction = (
   mac: string,
   action: 'test_siren' | 'mute_siren' | 'resume_siren',
@@ -174,6 +182,32 @@ export const performPhysicalSirenAction = (
   body: JSON.stringify({
     action,
     duration_seconds: durationSeconds,
+  }),
+})
+
+export const pressPhysicalKeypad = (mac: string, key: string) =>
+  request<{
+    state: NonNullable<SimulatedDevice['state_snapshot']>
+    entrance: NonNullable<DeviceDetailPayload['virtual_hardware']>['entrance']
+    delivery: 'publish_requested' | 'queued_offline'
+  }>(`/devices/${encodeURIComponent(mac)}/physical-keypad`, {
+    method: 'POST',
+    body: JSON.stringify({ key }),
+  })
+
+export const setPhysicalDoorPosition = (
+  mac: string,
+  angleDegrees: number,
+  sensorState: 'calibrating' | 'ready' | 'fault',
+) => request<{
+  state: NonNullable<SimulatedDevice['state_snapshot']>
+  entrance: NonNullable<DeviceDetailPayload['virtual_hardware']>['entrance']
+  delivery: 'publish_requested' | 'queued_offline'
+}>(`/devices/${encodeURIComponent(mac)}/physical-door`, {
+  method: 'POST',
+  body: JSON.stringify({
+    angle_degrees: angleDegrees,
+    sensor_state: sensorState,
   }),
 })
 

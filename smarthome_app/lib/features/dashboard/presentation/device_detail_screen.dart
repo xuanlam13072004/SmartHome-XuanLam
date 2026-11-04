@@ -12,6 +12,7 @@ import '../../../core/utils/app_error_mapper.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../models/capability_model.dart';
 import '../../../domain/models/product_model.dart';
+import '../../products/widgets/entrance_event_history_panel.dart';
 
 class DeviceDetailScreen extends ConsumerWidget {
   const DeviceDetailScreen({
@@ -137,6 +138,9 @@ class DeviceDetailScreen extends ConsumerWidget {
               ref,
               device,
               credential,
+            ),
+            entranceActivitySection: EntranceEventHistoryPanel(
+              deviceMac: device.mac,
             ),
           ),
         );

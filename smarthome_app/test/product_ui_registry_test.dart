@@ -158,6 +158,84 @@ void main() {
     }
   });
 
+  testWidgets('entrance detail exposes only lock and an editable 4x20 LCD',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final requests = <(String, dynamic)>[];
+
+    for (final width in [320.0, 375.0, 414.0, 768.0]) {
+      tester.view.physicalSize = Size(width, 1800);
+      requests.clear();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          key: ValueKey('entrance-$width'),
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                child: productUiRegistry.buildDetail(
+                  context,
+                  device: _entranceDevice,
+                  onCapabilityChanged: (capability, value) async {
+                    requests.add(
+                      (capability.resolveOperation(value).operationName, value),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull, reason: 'width=$width');
+      expect(find.text('LCD 4×20'), findsWidgets);
+      expect(find.text('Bốn dòng, mỗi dòng đúng 20 ô ký tự.'), findsOneWidget);
+      expect(find.text('Camera, LCD & bàn phím'), findsNothing);
+      expect(find.text('Thông số khác'), findsNothing);
+      expect(find.text('Trạng thái camera'), findsNothing);
+      expect(find.text('Nhận diện khuôn mặt'), findsNothing);
+      expect(find.text('Nguồn hiển thị'), findsNothing);
+      expect(find.byKey(const ValueKey('entrance-lcd-line-0')), findsOneWidget);
+      expect(find.byKey(const ValueKey('entrance-lcd-line-3')), findsOneWidget);
+
+      await tester.scrollUntilVisible(
+        find.text('Ra vào & bảo mật'),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('Ra vào & bảo mật'), findsOneWidget);
+
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('entrance-lcd-line-0')),
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('entrance-lcd-line-0')),
+        '12345678901234567890EXTRA',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('entrance-lcd-line-1')),
+        'Xin chao',
+      );
+      await tester.ensureVisible(find.text('Hiển thị trên LCD'));
+      await tester.tap(find.text('Hiển thị trên LCD'));
+      await tester.pump();
+
+      expect(requests, hasLength(1), reason: 'width=$width');
+      expect(requests.single.$1, 'set_custom_message', reason: 'width=$width');
+      expect(
+        requests.single.$2,
+        ['12345678901234567890', 'Xin chao', 'Cua dang khoa', ''],
+        reason: 'width=$width',
+      );
+      expect(tester.takeException(), isNull, reason: 'width=$width');
+    }
+  });
+
   testWidgets(
       'hazard detail is device-first and exposes only safe siren controls',
       (tester) async {
@@ -587,6 +665,97 @@ final _roofDevice = DeviceModel(
     transportMode: DeviceTransportMode.relay,
     joinRank: 2,
     activeHubMac: 'AA:BB:CC:DD:EE:01',
+  ),
+);
+
+final _entranceDevice = DeviceModel(
+  mac: 'AA:BB:CC:DD:EE:10',
+  ownerId: 'owner-1',
+  name: 'Cửa chính',
+  productId: 'prod_entrance_controller',
+  uiProfile: ProductUiProfile.entranceController,
+  uiProfileVersion: 1,
+  category: 'security',
+  icon: Icons.door_front_door_rounded,
+  status: DeviceStatus.online,
+  rawState: const {},
+  diagnostics: const {},
+  capabilities: const [
+    CapabilityModel(
+      id: 'lock_state',
+      type: 'enum',
+      name: 'Trạng thái khóa cửa',
+      value: 'locked',
+      properties: {
+        'options': ['locked', 'unlocked'],
+      },
+      instance: 'main_lock',
+      capabilityId: 'door_lock',
+      semanticRole: 'entrance_lock',
+      section: CapabilitySection.control,
+      operations: [
+        CapabilityOperationDescriptor(operationName: 'lock'),
+        CapabilityOperationDescriptor(operationName: 'unlock'),
+      ],
+    ),
+    CapabilityModel(
+      id: 'displayed_lines',
+      type: 'unknown',
+      name: 'Nội dung LCD',
+      value: ['Nha cua Xuan Lam', '', 'Cua dang khoa', ''],
+      instance: 'lcd',
+      capabilityId: 'character_display_4x20',
+      semanticRole: 'entrance_display',
+      section: CapabilitySection.control,
+      operations: [
+        CapabilityOperationDescriptor(
+          operationName: 'set_custom_message',
+          inputNames: ['lines'],
+        ),
+      ],
+    ),
+    CapabilityModel(
+      id: 'display_source',
+      type: 'enum',
+      name: 'Nguồn hiển thị',
+      value: 'firmware',
+      instance: 'lcd',
+      capabilityId: 'character_display_4x20',
+      semanticRole: 'entrance_display',
+      section: CapabilitySection.control,
+      operations: [
+        CapabilityOperationDescriptor(operationName: 'clear_custom_message'),
+      ],
+    ),
+    CapabilityModel(
+      id: 'camera_state',
+      type: 'sensor',
+      name: 'Trạng thái camera',
+      value: 'offline',
+      isReadOnly: true,
+      instance: 'door_camera',
+      capabilityId: 'camera_stream',
+      section: CapabilitySection.sensor,
+    ),
+    CapabilityModel(
+      id: 'recognition_enabled',
+      type: 'sensor',
+      name: 'Nhận diện khuôn mặt',
+      value: true,
+      isReadOnly: true,
+      instance: 'face_auth',
+      capabilityId: 'face_authentication',
+      section: CapabilitySection.sensor,
+    ),
+  ],
+  topology: const DeviceTopology(
+    networkId: 'network-entrance-1',
+    role: DeviceTopologyRole.hub,
+    epoch: 1,
+    state: DeviceTopologyState.stable,
+    transportMode: DeviceTransportMode.hub,
+    joinRank: 1,
+    activeHubMac: 'AA:BB:CC:DD:EE:10',
   ),
 );
 

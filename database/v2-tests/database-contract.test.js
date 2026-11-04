@@ -123,6 +123,34 @@ test('telemetry uses time-series retention and a separate idempotency receipt co
     assert.equal(receipts.indexes.some(index => index.options.expireAfterSeconds === 0), true);
 });
 
+test('device event collection matches the MQTT event document contract', () => {
+    const events = getCollectionPlan().find(item => item.name === 'device_events');
+    const schema = events.options.validator.$jsonSchema;
+
+    for (const field of [
+        'capability_id',
+        'event_name',
+        'retention',
+        'seq',
+        'received_at',
+        'device_time_trusted',
+        'transport',
+    ]) {
+        assert.equal(schema.required.includes(field), true, field);
+        assert.ok(schema.properties[field], field);
+    }
+    assert.equal(schema.properties.device_uptime_ms.bsonType.includes('double'), true);
+    const timeline = events.indexes.find(
+        index => index.options.name === 'device_event_device_timeline',
+    );
+    assert.deepEqual(timeline?.key, { device_id: 1, received_at: -1, _id: -1 });
+    assert.equal(
+        events.indexes.some(index => index.options.name === 'device_event_identity_unique'
+            && index.options.unique === true),
+        true,
+    );
+});
+
 test('catalog release digest is stable and changes when catalog content changes', () => {
     const catalog = loadCatalogV2();
     const first = digestCatalog(catalog);

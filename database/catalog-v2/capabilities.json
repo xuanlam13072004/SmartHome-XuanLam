@@ -1,25 +1,44 @@
 [
   {
     "capability_id": "door_lock",
-    "revision": 2,
+    "revision": 3,
     "kind": "actuator",
     "runtime": { "execution_authority": "device_firmware", "reported_state_authority": "device_firmware", "offline_behavior": "full_local", "configuration_persistence": "device_nvs" },
     "properties": [
-      { "id": "lock_state", "channel": "reported", "state_authority": "device_firmware", "persistence": "device_nvs", "type": "string", "nullable": false, "enum": ["locked", "unlocked"], "default": "locked", "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "lock_state", "label": "Trạng thái khóa cửa" } }
+      { "id": "lock_state", "channel": "reported", "state_authority": "device_firmware", "persistence": "device_nvs", "type": "string", "nullable": false, "enum": ["locked", "unlocking", "unlocked", "locking", "fault"], "default": "locked", "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "lock_state", "label": "Trạng thái khóa cửa" } }
     ],
     "operations": [
-      { "id": "lock", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": true }, "ack_policy": { "success_condition": "persisted", "completion_signal": "reported_state", "reference": "lock_state" }, "permission": "door.control", "risk": "normal", "confirmation": "none", "timeout_ms": 10000, "idempotent": true, "input": {}, "effects": [{ "type": "expect_reported", "property": "lock_state", "value": "locked" }], "safety_constraints": ["servo_available", "persist_stable_position"], "presentation": { "label": "Khóa cửa", "ui_hint": "primary_action" } },
+      { "id": "lock", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": true }, "ack_policy": { "success_condition": "persisted", "completion_signal": "reported_state", "reference": "lock_state" }, "permission": "door.control", "risk": "normal", "confirmation": "none", "timeout_ms": 10000, "idempotent": true, "input": {}, "effects": [{ "type": "expect_reported", "property": "lock_state", "value": "locked" }], "safety_constraints": ["servo_available", "door_closed_and_sensor_ready", "persist_stable_position"], "presentation": { "label": "Khóa cửa", "ui_hint": "primary_action" } },
       { "id": "unlock", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": true }, "ack_policy": { "success_condition": "persisted", "completion_signal": "reported_state", "reference": "lock_state" }, "permission": "door.control", "risk": "sensitive", "confirmation": "confirm", "timeout_ms": 10000, "idempotent": true, "input": {}, "effects": [{ "type": "expect_reported", "property": "lock_state", "value": "unlocked" }], "safety_constraints": ["servo_available", "persist_stable_position"], "presentation": { "label": "Mở khóa", "ui_hint": "primary_action" } }
     ],
     "events": [
-      { "id": "lock_changed", "producer": "device_firmware", "severity": "info", "retention": "timeline", "data": { "state": { "type": "string", "enum": ["locked", "unlocked"] }, "source": { "type": "string" } } }
+      { "id": "lock_changed", "producer": "device_firmware", "severity": "info", "retention": "timeline", "data": { "state": { "type": "string", "enum": ["locked", "unlocking", "unlocked", "locking", "fault"] }, "source": { "type": "string", "enum": ["keypad", "face", "remote", "automatic", "boot_recovery", "unknown"] }, "reason": { "type": "string", "max_length": 64 } } }
+    ],
+    "resources": [],
+    "credentials": []
+  },
+  {
+    "capability_id": "door_position",
+    "revision": 1,
+    "kind": "measurement",
+    "runtime": { "execution_authority": "device_firmware", "reported_state_authority": "device_firmware", "offline_behavior": "full_local", "configuration_persistence": "device_nvs" },
+    "properties": [
+      { "id": "door_state", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": false, "enum": ["closed", "opening", "open", "closing", "unknown"], "default": "closed", "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "door_state", "label": "Trạng thái cửa" } },
+      { "id": "door_angle_degrees", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "number", "nullable": false, "minimum": 0, "maximum": 180, "unit": "degree", "precision": 1, "default": 0, "required": true, "history": "sampled", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "door_angle", "label": "Góc mở cửa" } },
+      { "id": "position_sensor_state", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": false, "enum": ["calibrating", "ready", "fault"], "default": "ready", "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "sensor_health", "label": "Cảm biến vị trí cửa" } }
+    ],
+    "operations": [],
+    "events": [
+      { "id": "door_opened", "producer": "device_firmware", "severity": "info", "retention": "timeline", "data": { "angle_degrees": { "type": "number", "minimum": 0, "maximum": 180 } } },
+      { "id": "door_closed", "producer": "device_firmware", "severity": "info", "retention": "timeline", "data": { "angle_degrees": { "type": "number", "minimum": 0, "maximum": 180 } } },
+      { "id": "door_position_fault", "producer": "device_firmware", "severity": "warning", "retention": "incident", "data": { "reason": { "type": "string", "max_length": 120 } } }
     ],
     "resources": [],
     "credentials": []
   },
   {
     "capability_id": "character_display_4x20",
-    "revision": 1,
+    "revision": 2,
     "kind": "actuator",
     "runtime": { "execution_authority": "device_firmware", "reported_state_authority": "device_firmware", "offline_behavior": "full_local", "configuration_persistence": "device_runtime" },
     "properties": [
@@ -27,7 +46,7 @@
       { "id": "display_source", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": false, "enum": ["firmware", "authentication", "safety", "custom"], "default": "firmware", "required": true, "history": "latest", "automation": { "trigger": false, "condition": false }, "presentation": { "ui_hint": "status", "label": "Nguồn hiển thị" } }
     ],
     "operations": [
-      { "id": "set_custom_message", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": false }, "ack_policy": { "success_condition": "effect_applied", "completion_signal": "reported_state", "reference": "displayed_lines" }, "permission": "display.write", "risk": "normal", "confirmation": "none", "timeout_ms": 5000, "idempotent": true, "input": { "lines": { "type": "array", "min_items": 4, "max_items": 4, "items": { "type": "string", "max_length": 20 } }, "duration_seconds": { "type": "integer", "minimum": 1, "maximum": 86400 } }, "effects": [{ "type": "expect_reported", "property": "displayed_lines", "value_from": "input.lines" }], "safety_constraints": ["system_messages_have_priority"], "presentation": { "label": "Đổi nội dung LCD", "ui_hint": "lcd_editor" } },
+      { "id": "set_custom_message", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": false }, "ack_policy": { "success_condition": "effect_applied", "completion_signal": "reported_state", "reference": "displayed_lines" }, "permission": "display.write", "risk": "normal", "confirmation": "none", "timeout_ms": 5000, "idempotent": true, "input": { "lines": { "type": "array", "min_items": 4, "max_items": 4, "items": { "type": "string", "max_length": 20 } } }, "effects": [{ "type": "expect_reported", "property": "displayed_lines", "value_from": "input.lines" }, { "type": "expect_reported", "property": "display_source", "value": "custom" }], "safety_constraints": ["system_messages_have_priority"], "presentation": { "label": "Hiển thị nội dung trên LCD", "ui_hint": "lcd_editor" } },
       { "id": "clear_custom_message", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": false }, "ack_policy": { "success_condition": "effect_applied", "completion_signal": "reported_state", "reference": "display_source" }, "permission": "display.write", "risk": "normal", "confirmation": "none", "timeout_ms": 5000, "idempotent": true, "input": {}, "effects": [{ "type": "expect_reported", "property": "display_source", "value": "firmware" }], "safety_constraints": [], "presentation": { "label": "Xóa thông báo tùy chỉnh", "ui_hint": "secondary_action" } }
     ],
     "events": [],
@@ -73,7 +92,7 @@
   },
   {
     "capability_id": "pin_authentication",
-    "revision": 1,
+    "revision": 2,
     "kind": "credential",
     "runtime": { "execution_authority": "device_firmware", "reported_state_authority": "device_firmware", "offline_behavior": "full_local", "configuration_persistence": "device_secure_storage" },
     "properties": [
@@ -81,13 +100,13 @@
     ],
     "operations": [],
     "events": [
-      { "id": "pin_access_granted", "producer": "device_firmware", "severity": "info", "retention": "timeline", "data": { "credential_id": { "type": "string" } } },
+      { "id": "pin_access_granted", "producer": "device_firmware", "severity": "info", "retention": "timeline", "data": { "credential_id": { "type": "string", "enum": ["primary"] } } },
       { "id": "pin_access_denied", "producer": "device_firmware", "severity": "warning", "retention": "timeline", "data": { "attempts_remaining": { "type": "integer", "minimum": 0 } } },
-      { "id": "pin_locked_out", "producer": "device_firmware", "severity": "critical", "retention": "incident", "data": { "locked_until": { "type": "string", "format": "date-time" } } }
+      { "id": "pin_locked_out", "producer": "device_firmware", "severity": "critical", "retention": "incident", "data": { "lockout_seconds": { "type": "integer", "minimum": 1, "maximum": 3600 } } }
     ],
     "resources": [],
     "credentials": [
-      { "id": "pin", "verification_authority": "device_firmware", "storage": "device_secure_storage", "offline_usable": true, "management_success_condition": "persisted_on_device", "kind": "pin", "permission": "credential.manage", "delegable": false, "write_only": true, "constraints": { "type": "string", "format": "numeric_secret", "min_length": 4, "max_length": 12 } }
+      { "id": "pin", "verification_authority": "device_firmware", "storage": "device_secure_storage", "offline_usable": true, "management_success_condition": "persisted_on_device", "kind": "pin", "permission": "credential.manage", "delegable": false, "write_only": true, "constraints": { "type": "string", "format": "numeric_secret", "min_length": 6, "max_length": 6 } }
     ]
   },
   {
@@ -98,7 +117,7 @@
     "properties": [],
     "operations": [],
     "events": [
-      { "id": "keypad_action", "producer": "device_firmware", "severity": "info", "retention": "timeline", "data": { "action": { "type": "string" } } }
+      { "id": "keypad_action", "producer": "device_firmware", "severity": "info", "retention": "timeline", "data": { "action": { "type": "string", "enum": ["authentication_requested", "authentication_cancelled", "authentication_submitted"] } } }
     ],
     "resources": [],
     "credentials": []

@@ -6,6 +6,8 @@ import { getRuntimeManager } from './manager';
 import { shouldRestoreRunRuntime } from './recovery-policy';
 import { assignmentFromClaim } from './topology';
 import { resolveDeviceProduct } from '../catalog/device-contract';
+import { ensureAccessPin } from '../security/device-pin';
+import { verifyLiveDeviceOwnership } from '../provisioning/ownership';
 
 export const restoreRunDevices = async (
     run: SimulationRun,
@@ -26,6 +28,7 @@ export const restoreRunDevices = async (
 
     for (const device of devices) {
         try {
+            if (!await verifyLiveDeviceOwnership(device, manager)) continue;
             const product = await resolveDeviceProduct(device);
             const runtime = manager.addDevice(
                 run.id,
@@ -37,6 +40,8 @@ export const restoreRunDevices = async (
                 device.seq || 0,
                 device.state_snapshot,
                 assignmentFromClaim(device),
+                await ensureAccessPin(device),
+                device.irrigation_session,
             );
             await runtime.connect();
             await runtime.resume();

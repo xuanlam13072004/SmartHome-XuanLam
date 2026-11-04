@@ -36,7 +36,9 @@ export function LcdSimulator({
     setError('')
     const reported: Record<string, unknown> = {
       display_source: source,
-      ...(source === 'custom' ? { displayed_lines: normalizeLines(lines) } : {}),
+      displayed_lines: source === 'custom'
+        ? normalizeLines(lines)
+        : firmwareLines(linesProperty?.default),
     }
     const patch: DeviceStatePatch = {
       instances: {
@@ -119,6 +121,11 @@ export function LcdSimulator({
 const normalizeLines = (value: unknown): string[] => {
   const source = Array.isArray(value) ? value.map(String) : []
   return Array.from({ length: LCD_ROWS }, (_, index) => (source[index] || '').slice(0, LCD_COLUMNS))
+}
+
+const firmwareLines = (value: unknown): string[] => {
+  if (Array.isArray(value)) return normalizeLines(value)
+  return normalizeLines(['Xin chao!', 'Cua dang khoa', 'Nhan A de mo khoa', ''])
 }
 
 const padLine = (line: string): string => line.slice(0, LCD_COLUMNS).padEnd(LCD_COLUMNS, ' ')
