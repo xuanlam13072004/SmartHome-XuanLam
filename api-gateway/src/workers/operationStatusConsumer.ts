@@ -4,6 +4,12 @@ import type { Db } from 'mongodb';
 import { env } from '../config/env';
 // @ts-ignore - shared CommonJS module
 import { OPERATION_STATUS, REDIS_CHANNELS, TERMINAL_OPERATION_STATUSES } from '../../../shared/constants';
+import {
+    boundOperationResult,
+    buildMediaLocator,
+    revokeMediaSessions,
+    updateMediaSessionProjection,
+} from '../modules/device/mediaSessions';
 
 const ACTIVE = new Set(['accepted', 'queued', 'dispatched', 'executing']);
 const ALLOWED_TRANSITIONS: Record<string, Set<string>> = {
@@ -12,6 +18,29 @@ const ALLOWED_TRANSITIONS: Record<string, Set<string>> = {
     dispatched: new Set(['executing', 'succeeded', 'rejected', 'failed', 'timed_out', 'cancelled']),
     executing: new Set(['succeeded', 'rejected', 'failed', 'timed_out', 'cancelled']),
 };
+
+/**
+ * Where a ready resource session can be opened. Video always goes through the
+ * media relay, so the Gateway builds the locator and ignores any device value;
+ * other resource kinds keep the device-provided locator (camera-contract 7.1).
+ */
+export function resolveResourceLocator(
+    resourceKind: string,
+    sessionId: string,
+    details: unknown,
+    mediaPublicUrl: string | undefined = env.MEDIA_PUBLIC_URL,
+): { locator: string | null; failureCode: string } {
+    if (resourceKind === 'video_stream') {
+        return mediaPublicUrl
+            ? { locator: buildMediaLocator(mediaPublicUrl, sessionId), failureCode: '' }
+            : { locator: null, failureCode: 'MEDIA_RELAY_NOT_CONFIGURED' };
+    }
+    const deviceLocator = details && typeof details === 'object'
+        && typeof (details as any).resource_locator === 'string'
+        ? (details as any).resource_locator
+        : null;
+    return { locator: deviceLocator, failureCode: 'RESOURCE_LOCATOR_MISSING' };
+}
 
 export class OperationStatusConsumer {
     private readonly blockingRedis: Redis;
@@ -74,12 +103,17 @@ export class OperationStatusConsumer {
         if (!operation || !ACTIVE.has(operation.status)) return null;
         if (!ALLOWED_TRANSITIONS[operation.status]?.has(nextStatus)) return null;
         const terminal = TERMINAL_OPERATION_STATUSES.has(nextStatus);
+        // Bounded device ACK details (for example list_recordings ranges) are
+        // kept as the operation result and returned to the actor (contract B1).
+        const operationResult = terminal ? boundOperationResult(metadata?.details) : null;
         await client.query(
             `UPDATE device_operations
              SET status = $2, reason_code = $3,
-                 completed_at = CASE WHEN $4 THEN NOW() ELSE NULL END
+                 completed_at = CASE WHEN $4 THEN NOW() ELSE NULL END,
+                 result = CASE WHEN $4 THEN $5::jsonb ELSE result END
              WHERE id = $1`,
-            [operationId, nextStatus, reasonCode, terminal],
+            [operationId, nextStatus, reasonCode, terminal,
+                operationResult ? JSON.stringify(operationResult) : null],
         );
         await client.query(
             `INSERT INTO device_operation_transitions
@@ -87,41 +121,57 @@ export class OperationStatusConsumer {
              VALUES ($1, $2, $3, $4, $5::jsonb)`,
             [operationId, operation.status, nextStatus, reasonCode, JSON.stringify(metadata)],
         );
+        let mediaSession: { id: string; status: 'ready' | 'failed' } | null = null;
         if (terminal) {
-            const resourceLocator = typeof metadata?.details === 'object'
-                && metadata.details !== null
-                && typeof (metadata.details as any).resource_locator === 'string'
-                ? (metadata.details as any).resource_locator
-                : null;
-            if (nextStatus === OPERATION_STATUS.SUCCEEDED && resourceLocator) {
-                await client.query(
-                    `UPDATE device_resource_sessions
-                     SET status = 'ready', resource_locator = $2, ready_at = NOW(),
-                         reason_code = NULL
-                     WHERE operation_id = $1 AND status = 'requested'
-                       AND expires_at > NOW()`,
-                    [operationId, resourceLocator],
-                );
-            } else {
-                await client.query(
-                    `UPDATE device_resource_sessions
-                     SET status = 'failed', reason_code = $2
-                     WHERE operation_id = $1 AND status = 'requested'`,
-                    [
-                        operationId,
-                        reasonCode || (
-                            nextStatus === OPERATION_STATUS.SUCCEEDED
-                                ? 'RESOURCE_LOCATOR_MISSING'
-                                : `OPERATION_${nextStatus.toUpperCase()}`
-                        ),
-                    ],
-                );
+            const sessionResult = await client.query(
+                `SELECT id, resource_kind FROM device_resource_sessions
+                 WHERE operation_id = $1 AND status = 'requested'`,
+                [operationId],
+            );
+            const session = sessionResult.rows[0];
+            if (session) {
+                const locator = resolveResourceLocator(session.resource_kind, session.id, metadata?.details);
+                const succeeded = nextStatus === OPERATION_STATUS.SUCCEEDED && locator.locator !== null;
+                if (succeeded) {
+                    await client.query(
+                        `UPDATE device_resource_sessions
+                         SET status = 'ready', resource_locator = $2, ready_at = NOW(),
+                             reason_code = NULL
+                         WHERE id = $1 AND status = 'requested'
+                           AND expires_at > NOW()`,
+                        [session.id, locator.locator],
+                    );
+                } else {
+                    await client.query(
+                        `UPDATE device_resource_sessions
+                         SET status = 'failed', reason_code = $2
+                         WHERE id = $1 AND status = 'requested'`,
+                        [
+                            session.id,
+                            reasonCode || (
+                                nextStatus === OPERATION_STATUS.SUCCEEDED
+                                    ? locator.failureCode
+                                    : `OPERATION_${nextStatus.toUpperCase()}`
+                            ),
+                        ],
+                    );
+                }
+                if (session.resource_kind === 'video_stream') {
+                    mediaSession = { id: session.id, status: succeeded ? 'ready' : 'failed' };
+                }
             }
         }
-        return { ...operation, status: nextStatus, terminal };
+        return { ...operation, status: nextStatus, terminal, result: operationResult, mediaSession };
     }
 
     private async publishProjection(operation: any, reasonCode: string | null) {
+        if (operation.mediaSession?.status === 'ready') {
+            await updateMediaSessionProjection(this.redis, operation.mediaSession.id, { status: 'ready' })
+                .catch(error => this.logger.warn({ error }, 'Failed to mark media session ready'));
+        } else if (operation.mediaSession?.status === 'failed') {
+            await revokeMediaSessions(this.redis, operation.mac, [operation.mediaSession.id])
+                .catch(error => this.logger.warn({ error }, 'Failed to drop failed media session'));
+        }
         if (operation.terminal) {
             await this.mongoDb.collection(env.MONGO_ACTIVE_OPERATIONS_COLLECTION)
                 .deleteOne({ _id: operation.id });
@@ -138,6 +188,7 @@ export class OperationStatusConsumer {
                 operation_id: operation.id,
                 status: operation.status,
                 reason_code: reasonCode,
+                ...(operation.result ? { result: operation.result } : {}),
             },
             timestamp: new Date().toISOString(),
         }));

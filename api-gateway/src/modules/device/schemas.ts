@@ -43,7 +43,18 @@ export const resourceSessionSchema = z.object({
         instanceId: z.string().regex(/^[a-z][a-z0-9_]{1,63}$/),
         resourceId: z.string().regex(/^[a-z][a-z0-9_]{1,63}$/),
     }),
-    body: z.object({}).strict(),
+    // Optional operation input, validated against the Catalog operation schema
+    // (for example { from, to } for recording playback).
+    body: z.object({
+        input: z.record(z.unknown()).optional(),
+    }).strict().default({}),
+});
+
+export const operationStatusSchema = z.object({
+    params: z.object({
+        mac: macSchema,
+        operationId: z.string().uuid(),
+    }),
 });
 
 export const resourceSessionStatusSchema = z.object({

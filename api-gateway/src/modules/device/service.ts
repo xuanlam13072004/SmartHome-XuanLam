@@ -13,6 +13,13 @@ import {
     removeTopologyMembership,
     resolveNetworkFingerprint,
 } from './topologyRepository';
+import {
+    boundOperationResult,
+    createToken,
+    revokeMediaSessions,
+    updateMediaSessionProjection,
+    writeMediaSessionProjection,
+} from './mediaSessions';
 
 function buildError(message: string, statusCode: number, code: string) {
     const error = new Error(message) as any;
@@ -95,7 +102,15 @@ export async function claimDevice(app: FastifyInstance, input: {
             name,
             productId: factory.product_id,
             catalogRevision: factory.catalog_revision,
-            networkFingerprint: resolveNetworkFingerprint(input.network_fingerprint, mac),
+            // Products without Hub–Node support (for example cameras) always get an
+            // isolated single-member network: they are never elected Hub of other
+            // devices and never relay (camera-contract section 2).
+            networkFingerprint: resolveNetworkFingerprint(
+                (product.connectivity_profiles || []).includes('hub_node')
+                    ? input.network_fingerprint
+                    : undefined,
+                mac,
+            ),
         });
         topologyOutboxId = topologyResult.topologyOutboxId;
         const assigned = topologyResult.topology.members.find(
@@ -170,9 +185,20 @@ export async function unpairDevice(app: FastifyInstance, macInput: string, owner
     const client = await app.pg.connect();
     let shadowOutboxId = 0;
     let removalResult: Awaited<ReturnType<typeof removeTopologyMembership>>;
+    let revokedSessionIds: string[] = [];
 
     try {
         await client.query('BEGIN');
+        // Sessions are deleted with the device row; remember them so the media
+        // relay can drop open viewers and ingest immediately after commit.
+        const activeSessions = await client.query(
+            `SELECT session.id FROM device_resource_sessions AS session
+             JOIN device_metadata AS device ON device.id = session.device_id
+             WHERE device.mac = $1 AND device.owner_id = $2
+               AND session.status IN ('requested', 'ready')`,
+            [mac, ownerId],
+        );
+        revokedSessionIds = activeSessions.rows.map(row => row.id);
         removalResult = await removeTopologyMembership(client, ownerId, mac);
         if (!removalResult) throw buildError('Device not found', 404, 'DEVICE_NOT_FOUND');
 
@@ -201,6 +227,8 @@ export async function unpairDevice(app: FastifyInstance, macInput: string, owner
         client.release();
     }
 
+    await revokeMediaSessions(app.redis, mac, revokedSessionIds)
+        .catch(error => app.log.warn({ error, mac }, 'Failed to revoke media sessions on unpair'));
     await dispatchDeviceShadowOutboxEvent(app.pg, app.mongo.db, app.log, shadowOutboxId)
         .catch(error => app.log.warn({ error, mac }, 'Shadow unpair event queued for retry'));
     if (removalResult!.topologyOutboxId) {
@@ -337,6 +365,8 @@ export async function createDeviceOperation(app: FastifyInstance, input: {
         resource_kind: string;
         permission_scope: string;
         access_token_hash: string;
+        ingest_token_hash?: string | null;
+        max_concurrent_sessions?: number;
         expires_at: Date;
     };
 }, accountId: string) {
@@ -422,6 +452,24 @@ export async function createDeviceOperation(app: FastifyInstance, input: {
     const client = await app.pg.connect();
     try {
         await client.query('BEGIN');
+        const sessionLimit = input.resource_session?.max_concurrent_sessions;
+        if (input.resource_session && sessionLimit) {
+            // Serialize session creation per device so the limit cannot be raced.
+            await client.query('SELECT id FROM device_metadata WHERE id = $1 FOR UPDATE', [device.id]);
+            const active = await client.query(
+                `SELECT COUNT(*)::int AS count FROM device_resource_sessions
+                 WHERE device_id = $1 AND instance_id = $2 AND resource_id = $3
+                   AND status IN ('requested', 'ready') AND expires_at > NOW()`,
+                [device.id, input.instance_id, input.resource_session.resource_id],
+            );
+            if (active.rows[0].count >= sessionLimit) {
+                throw buildError(
+                    'The maximum number of concurrent sessions for this resource is reached',
+                    409,
+                    'RESOURCE_SESSION_LIMIT',
+                );
+            }
+        }
         await client.query(
             `INSERT INTO device_operations
                 (id, device_id, actor_account_id, instance_id, operation_name,
@@ -461,8 +509,8 @@ export async function createDeviceOperation(app: FastifyInstance, input: {
                 `INSERT INTO device_resource_sessions
                     (id, device_id, actor_account_id, operation_id, instance_id,
                      resource_id, permission_scope, resource_kind, status,
-                     access_token_hash, expires_at)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'requested', $9, $10)`,
+                     access_token_hash, ingest_token_hash, expires_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'requested', $9, $11, $10)`,
                 [
                     input.resource_session.id,
                     device.id,
@@ -474,6 +522,7 @@ export async function createDeviceOperation(app: FastifyInstance, input: {
                     input.resource_session.resource_kind,
                     input.resource_session.access_token_hash,
                     input.resource_session.expires_at,
+                    input.resource_session.ingest_token_hash ?? null,
                 ],
             );
         }
@@ -494,6 +543,20 @@ export async function createDeviceOperation(app: FastifyInstance, input: {
     } finally {
         client.release();
     }
+    if (input.resource_session?.resource_kind === 'video_stream') {
+        await writeMediaSessionProjection(app.redis, {
+            session_id: input.resource_session.id,
+            device_id: device.id,
+            device_mac: mac,
+            instance_id: input.instance_id,
+            resource_id: input.resource_session.resource_id,
+            resource_kind: input.resource_session.resource_kind,
+            status: 'requested',
+            access_token_hash: input.resource_session.access_token_hash,
+            ingest_token_hash: input.resource_session.ingest_token_hash ?? null,
+            expires_at: input.resource_session.expires_at.toISOString(),
+        }).catch(error => app.log.warn({ error, mac }, 'Failed to project media session'));
+    }
     return { operation_id: operationId, status: 'queued' };
 }
 
@@ -501,6 +564,7 @@ export async function createDeviceResourceSession(app: FastifyInstance, input: {
     mac: string;
     instance_id: string;
     resource_id: string;
+    input?: Record<string, unknown>;
     idempotency_key?: string;
     reauthenticated?: boolean;
 }, accountId: string) {
@@ -531,28 +595,42 @@ export async function createDeviceResourceSession(app: FastifyInstance, input: {
         throw buildError('Recent reauthentication is required', 403, 'REAUTHENTICATION_REQUIRED');
     }
 
-    const rawToken = crypto.randomBytes(32).toString('base64url');
-    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    // Video goes through the media relay: the device receives a short-lived
+    // ingest token over its own MQTT control topic, the app gets an access token
+    // for HLS. Both are stored only as hashes (camera-contract 6.3).
+    const isMedia = resource.kind === 'video_stream';
+    if (isMedia && (!env.MEDIA_PUBLIC_URL || !env.MEDIA_INGEST_URL)) {
+        throw buildError('Media relay is not configured', 503, 'MEDIA_RELAY_NOT_CONFIGURED');
+    }
+    const access = createToken();
+    const ingest = isMedia ? createToken() : null;
     const sessionId = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + Number(resource.session_ttl_seconds) * 1000);
     const result = await createDeviceOperation(app, {
         mac,
         instance_id: input.instance_id,
         operation_name: operation.id,
-        input: {},
+        input: input.input || {},
         idempotency_key: input.idempotency_key,
         reauthenticated: input.reauthenticated,
         internal_context: {
             resource_session_id: sessionId,
             resource_id: input.resource_id,
             resource_expires_at: expiresAt.toISOString(),
+            ...(ingest ? {
+                media_ingest_url: env.MEDIA_INGEST_URL,
+                media_ingest_token: ingest.raw,
+                media_profile_id: resource.media_profile?.profile_id ?? null,
+            } : {}),
         },
         resource_session: {
             id: sessionId,
             resource_id: input.resource_id,
             resource_kind: resource.kind,
             permission_scope: resource.permission,
-            access_token_hash: tokenHash,
+            access_token_hash: access.hash,
+            ingest_token_hash: ingest?.hash ?? null,
+            max_concurrent_sessions: Number(resource.max_concurrent_sessions) || undefined,
             expires_at: expiresAt,
         },
     }, accountId);
@@ -560,9 +638,101 @@ export async function createDeviceResourceSession(app: FastifyInstance, input: {
         session_id: sessionId,
         operation_id: result.operation_id,
         status: 'requested',
-        access_token: rawToken,
+        access_token: access.raw,
         expires_at: expiresAt.toISOString(),
     };
+}
+
+/**
+ * Extends an open session by its resource TTL after re-checking that the
+ * caller still has access and the resource permission (camera-contract 7.1).
+ */
+export async function renewDeviceResourceSession(
+    app: FastifyInstance,
+    macInput: string,
+    sessionId: string,
+    accountId: string,
+) {
+    const mac = normalizeMac(macInput);
+    const device = await loadAccessibleDevice(app, mac, accountId);
+    if (!device) throw buildError('Device not found', 404, 'DEVICE_NOT_FOUND');
+    const current = await app.pg.query(
+        `SELECT id, instance_id, resource_id, permission_scope, status, expires_at
+         FROM device_resource_sessions
+         WHERE id = $1 AND device_id = $2 AND actor_account_id = $3`,
+        [sessionId, device.id, accountId],
+    );
+    const session = current.rows[0];
+    if (!session) throw buildError('Resource session not found', 404, 'RESOURCE_SESSION_NOT_FOUND');
+    if (!['requested', 'ready'].includes(session.status) || new Date(session.expires_at).getTime() <= Date.now()) {
+        throw buildError('Resource session is no longer active', 409, 'RESOURCE_SESSION_INACTIVE');
+    }
+    if (device.role !== 'owner' && !device.granted_permissions.includes(session.permission_scope)) {
+        throw buildError('Permission denied for this resource', 403, 'RESOURCE_FORBIDDEN');
+    }
+    const resource = app.catalog.getResource(device.product_id, session.instance_id, session.resource_id) as any;
+    if (!resource) throw buildError('Resource is not supported by this Product', 409, 'RESOURCE_NOT_SUPPORTED');
+    const expiresAt = new Date(Date.now() + Number(resource.session_ttl_seconds) * 1000);
+    const updated = await app.pg.query(
+        `UPDATE device_resource_sessions SET expires_at = $2
+         WHERE id = $1 AND status IN ('requested', 'ready')
+         RETURNING id, status, expires_at`,
+        [sessionId, expiresAt],
+    );
+    if (!updated.rows[0]) throw buildError('Resource session is no longer active', 409, 'RESOURCE_SESSION_INACTIVE');
+    await updateMediaSessionProjection(app.redis, sessionId, { expires_at: expiresAt.toISOString() })
+        .catch(error => app.log.warn({ error, mac }, 'Failed to extend media session projection'));
+    return { session_id: sessionId, status: updated.rows[0].status, expires_at: expiresAt.toISOString() };
+}
+
+/** Viewer closes its session; the relay stops serving it at once. */
+export async function closeDeviceResourceSession(
+    app: FastifyInstance,
+    macInput: string,
+    sessionId: string,
+    accountId: string,
+) {
+    const mac = normalizeMac(macInput);
+    const result = await app.pg.query(
+        `UPDATE device_resource_sessions AS session
+         SET status = 'revoked', reason_code = 'CLOSED_BY_VIEWER'
+         FROM device_metadata AS device
+         WHERE session.id = $1 AND session.actor_account_id = $2
+           AND device.id = session.device_id AND device.mac = $3
+           AND session.status IN ('requested', 'ready')
+         RETURNING session.id`,
+        [sessionId, accountId, mac],
+    );
+    if (!result.rows[0]) throw buildError('Resource session not found', 404, 'RESOURCE_SESSION_NOT_FOUND');
+    await revokeMediaSessions(app.redis, mac, [sessionId])
+        .catch(error => app.log.warn({ error, mac }, 'Failed to revoke media session'));
+    return { session_id: sessionId, status: 'revoked' };
+}
+
+/**
+ * Operation status and its bounded device result (for example
+ * list_recordings ranges). Visible to the actor and to the device owner.
+ */
+export async function getDeviceOperation(
+    app: FastifyInstance,
+    macInput: string,
+    operationId: string,
+    accountId: string,
+) {
+    const mac = normalizeMac(macInput);
+    const device = await loadAccessibleDevice(app, mac, accountId);
+    if (!device) throw buildError('Device not found', 404, 'DEVICE_NOT_FOUND');
+    const result = await app.pg.query(
+        `SELECT id, instance_id, operation_name, status, reason_code, result,
+                created_at, completed_at
+         FROM device_operations
+         WHERE id = $1 AND device_id = $2
+           AND (actor_account_id = $3 OR $4)`,
+        [operationId, device.id, accountId, device.role === 'owner'],
+    );
+    if (!result.rows[0]) throw buildError('Operation not found', 404, 'OPERATION_NOT_FOUND');
+    const row = result.rows[0];
+    return { ...row, result: boundOperationResult(row.result) };
 }
 
 export async function getDeviceResourceSession(

@@ -141,32 +141,39 @@ Không giả định user đã xuất hiện đồng nghĩa toàn bộ device đ
 
 ## Quyết định camera đã chốt với người dùng (2026-11-04)
 
-Các mục dưới đây là quyết định của người dùng, thay thế phần "Chưa chốt" bên dưới
-nếu mâu thuẫn:
+Contract chi tiết: `docs/architecture/camera-contract.md` (v0.3, các điểm mở đã chốt). Các mục
+dưới đây là quyết định của người dùng, thay thế phần "Chưa chốt" bên dưới nếu mâu
+thuẫn:
 
-- Camera là **sản phẩm/thiết bị riêng** (MAC và danh tính broker riêng), độc lập
-  với bộ khóa cửa trên app. Bỏ `door_camera` khỏi `prod_entrance_controller`.
-- **Bỏ hẳn nhận diện khuôn mặt** (`face_auth`) khỏi bộ khóa cửa.
-- Phần cứng dự kiến: ESP32-S3 + OV5640 + PSRAM 8 MB + micro I2S, thẻ nhớ lớn loại
-  High Endurance (ESP32-CAM AI-Thinker hiện có: OV2640, PSRAM 2 MB, thẻ tối đa 4 GB,
-  chỉ dùng để thử nghiệm).
-- Video: chuỗi ảnh JPEG (MJPEG), ưu tiên độ nét; file ghi dài 1 phút.
-- Âm thanh: chỉ thu (micro), không có loa/đàm thoại hai chiều. Thiết bị thật có
-  micro; hình và tiếng gắn mốc thời gian, tiếng được ưu tiên khi thiếu tài nguyên.
-- Ghi liên tục 24/7, chưa ghi theo sự kiện.
-- Xem trực tiếp và xem lại kể cả từ ngoài nhà, qua máy chủ trung gian; camera chỉ
-  gửi hình khi có người xem; tối đa 5 người xem mỗi camera.
-- Thiết bị thật: chỉ xóa khi thẻ đầy (ghi vòng, xóa bản cũ nhất đã hoàn tất),
-  khi unpair, hoặc khi chủ thiết bị tự xóa trên app (tính năng mới cần API +
-  lệnh thiết bị). Không xóa theo tuổi.
-- Simulator: webcam + micro của PC, mô phỏng **đúng hồ sơ media của Product**
-  (không xuất nét hơn module thật); trần tổng 10 GB với ghi vòng; xóa sạch khi
-  dọn lần chạy.
-- Hồ sơ media (định dạng, độ phân giải, fps, có âm thanh) là đặc tính của Product
-  trong Catalog; app/máy chủ đọc hồ sơ, không phân biệt thật/ảo. Board tốt hơn sau
-  này (ví dụ ESP32-P4 có H.264) sẽ là Product mới.
-- Chưa làm: contract camera, Catalog revision mới, đo khung hình/giây thực tế trên
-  board.
+- **Một** Product camera riêng `prod_security_camera` (MAC, danh tính broker riêng),
+  độc lập với bộ khóa cửa trên app, không tham gia Hub–Node.
+- **Ưu tiên Simulator.** Thiết bị thật làm sau; Simulator dùng để phát triển sản
+  phẩm tương lai, nên chất lượng theo webcam/micro laptop: H.264 đến 1080p30 +
+  AAC, fMP4 mảnh 2 giây, file ghi 1 phút. Phần cứng thật sau này phải đáp ứng đúng
+  hồ sơ đó (ESP32-S3 không đủ; ứng viên ESP32-P4).
+- Âm thanh: chỉ thu (micro), không loa/đàm thoại hai chiều.
+- Ghi liên tục 24/7, chưa ghi theo sự kiện. Snapshot để sau.
+- Xem trực tiếp và xem lại kể cả từ ngoài nhà qua máy chủ trung gian
+  (`media-relay-service`, HLS); tối đa 5 người xem mỗi camera.
+- Xóa: khi đầy (ghi vòng), khi unpair/đổi chủ, hoặc chủ thiết bị tự xóa trên app
+  (quyền mới `camera.recording.manage`). Không xóa theo tuổi. Simulator: trần tổng
+  10 GB, xóa sạch khi dọn lần chạy.
+- **Bỏ hẳn** `door_camera` và `face_auth` khỏi bộ khóa cửa, tăng revision và migrate
+  dữ liệu thiết bị cửa, nạp lại firmware cửa.
+- RTC: người dùng có module, dùng khi làm thiết bị thật (chưa ưu tiên).
+- Truy cập từ ngoài: Cloudflare Tunnel cố định trên tên miền của người dùng. API và
+  WebSocket qua hostname công khai; video (máy chủ media) qua tuyến mạng riêng +
+  Cloudflare WARP, vì điều khoản Cloudflare cấm truyền video qua hostname công khai
+  trên gói miễn phí (contract mục 11.1).
+- Thứ tự: backend B1–B8 + Catalog revision 13 → Simulator → media relay → Flutter →
+  tunnel (contract mục 16).
+- **Bước 1 đã làm (2026-11-04):** Catalog revision 13 (`prod_security_camera`,
+  `camera_stream` rev 2, `video_recording` rev 1, `media_profile`; cửa revision 6
+  không còn camera/face, firmware cửa `CATALOG_REVISION = 6`), PostgreSQL schema
+  **202** (quyền `camera.recording.manage`, `device_operations.result`,
+  `device_resource_sessions.ingest_token_hash`), Gateway B1–B7. Camera ảo trả lời
+  `CAMERA_UNAVAILABLE` cho tới bước 2. Người dùng cho phép **xóa sạch dữ liệu dự án**
+  khi đổi schema (không viết migration 201→202). Bước tiếp theo: Simulator webcam.
 
 ## Trạng thái camera: kế hoạch, chưa phải tính năng hoàn tất
 

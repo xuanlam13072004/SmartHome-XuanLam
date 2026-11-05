@@ -50,6 +50,14 @@ class GenericProductMiniCard extends StatelessWidget {
   }
 }
 
+String _doorStateLabel(String value) => switch (value.toLowerCase()) {
+      'closed' => 'Đã đóng',
+      'open' => 'Đang mở',
+      'opening' => 'Đang mở ra',
+      'closing' => 'Đang đóng lại',
+      _ => 'Không rõ',
+    };
+
 class EntranceProductMiniCard extends StatelessWidget {
   const EntranceProductMiniCard({
     super.key,
@@ -66,9 +74,9 @@ class EntranceProductMiniCard extends StatelessWidget {
       ids: const ['lock_state'],
       capabilityIds: const ['door_lock'],
     );
-    final camera = device.capabilityMatching(
-      ids: const ['is_streaming', 'camera_state'],
-      capabilityIds: const ['camera_stream'],
+    final door = device.capabilityMatching(
+      ids: const ['door_state'],
+      capabilityIds: const ['door_position'],
     );
     final locked =
         '${lock?.value}'.toLowerCase() == 'locked' || lock?.value == true;
@@ -81,11 +89,9 @@ class EntranceProductMiniCard extends StatelessWidget {
       accent: locked ? context.colorScheme.primary : context.colorScheme.error,
       metrics: [
         ProductMiniMetric(
-          icon: Icons.videocam_rounded,
-          label: 'Camera',
-          value: '${camera?.value}'.toLowerCase() == 'streaming'
-              ? 'Đang xem'
-              : 'Sẵn sàng',
+          icon: Icons.door_front_door_rounded,
+          label: 'Cửa',
+          value: _doorStateLabel('${door?.value}'),
         ),
         const ProductMiniMetric(
           icon: Icons.password_rounded,

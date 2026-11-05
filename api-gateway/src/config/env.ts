@@ -38,6 +38,12 @@ const envSchema = z.object({
     TOPOLOGY_ELECTION_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(30),
     TOPOLOGY_HUB_LEASE_SECONDS: z.coerce.number().int().positive().default(15),
 
+    // Media relay (docs/architecture/camera-contract.md). PUBLIC is what apps open
+    // (HLS over HTTPS); INGEST is what devices connect to. Unset = camera media
+    // sessions are refused with MEDIA_RELAY_NOT_CONFIGURED.
+    MEDIA_PUBLIC_URL: z.string().url().optional(),
+    MEDIA_INGEST_URL: z.string().url().optional(),
+
     // Rate limits (requests per minute). Keyed by account/email/session, not IP,
     // except the coarse per-IP ceilings. Raise them in a load-test environment.
     RATE_LIMIT_REGISTER_PER_IP_PER_MINUTE: z.coerce.number().int().positive().default(20),

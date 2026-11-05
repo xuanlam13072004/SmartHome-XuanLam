@@ -17,7 +17,7 @@ function sqlTableNames(source) {
 }
 
 function sqlPermissionScopes(source) {
-    return new Set([...source.matchAll(/\('([a-z][a-z0-9_]*\.[a-z][a-z0-9_]*)',/g)].map(match => match[1]));
+    return new Set([...source.matchAll(/\('([a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+)',/g)].map(match => match[1]));
 }
 
 test('PostgreSQL V2 schema is clean-break additive source with no destructive statement', () => {
@@ -68,8 +68,8 @@ test('every permission required by an active Product operation/resource/credenti
 });
 
 test('owner-only permissions and owner-membership invariants are enforced in database source', () => {
-    for (const permission of ['credential.manage', 'safety.configure', 'device.share', 'device.unpair']) {
-        assert.match(sql, new RegExp(`\\('${permission.replace('.', '\\.')}',[^\\n]+true, false\\)`));
+    for (const permission of ['credential.manage', 'safety.configure', 'device.share', 'device.unpair', 'camera.recording.manage']) {
+        assert.match(sql, new RegExp(`\\('${permission.replaceAll('.', '\\.')}',[^\\n]+true, false\\)`));
     }
     assert.match(sql, /CREATE TRIGGER trg_device_membership_permission/);
     assert.match(sql, /CREATE CONSTRAINT TRIGGER trg_device_metadata_active_owner/);
@@ -174,7 +174,7 @@ test('coordinated initializer enforces the target contract and is wired into Doc
     const initializer = fs.readFileSync(path.resolve(__dirname, '../initialize_v2.js'), 'utf8');
     const compose = fs.readFileSync(path.resolve(__dirname, '../../docker-compose.yml'), 'utf8');
 
-    assert.match(initializer, /POSTGRES_SCHEMA_VERSION = 201/);
+    assert.match(initializer, /POSTGRES_SCHEMA_VERSION = 202/);
     assert.match(initializer, /PostgreSQL contains an incompatible schema/);
     assert.match(initializer, /MongoDB contains incompatible collections/);
     assert.match(initializer, /name\.startsWith\('system\.'\)/);

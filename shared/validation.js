@@ -4,6 +4,12 @@ function isPlainObject(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
+
+function isIsoDateTime(value) {
+    return ISO_DATE_TIME.test(value) && !Number.isNaN(Date.parse(value));
+}
+
 function validateValueAgainstSchema(value, schema, options = {}) {
     if (!isPlainObject(schema)) {
         return { valid: false, error: 'Schema is undefined or invalid' };
@@ -40,6 +46,9 @@ function validateValueAgainstSchema(value, schema, options = {}) {
             }
             if (schema.max_length !== undefined && value.length > schema.max_length) {
                 return { valid: false, error: `String is longer than ${schema.max_length}` };
+            }
+            if (schema.format === 'date-time' && !isIsoDateTime(value)) {
+                return { valid: false, error: 'Expected an ISO 8601 date-time with timezone' };
             }
             break;
         case 'array':

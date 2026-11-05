@@ -14,7 +14,7 @@ incidents, active-operation projections and ingest receipts. Physical reported
 state remains device-authoritative.
 
 The initializer accepts an already initialized database only when schema
-version `201` and every required table/collection are present. Any old or
+version `202` and every required table/collection are present. Any old or
 partial contract is rejected and must be cleared before restart.
 
 Run source-contract checks with:

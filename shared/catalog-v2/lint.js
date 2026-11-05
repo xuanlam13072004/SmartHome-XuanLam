@@ -102,6 +102,42 @@ function lintValueSchema(schema, path, errors, { property = false } = {}) {
     }
 }
 
+const MEDIA_VIDEO_CODECS = new Set(['h264', 'mjpeg']);
+const MEDIA_AUDIO_CODECS = new Set(['aac_lc', 'pcm_s16le']);
+
+/** Media profile: how the device encodes, records and delivers audio/video (docs/architecture/camera-contract.md). */
+function lintMediaProfile(resource, path, errors) {
+    const profile = resource.media_profile;
+    if (!isPlainObject(profile)) {
+        errors.push(issue('INVALID_MEDIA_PROFILE', path, 'Media profile must be an object.'));
+        return;
+    }
+    if (resource.kind !== 'video_stream') {
+        errors.push(issue('MEDIA_PROFILE_KIND', path, 'Only video_stream resources may declare a media profile.'));
+    }
+    if (!IDENTIFIER.test(profile.profile_id || '')) errors.push(issue('INVALID_MEDIA_PROFILE_ID', `${path}.profile_id`, 'Media profile ID must be snake_case.'));
+    const video = isPlainObject(profile.video) ? profile.video : {};
+    if (!MEDIA_VIDEO_CODECS.has(video.codec)) errors.push(issue('INVALID_VIDEO_CODEC', `${path}.video.codec`, `Unsupported video codec: ${video.codec}`));
+    for (const field of ['max_width', 'max_height', 'max_fps']) {
+        if (!Number.isInteger(video[field]) || video[field] < 1) errors.push(issue('INVALID_VIDEO_LIMIT', `${path}.video.${field}`, `${field} must be a positive integer.`));
+    }
+    if (profile.audio !== undefined) {
+        const audio = isPlainObject(profile.audio) ? profile.audio : {};
+        if (!MEDIA_AUDIO_CODECS.has(audio.codec)) errors.push(issue('INVALID_AUDIO_CODEC', `${path}.audio.codec`, `Unsupported audio codec: ${audio.codec}`));
+        if (!Number.isInteger(audio.sample_rate_hz) || audio.sample_rate_hz < 8000) errors.push(issue('INVALID_AUDIO_RATE', `${path}.audio.sample_rate_hz`, 'Audio sample rate must be at least 8000 Hz.'));
+        if (![1, 2].includes(audio.channels)) errors.push(issue('INVALID_AUDIO_CHANNELS', `${path}.audio.channels`, 'Audio must be mono or stereo.'));
+    }
+    if (profile.container !== 'cmaf_fmp4') errors.push(issue('INVALID_MEDIA_CONTAINER', `${path}.container`, 'Only cmaf_fmp4 is supported.'));
+    if (typeof profile.fragment_seconds !== 'number' || profile.fragment_seconds < 0.5 || profile.fragment_seconds > 10) {
+        errors.push(issue('INVALID_FRAGMENT_DURATION', `${path}.fragment_seconds`, 'Fragment duration must be between 0.5 and 10 seconds.'));
+    }
+    const segment = profile.recording?.segment_seconds;
+    if (!Number.isInteger(segment) || segment < 10 || segment > 600) {
+        errors.push(issue('INVALID_RECORDING_SEGMENT', `${path}.recording.segment_seconds`, 'Recording segment must be 10-600 seconds.'));
+    }
+    if (profile.delivery !== 'hls') errors.push(issue('INVALID_MEDIA_DELIVERY', `${path}.delivery`, 'Only HLS delivery is supported.'));
+}
+
 function lintCapability(capability, path, errors, warnings) {
     if (!IDENTIFIER.test(capability.capability_id || '')) {
         errors.push(issue('INVALID_CAPABILITY_ID', `${path}.capability_id`, 'Capability ID must be a stable snake_case identifier.'));
@@ -198,6 +234,13 @@ function lintCapability(capability, path, errors, warnings) {
         if (!Number.isInteger(resource.session_ttl_seconds) || resource.session_ttl_seconds < 1 || resource.session_ttl_seconds > 3600) {
             errors.push(issue('INVALID_RESOURCE_TTL', `${resourcePath}.session_ttl_seconds`, 'Resource session TTL must be between 1 and 3600 seconds.'));
         }
+        if (resource.max_concurrent_sessions !== undefined
+            && (!Number.isInteger(resource.max_concurrent_sessions)
+                || resource.max_concurrent_sessions < 1
+                || resource.max_concurrent_sessions > 100)) {
+            errors.push(issue('INVALID_RESOURCE_SESSION_LIMIT', `${resourcePath}.max_concurrent_sessions`, 'Concurrent session limit must be an integer between 1 and 100.'));
+        }
+        if (resource.media_profile !== undefined) lintMediaProfile(resource, `${resourcePath}.media_profile`, errors);
     });
 
     const credentialIds = new Set();

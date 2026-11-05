@@ -55,40 +55,52 @@
   },
   {
     "capability_id": "camera_stream",
-    "revision": 1,
+    "revision": 2,
     "kind": "resource",
     "runtime": { "execution_authority": "hybrid_session", "reported_state_authority": "device_firmware", "offline_behavior": "local_core_only", "configuration_persistence": "none" },
     "properties": [
-      { "id": "camera_state", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": false, "enum": ["offline", "idle", "streaming", "fault"], "default": "offline", "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "camera_status", "label": "Trạng thái camera" } }
+      { "id": "camera_state", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": false, "enum": ["offline", "idle", "streaming", "unavailable", "fault"], "default": "unavailable", "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "camera_status", "label": "Trạng thái camera" } },
+      { "id": "audio_state", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": false, "enum": ["ok", "unavailable", "fault"], "default": "unavailable", "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "audio_status", "label": "Micro" } },
+      { "id": "video_resolution", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": true, "max_length": 16, "default": null, "required": true, "history": "latest", "automation": { "trigger": false, "condition": true }, "presentation": { "ui_hint": "video_resolution", "label": "Độ phân giải" } },
+      { "id": "live_viewers", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "integer", "nullable": false, "minimum": 0, "maximum": 5, "default": 0, "required": true, "history": "latest", "automation": { "trigger": false, "condition": true }, "presentation": { "ui_hint": "viewer_count", "label": "Người đang xem" } }
     ],
     "operations": [
-      { "id": "create_stream_session", "execution_authority": "hybrid_session", "offline_behavior": { "remote_available": false, "local_equivalent": false }, "ack_policy": { "success_condition": "resource_ready", "completion_signal": "resource", "reference": "live_stream" }, "permission": "camera.view", "risk": "sensitive", "confirmation": "none", "timeout_ms": 10000, "idempotent": false, "input": {}, "effects": [{ "type": "create_resource_session", "property": "resources.live_stream" }], "safety_constraints": ["camera_available"], "presentation": { "label": "Xem trực tiếp", "ui_hint": "open_resource" } },
-      { "id": "capture_snapshot", "execution_authority": "hybrid_session", "offline_behavior": { "remote_available": false, "local_equivalent": false }, "ack_policy": { "success_condition": "resource_ready", "completion_signal": "resource", "reference": "snapshot" }, "permission": "camera.view", "risk": "sensitive", "confirmation": "none", "timeout_ms": 10000, "idempotent": false, "input": {}, "effects": [{ "type": "create_resource_session", "property": "resources.snapshot" }], "safety_constraints": ["camera_available"], "presentation": { "label": "Chụp ảnh", "ui_hint": "secondary_action" } }
+      { "id": "create_stream_session", "execution_authority": "hybrid_session", "offline_behavior": { "remote_available": false, "local_equivalent": false }, "ack_policy": { "success_condition": "resource_ready", "completion_signal": "resource", "reference": "live_stream" }, "permission": "camera.view", "risk": "sensitive", "confirmation": "none", "timeout_ms": 15000, "idempotent": false, "input": {}, "effects": [{ "type": "create_resource_session", "property": "resources.live_stream" }], "safety_constraints": ["camera_available"], "presentation": { "label": "Xem trực tiếp", "ui_hint": "open_resource" } }
     ],
     "events": [],
     "resources": [
-      { "id": "live_stream", "producer": "device_firmware", "authorization_authority": "backend", "kind": "video_stream", "permission": "camera.view", "session_ttl_seconds": 300 },
-      { "id": "snapshot", "producer": "device_firmware", "authorization_authority": "backend", "kind": "snapshot", "permission": "camera.view", "session_ttl_seconds": 60 }
+      { "id": "live_stream", "producer": "device_firmware", "authorization_authority": "backend", "kind": "video_stream", "permission": "camera.view", "session_ttl_seconds": 300, "max_concurrent_sessions": 5, "media_profile": { "profile_id": "h264_aac_cmaf_v1", "video": { "codec": "h264", "max_width": 1920, "max_height": 1080, "max_fps": 30, "max_bitrate_kbps": 6000, "keyframe_interval_seconds": 2 }, "audio": { "codec": "aac_lc", "sample_rate_hz": 48000, "channels": 1, "bitrate_kbps": 96 }, "container": "cmaf_fmp4", "fragment_seconds": 2, "recording": { "segment_seconds": 60 }, "delivery": "hls" } }
     ],
     "credentials": []
   },
   {
-    "capability_id": "face_authentication",
+    "capability_id": "video_recording",
     "revision": 1,
-    "kind": "credential",
-    "runtime": { "execution_authority": "device_firmware", "reported_state_authority": "device_firmware", "offline_behavior": "full_local", "configuration_persistence": "device_secure_storage" },
+    "kind": "resource",
+    "runtime": { "execution_authority": "device_firmware", "reported_state_authority": "device_firmware", "offline_behavior": "local_core_only", "configuration_persistence": "none" },
     "properties": [
-      { "id": "recognition_enabled", "channel": "reported", "state_authority": "device_firmware", "persistence": "device_nvs", "type": "boolean", "nullable": false, "default": true, "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "status", "label": "Nhận diện khuôn mặt" } }
+      { "id": "recording_state", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": false, "enum": ["recording", "stopped", "waiting_time_sync", "fault"], "default": "stopped", "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "recording_status", "label": "Ghi hình" } },
+      { "id": "storage_state", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": false, "enum": ["ok", "recycling", "missing", "fault"], "default": "missing", "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "storage_status", "label": "Bộ nhớ ghi hình" } },
+      { "id": "storage_total_bytes", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "integer", "nullable": false, "unit": "byte", "minimum": 0, "default": 0, "required": true, "history": "latest", "automation": { "trigger": false, "condition": true }, "presentation": { "ui_hint": "storage_bytes", "label": "Dung lượng" } },
+      { "id": "storage_used_bytes", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "integer", "nullable": false, "unit": "byte", "minimum": 0, "default": 0, "required": true, "history": "latest", "automation": { "trigger": false, "condition": true }, "presentation": { "ui_hint": "storage_bytes", "label": "Đã dùng" } },
+      { "id": "oldest_recording_at", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": true, "max_length": 40, "format": "date-time", "default": null, "required": true, "history": "latest", "automation": { "trigger": false, "condition": true }, "presentation": { "ui_hint": "timestamp", "label": "Bản ghi cũ nhất" } },
+      { "id": "newest_recording_at", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": true, "max_length": 40, "format": "date-time", "default": null, "required": true, "history": "latest", "automation": { "trigger": false, "condition": true }, "presentation": { "ui_hint": "timestamp", "label": "Bản ghi mới nhất" } }
     ],
-    "operations": [],
+    "operations": [
+      { "id": "list_recordings", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": false }, "ack_policy": { "success_condition": "accepted", "completion_signal": "ack", "reference": "ranges" }, "permission": "camera.view", "risk": "normal", "confirmation": "none", "timeout_ms": 10000, "idempotent": true, "input": { "from": { "type": "string", "min_length": 20, "max_length": 40, "format": "date-time", "required": true }, "to": { "type": "string", "min_length": 20, "max_length": 40, "format": "date-time", "required": true }, "cursor": { "type": "string", "max_length": 128 } }, "effects": [], "safety_constraints": [], "presentation": { "label": "Danh sách bản ghi", "ui_hint": "query" } },
+      { "id": "create_playback_session", "execution_authority": "hybrid_session", "offline_behavior": { "remote_available": false, "local_equivalent": false }, "ack_policy": { "success_condition": "resource_ready", "completion_signal": "resource", "reference": "recording_playback" }, "permission": "camera.view", "risk": "sensitive", "confirmation": "none", "timeout_ms": 15000, "idempotent": false, "input": { "from": { "type": "string", "min_length": 20, "max_length": 40, "format": "date-time", "required": true }, "to": { "type": "string", "min_length": 20, "max_length": 40, "format": "date-time" } }, "effects": [{ "type": "create_resource_session", "property": "resources.recording_playback" }], "safety_constraints": ["storage_available"], "presentation": { "label": "Xem lại", "ui_hint": "open_resource" } },
+      { "id": "delete_recordings", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": false }, "ack_policy": { "success_condition": "persisted", "completion_signal": "ack", "reference": "deleted_segments" }, "permission": "camera.recording.manage", "risk": "sensitive", "confirmation": "confirm", "timeout_ms": 30000, "idempotent": true, "input": { "from": { "type": "string", "min_length": 20, "max_length": 40, "format": "date-time" }, "to": { "type": "string", "min_length": 20, "max_length": 40, "format": "date-time" }, "all": { "type": "boolean" } }, "effects": [{ "type": "create_event", "property": "events.recordings_deleted" }], "safety_constraints": ["never_delete_active_segment"], "presentation": { "label": "Xóa bản ghi", "ui_hint": "destructive_action" } }
+    ],
     "events": [
-      { "id": "face_access_granted", "producer": "device_firmware", "severity": "info", "retention": "timeline", "data": { "credential_id": { "type": "string" }, "confidence": { "type": "number", "minimum": 0, "maximum": 1 } } },
-      { "id": "face_access_denied", "producer": "device_firmware", "severity": "warning", "retention": "timeline", "data": { "reason": { "type": "string" } } }
+      { "id": "storage_fault", "producer": "device_firmware", "severity": "warning", "retention": "timeline", "data": { "reason": { "type": "string", "max_length": 64 } } },
+      { "id": "storage_recycled", "producer": "device_firmware", "severity": "info", "retention": "timeline", "data": { "deleted_segments": { "type": "integer", "minimum": 0 }, "freed_bytes": { "type": "integer", "minimum": 0 } } },
+      { "id": "recordings_deleted", "producer": "device_firmware", "severity": "info", "retention": "timeline", "data": { "deleted_segments": { "type": "integer", "minimum": 0 }, "freed_bytes": { "type": "integer", "minimum": 0 } } },
+      { "id": "recordings_wiped", "producer": "device_firmware", "severity": "info", "retention": "timeline", "data": { "reason": { "type": "string", "enum": ["unpaired", "owner_changed"] }, "deleted_segments": { "type": "integer", "minimum": 0 } } }
     ],
-    "resources": [],
-    "credentials": [
-      { "id": "face", "verification_authority": "device_firmware", "storage": "device_secure_storage", "offline_usable": true, "management_success_condition": "persisted_on_device", "kind": "face", "permission": "credential.manage", "delegable": false, "write_only": true }
-    ]
+    "resources": [
+      { "id": "recording_playback", "producer": "device_firmware", "authorization_authority": "backend", "kind": "video_stream", "permission": "camera.view", "session_ttl_seconds": 300, "max_concurrent_sessions": 2, "media_profile": { "profile_id": "h264_aac_cmaf_v1", "video": { "codec": "h264", "max_width": 1920, "max_height": 1080, "max_fps": 30, "max_bitrate_kbps": 6000, "keyframe_interval_seconds": 2 }, "audio": { "codec": "aac_lc", "sample_rate_hz": 48000, "channels": 1, "bitrate_kbps": 96 }, "container": "cmaf_fmp4", "fragment_seconds": 2, "recording": { "segment_seconds": 60 }, "delivery": "hls" } }
+    ],
+    "credentials": []
   },
   {
     "capability_id": "pin_authentication",
@@ -165,7 +177,10 @@
     "properties": [
       { "id": "temperature", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "number", "nullable": true, "unit": "celsius", "minimum": -40, "maximum": 125, "precision": 1, "default": null, "required": true, "history": "sampled", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "temperature", "label": "Nhiệt độ" } }
     ],
-    "operations": [], "events": [], "resources": [], "credentials": []
+    "operations": [],
+    "events": [],
+    "resources": [],
+    "credentials": []
   },
   {
     "capability_id": "humidity_measurement",
@@ -175,7 +190,10 @@
     "properties": [
       { "id": "humidity", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "number", "nullable": true, "unit": "percent", "minimum": 0, "maximum": 100, "precision": 1, "default": null, "required": true, "history": "sampled", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "humidity", "label": "Độ ẩm không khí" } }
     ],
-    "operations": [], "events": [], "resources": [], "credentials": []
+    "operations": [],
+    "events": [],
+    "resources": [],
+    "credentials": []
   },
   {
     "capability_id": "local_button",
@@ -203,7 +221,8 @@
     "events": [
       { "id": "gas_threshold_crossed", "producer": "device_firmware", "severity": "critical", "retention": "incident", "data": { "level": { "type": "number", "unit": "normalized", "minimum": 0, "maximum": 100 } } }
     ],
-    "resources": [], "credentials": []
+    "resources": [],
+    "credentials": []
   },
   {
     "capability_id": "smoke_measurement",
@@ -218,7 +237,8 @@
     "events": [
       { "id": "smoke_threshold_crossed", "producer": "device_firmware", "severity": "critical", "retention": "incident", "data": { "level": { "type": "number", "unit": "normalized", "minimum": 0, "maximum": 100 } } }
     ],
-    "resources": [], "credentials": []
+    "resources": [],
+    "credentials": []
   },
   {
     "capability_id": "flame_detection",
@@ -232,7 +252,8 @@
     "events": [
       { "id": "flame_detected", "producer": "device_firmware", "severity": "critical", "retention": "incident", "data": {} }
     ],
-    "resources": [], "credentials": []
+    "resources": [],
+    "credentials": []
   },
   {
     "capability_id": "hazard_controller",
@@ -253,7 +274,8 @@
       { "id": "incident_acknowledged", "producer": "device_firmware", "severity": "info", "retention": "incident", "data": { "incident_id": { "type": "string" }, "source": { "type": "string", "enum": ["local", "remote"] } } },
       { "id": "incident_resolved", "producer": "device_firmware", "severity": "info", "retention": "incident", "data": { "incident_id": { "type": "string" } } }
     ],
-    "resources": [], "credentials": []
+    "resources": [],
+    "credentials": []
   },
   {
     "capability_id": "alarm_siren",
@@ -273,7 +295,8 @@
       { "id": "siren_muted", "producer": "device_firmware", "severity": "warning", "retention": "incident", "data": { "incident_id": { "type": "string", "nullable": true }, "source": { "type": "string", "enum": ["local", "remote"] }, "duration_seconds": { "type": "integer", "enum": [60, 180, 300, 600, 1800], "minimum": 60, "maximum": 1800, "unit": "second" }, "mute_until": { "type": "string", "format": "date-time" } } },
       { "id": "siren_tested", "producer": "device_firmware", "severity": "info", "retention": "timeline", "data": { "duration_seconds": { "type": "integer", "minimum": 1, "maximum": 30 } } }
     ],
-    "resources": [], "credentials": []
+    "resources": [],
+    "credentials": []
   },
   {
     "capability_id": "soil_moisture_measurement",
@@ -284,7 +307,10 @@
       { "id": "moisture_level", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "number", "nullable": true, "unit": "normalized", "minimum": 0, "maximum": 100, "precision": 1, "default": null, "required": true, "history": "sampled", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "soil_moisture", "label": "Độ ẩm đất" } },
       { "id": "sensor_state", "channel": "reported", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": false, "enum": ["unknown", "ready", "fault"], "default": "unknown", "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "sensor_status", "label": "Trạng thái cảm biến đất" } }
     ],
-    "operations": [], "events": [], "resources": [], "credentials": []
+    "operations": [],
+    "events": [],
+    "resources": [],
+    "credentials": []
   },
   {
     "capability_id": "roof_policy",
@@ -297,7 +323,9 @@
     "operations": [
       { "id": "set_control_mode", "execution_authority": "device_firmware", "offline_behavior": { "remote_available": false, "local_equivalent": false }, "ack_policy": { "success_condition": "persisted", "completion_signal": "reported_state", "reference": "control_mode" }, "permission": "automation.manage", "risk": "sensitive", "confirmation": "confirm", "timeout_ms": 5000, "idempotent": true, "input": { "mode": { "type": "string", "enum": ["manual", "automatic"] } }, "effects": [{ "type": "expect_reported", "property": "control_mode", "value_from": "input.mode" }], "safety_constraints": [], "presentation": { "label": "Đổi chế độ", "ui_hint": "mode_selector" } }
     ],
-    "events": [], "resources": [], "credentials": []
+    "events": [],
+    "resources": [],
+    "credentials": []
   },
   {
     "capability_id": "water_level_measurement",
@@ -313,7 +341,8 @@
     "events": [
       { "id": "water_availability_changed", "producer": "device_firmware", "severity": "warning", "retention": "timeline", "data": { "from": { "type": "string", "enum": ["unknown", "available", "low", "empty"] }, "to": { "type": "string", "enum": ["unknown", "available", "low", "empty"] } } }
     ],
-    "resources": [], "credentials": []
+    "resources": [],
+    "credentials": []
   },
   {
     "capability_id": "irrigation_pump",
@@ -335,7 +364,8 @@
       { "id": "watering_stopped", "producer": "device_firmware", "severity": "info", "retention": "timeline", "data": { "cycle_id": { "type": "string" }, "runtime_seconds": { "type": "integer", "unit": "second", "minimum": 0 }, "reason": { "type": "string", "enum": ["completed", "user_request", "low_water", "reservoir_sensor_fault", "maximum_runtime", "controller_restart"] } } },
       { "id": "watering_rejected", "producer": "device_firmware", "severity": "warning", "retention": "timeline", "data": { "source": { "type": "string", "enum": ["remote", "local_button", "automatic"] }, "reason": { "type": "string", "enum": ["reservoir_unknown", "low_water", "cooldown", "invalid_duration", "cycle_active"] } } }
     ],
-    "resources": [], "credentials": []
+    "resources": [],
+    "credentials": []
   },
   {
     "capability_id": "irrigation_policy",
@@ -356,7 +386,8 @@
     "events": [
       { "id": "automatic_watering_suppressed", "producer": "device_firmware", "severity": "warning", "retention": "timeline", "data": { "reason": { "type": "string", "enum": ["soil_sensor_fault", "reservoir_unknown", "low_water", "cooldown"] } } }
     ],
-    "resources": [], "credentials": []
+    "resources": [],
+    "credentials": []
   },
   {
     "capability_id": "system_diagnostics",
@@ -370,6 +401,9 @@
       { "id": "firmware_version", "channel": "diagnostic", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": true, "default": null, "required": true, "history": "latest", "automation": { "trigger": false, "condition": false }, "presentation": { "ui_hint": "version", "label": "Phiên bản firmware" } },
       { "id": "firmware_status", "channel": "diagnostic", "state_authority": "device_firmware", "persistence": "volatile", "type": "string", "nullable": false, "enum": ["unknown", "healthy", "fault"], "default": "unknown", "required": true, "history": "latest", "automation": { "trigger": true, "condition": true }, "presentation": { "ui_hint": "firmware_health", "label": "Tình trạng firmware" } }
     ],
-    "operations": [], "events": [], "resources": [], "credentials": []
+    "operations": [],
+    "events": [],
+    "resources": [],
+    "credentials": []
   }
 ]

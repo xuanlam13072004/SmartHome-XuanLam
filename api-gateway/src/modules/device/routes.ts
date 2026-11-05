@@ -7,6 +7,7 @@ import {
     deviceStateSchema,
     deviceEventsSchema,
     operationSchema,
+    operationStatusSchema,
     replaceCredentialSchema,
     resourceSessionSchema,
     resourceSessionStatusSchema,
@@ -15,9 +16,12 @@ import {
 } from './schemas';
 import {
     claimDevice,
+    closeDeviceResourceSession,
     createDeviceOperation,
     createDeviceResourceSession,
+    getDeviceOperation,
     getDeviceResourceSession,
+    renewDeviceResourceSession,
     getDeviceState,
     listDeviceEvents,
     listDeviceCredentials,
@@ -114,13 +118,60 @@ const deviceRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         }),
     }, async (request) => {
         const params = request.params as any;
+        const body = (request.body as any) || {};
         const result = await createDeviceResourceSession(app, {
             mac: params.mac,
             instance_id: params.instanceId,
             resource_id: params.resourceId,
+            input: body.input,
             reauthenticated: hasRecentReauthentication(app, request),
         }, (request.user as any).userId);
         return { success: true, session: result };
+    });
+
+    app.post('/devices/:mac/resource-sessions/:sessionId/renew', {
+        preHandler: [app.authenticate],
+        config: typedRouteConfig({
+            zodSchema: resourceSessionStatusSchema,
+            rateLimit: { max: 60, timeWindow: '1 minute' },
+        }),
+    }, async (request) => {
+        const params = request.params as any;
+        const session = await renewDeviceResourceSession(
+            app,
+            params.mac,
+            params.sessionId,
+            (request.user as any).userId,
+        );
+        return { success: true, session };
+    });
+
+    app.delete('/devices/:mac/resource-sessions/:sessionId', {
+        preHandler: [app.authenticate],
+        config: typedRouteConfig({ zodSchema: resourceSessionStatusSchema }),
+    }, async (request) => {
+        const params = request.params as any;
+        const session = await closeDeviceResourceSession(
+            app,
+            params.mac,
+            params.sessionId,
+            (request.user as any).userId,
+        );
+        return { success: true, session };
+    });
+
+    app.get('/devices/:mac/operations/:operationId', {
+        preHandler: [app.authenticate],
+        config: typedRouteConfig({ zodSchema: operationStatusSchema }),
+    }, async (request) => {
+        const params = request.params as any;
+        const operation = await getDeviceOperation(
+            app,
+            params.mac,
+            params.operationId,
+            (request.user as any).userId,
+        );
+        return { success: true, operation };
     });
 
     app.get('/devices/:mac/resource-sessions/:sessionId', {

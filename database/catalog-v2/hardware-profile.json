@@ -11,11 +11,9 @@
         "The lock has no independent latch-position sensor",
         "Servo position 0 degrees represents locked and 90 degrees represents unlocked",
         "The last stable locked or unlocked state is persisted and restored after restart",
-        "ESP32-CAM captures faces and provides video",
         "4x4 keypad accepts PIN and local actions"
       ],
       "open_questions": [
-        "Camera transport, local recognition algorithm and enrollment format suitable for ESP32-CAM",
         "LCD character encoding",
         "PIN length, retry limit and lockout duration"
       ]
@@ -73,6 +71,18 @@
         "Dry-run, current or flow feedback; the current pump state reports requested output only",
         "Number of irrigation zones",
         "Local button gestures and the approved default watering, maximum-runtime and cooldown values"
+      ]
+    },
+    {
+      "product_id": "prod_security_camera",
+      "status": "virtual_first",
+      "confirmed": [
+        "Developed on Device Simulator first with a PC webcam and microphone (H.264 + AAC, docs/architecture/camera-contract.md)",
+        "Audio capture only; no speaker or two-way talk"
+      ],
+      "open_questions": [
+        "Physical hardware that meets h264_aac_cmaf_v1 (ESP32-S3 cannot; ESP32-P4 is a candidate)",
+        "Microphone model, RTC module and storage card for the physical device"
       ]
     }
   ]

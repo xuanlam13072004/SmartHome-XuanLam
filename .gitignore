@@ -40,3 +40,6 @@ dump.rdb
 
 # Third-party tool output
 .understand-anything/
+
+reset-dev-data.log
+check-stack.log

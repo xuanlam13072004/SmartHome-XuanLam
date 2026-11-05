@@ -1,6 +1,6 @@
 # Entrance Controller firmware
 
-Firmware tham chiếu cho `prod_entrance_controller` revision 5, dùng ESP32 +
+Firmware tham chiếu cho `prod_entrance_controller` revision 6, dùng ESP32 +
 servo SG90 + MPU6050 + LCD I2C 4x20 + bàn phím ma trận 4x4.
 
 Simulator và firmware dùng cùng Product Catalog, trạng thái, lệnh và sự kiện
@@ -23,8 +23,8 @@ MQTT. Backend không có nhánh xử lý riêng cho thiết bị ảo.
 - Ba lần nhập sai khóa bàn phím trong 30 giây. Không có phím bấm hay PIN thô
   nào được gửi lên MQTT.
 
-Camera và nhận diện khuôn mặt đang ở trạng thái `planned` trong Catalog, chưa
-được giả lập hoặc triển khai trong firmware này.
+Bộ khóa cửa không có camera hay nhận diện khuôn mặt. Camera là một Product
+riêng (`prod_security_camera`, xem `docs/architecture/camera-contract.md`).
 
 ## PIN và secure storage
 

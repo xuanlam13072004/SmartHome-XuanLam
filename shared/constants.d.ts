@@ -8,6 +8,7 @@ export declare const REDIS_CHANNELS: {
     readonly TOPOLOGY_UPDATED: 'topology.updated';
     readonly TOPOLOGY_REMOVED: 'topology.removed';
     readonly TOPOLOGY_HUB_ACK: 'topology.hub.ack';
+    readonly MEDIA_SESSION_REVOKED: 'media.session.revoked';
 };
 
 export declare const OPERATION_STATUS: {
@@ -37,4 +38,5 @@ export declare const CACHE_PREFIXES: {
     readonly OPERATION_ROUTE: 'operation:route:';
     readonly ELECTION_LOCK: 'topology:election:lock:';
     readonly ELECTION_FAILED: 'topology:election:failed:';
+    readonly MEDIA_SESSION: 'media:session:';
 };

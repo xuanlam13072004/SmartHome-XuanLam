@@ -30,6 +30,7 @@ import {
 import { getRunMetricsService } from '../metrics/service';
 import { decrypt, encrypt } from '../security/crypto';
 import { startupDelayMs } from './scheduling';
+import { cameraOperationOutcome, DeviceOperationRejection } from './camera-controller';
 import { getTelemetryScheduler } from './telemetry-scheduler';
 import {
     registerPresenceHeartbeat,
@@ -917,6 +918,7 @@ export class DeviceRuntime {
                 return;
             }
 
+            const cameraOutcome = cameraOperationOutcome(product, operation);
             const roofMotion = roofMotionPlanForOperation(product, operation, this.state);
             const sirenPlan = sirenTimerPlanForOperation(product, operation);
             const sirenResumeInstance = sirenResumeInstanceForOperation(product, operation);
@@ -996,17 +998,7 @@ export class DeviceRuntime {
             }
             if (scheduledMotion) this.scheduleRoofMotion(scheduledMotion);
             if (sirenPlan) this.scheduleSirenTimer(sirenPlan);
-            const resourceId = typeof operation.context.resource_id === 'string'
-                ? operation.context.resource_id
-                : null;
-            const resourceSessionId = typeof operation.context.resource_session_id === 'string'
-                ? operation.context.resource_session_id
-                : null;
-            const details = resourceId && resourceSessionId
-                ? {
-                    resource_locator: `simulator://device/${this.mac}/resource/${resourceId}/${resourceSessionId}`,
-                }
-                : undefined;
+            const details = cameraOutcome?.details;
             this.storeOperationResult(operation.operation_id, { status: 'succeeded', details });
             operationApplied = true;
             getRunMetricsService(this.logger).record(this.simulationRunId, {
@@ -1061,7 +1053,9 @@ export class DeviceRuntime {
                 operations_rejected: 1,
             });
             if (operation && routeValidated) {
-                const reasonCode = 'DEVICE_OPERATION_REJECTED';
+                const reasonCode = error instanceof DeviceOperationRejection
+                    ? error.reasonCode
+                    : 'DEVICE_OPERATION_REJECTED';
                 const details = { message: message.slice(0, 500) };
                 this.storeOperationResult(operation.operation_id, {
                     status: 'rejected',

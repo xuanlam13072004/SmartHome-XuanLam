@@ -14,7 +14,7 @@ function assertInitializationGate() {
     }
 }
 
-const POSTGRES_SCHEMA_VERSION = 201;
+const POSTGRES_SCHEMA_VERSION = 202;
 const REQUIRED_POSTGRES_TABLES = [
     'accounts',
     'user_sessions',

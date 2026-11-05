@@ -3,21 +3,19 @@
     "product_id": "prod_entrance_controller",
     "ui_profile": "entrance_controller",
     "ui_profile_version": 1,
-    "catalog_revision": 5,
+    "catalog_revision": 6,
     "lifecycle": "published",
     "contract_maturity": "edge_reviewed",
     "manufacturer": "SmartHome XuanLam Ltd.",
     "model_name": "Entrance Controller",
     "category": "security",
-    "description": "Bộ kiểm soát cửa chính với khóa servo, MPU6050, LCD 4x20 và bàn phím 4x4; camera và nhận diện khuôn mặt được dành cho giai đoạn sau.",
+    "description": "Bộ kiểm soát cửa chính với khóa servo, MPU6050, LCD 4x20 và bàn phím 4x4.",
     "firmware_compatibility": { "family": "entrance_controller", "minimum_version": "2.3.0" },
     "connectivity_profiles": ["wifi", "hub_node"],
-    "behavior_profile": "entrance_controller_v5",
+    "behavior_profile": "entrance_controller_v6",
     "capability_instances": [
       { "instance_id": "main_lock", "capability_id": "door_lock", "capability_revision": 3, "availability": "active", "semantic_role": "entrance_lock", "presentation": { "display_name": "Khóa cửa chính", "description": "Servo SG90 dùng 0° để khóa và 90° để mở khóa; trạng thái chuyển tiếp do firmware điều khiển.", "icon": "lock", "section": "controls", "order": 10 } },
       { "instance_id": "door_position", "capability_id": "door_position", "capability_revision": 1, "availability": "active", "semantic_role": "entrance_door_position", "presentation": { "display_name": "Vị trí cửa", "description": "Firmware suy ra trạng thái đóng/mở từ góc tương đối do MPU6050 đo; không đồng nhất trạng thái cửa với trạng thái chốt khóa.", "icon": "door_open", "section": "measurements", "order": 15 } },
-      { "instance_id": "door_camera", "capability_id": "camera_stream", "capability_revision": 1, "availability": "planned", "semantic_role": "entrance_camera", "presentation": { "display_name": "Camera cửa chính", "description": "Dự kiến hỗ trợ video trực tiếp và ảnh chụp ở giai đoạn sau.", "icon": "videocam", "section": "security", "order": 20 } },
-      { "instance_id": "face_auth", "capability_id": "face_authentication", "capability_revision": 1, "availability": "planned", "semantic_role": "face_authenticator", "presentation": { "display_name": "Nhận diện khuôn mặt", "description": "Dự kiến hỗ trợ nhận diện khuôn mặt ở giai đoạn sau.", "icon": "face", "section": "security", "order": 30 } },
       { "instance_id": "pin_auth", "capability_id": "pin_authentication", "capability_revision": 2, "availability": "active", "semantic_role": "pin_authenticator", "presentation": { "display_name": "Mã PIN", "description": "Credential sáu chữ số dạng write-only, chỉ chủ sở hữu được quản lý.", "icon": "password", "section": "security", "order": 40 } },
       { "instance_id": "keypad", "capability_id": "keypad_input", "capability_revision": 1, "availability": "active", "semantic_role": "local_keypad", "presentation": { "display_name": "Bàn phím 4x4", "description": "Nguồn thao tác cục bộ; không truyền nội dung PIN thô.", "icon": "dialpad", "section": "security", "order": 50 } },
       { "instance_id": "lcd", "capability_id": "character_display_4x20", "capability_revision": 2, "availability": "active", "semantic_role": "entrance_display", "property_overrides": { "displayed_lines": { "default": ["Xin chao!", "Cua dang khoa", "Nhan A de mo khoa", ""] } }, "presentation": { "display_name": "LCD 4x20", "description": "Hiển thị đúng bốn dòng, tối đa 20 ký tự mỗi dòng; nội dung tùy chỉnh tồn tại đến khi trả quyền hiển thị về firmware.", "icon": "developer_board", "section": "controls", "order": 60 } },
@@ -133,5 +131,31 @@
       { "id": "safe_boot_output", "priority": 60, "enforced_locally": true, "description": "Khi boot hoặc reset, đầu ra bơm phải tắt; firmware không tự tiếp tục chu kỳ cũ." }
     ],
     "presentation": { "display_name": "Bộ Quản Lý Nước & Tưới Tiêu", "description": "Giám sát nước và điều khiển tưới an toàn.", "icon": "water_drop", "order": 40 }
+  },
+  {
+    "product_id": "prod_security_camera",
+    "ui_profile": "security_camera",
+    "ui_profile_version": 1,
+    "catalog_revision": 1,
+    "lifecycle": "published",
+    "contract_maturity": "draft",
+    "manufacturer": "SmartHome XuanLam Ltd.",
+    "model_name": "Security Camera HD",
+    "category": "security",
+    "description": "Camera an ninh ghi hình liên tục kèm âm thanh, xem trực tiếp và xem lại từ xa.",
+    "firmware_compatibility": { "family": "security_camera", "minimum_version": "1.0.0" },
+    "connectivity_profiles": ["wifi"],
+    "behavior_profile": "security_camera_v1",
+    "capability_instances": [
+      { "instance_id": "camera", "capability_id": "camera_stream", "capability_revision": 2, "availability": "active", "semantic_role": "security_camera", "presentation": { "display_name": "Camera", "description": "Hình ảnh và âm thanh trực tiếp.", "icon": "videocam", "section": "security", "order": 10 } },
+      { "instance_id": "recording", "capability_id": "video_recording", "capability_revision": 1, "availability": "active", "semantic_role": "continuous_recording", "presentation": { "display_name": "Ghi hình", "description": "Ghi liên tục vào bộ nhớ của camera, tự xóa bản cũ nhất khi đầy.", "icon": "video_library", "section": "security", "order": 20 } },
+      { "instance_id": "system", "capability_id": "system_diagnostics", "capability_revision": 1, "availability": "active", "semantic_role": "system_diagnostics", "presentation": { "display_name": "Chẩn đoán", "description": "Kết nối và tình trạng firmware.", "icon": "monitor_heart", "section": "diagnostics", "order": 1000 } }
+    ],
+    "local_policies": [
+      { "id": "local_continuous_recording", "priority": 10, "enforced_locally": true, "description": "Camera ghi liên tục vào bộ nhớ của chính nó, kể cả khi mất Internet hoặc backend dừng." },
+      { "id": "loop_recording", "priority": 20, "enforced_locally": true, "description": "Khi bộ nhớ đầy, camera xóa bản ghi cũ nhất đã hoàn tất; không bao giờ xóa đoạn đang ghi." },
+      { "id": "owner_boundary_wipe", "priority": 30, "enforced_locally": true, "description": "Khi bị gỡ khỏi tài khoản hoặc đổi chủ, camera xóa sạch bản ghi cũ trước khi phục vụ yêu cầu mới." }
+    ],
+    "presentation": { "display_name": "Camera An Ninh", "description": "Xem trực tiếp, xem lại và quản lý bản ghi.", "icon": "videocam", "order": 50 }
   }
 ]

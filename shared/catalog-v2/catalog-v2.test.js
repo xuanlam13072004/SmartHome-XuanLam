@@ -12,7 +12,7 @@ function clone(value) {
     return JSON.parse(JSON.stringify(value));
 }
 
-test('Catalog V2 source is valid and contains four stable product IDs', () => {
+test('Catalog V2 source is valid and contains the stable product IDs', () => {
     const catalog = loadCatalogV2();
     const result = lintCatalog(catalog);
 
@@ -24,6 +24,7 @@ test('Catalog V2 source is valid and contains four stable product IDs', () => {
             'prod_roof_controller',
             'prod_hazard_mitigation',
             'prod_irrigation_manager',
+            'prod_security_camera',
         ],
     );
     assert.equal(catalog.capabilities.some(capability => capability.capability_id === 'generic_switch'), false);
@@ -35,7 +36,7 @@ test('compiler emits JSON-safe namespaced state without Map or Set values', () =
 
     assert.equal(entrance.ui_profile, 'entrance_controller');
     assert.equal(entrance.ui_profile_version, 1);
-    assert.equal(entrance.catalog_revision, 5);
+    assert.equal(entrance.catalog_revision, 6);
     assert.equal(entrance.firmware_default_state.instances.main_lock.reported.lock_state, 'locked');
     assert.deepEqual(entrance.firmware_default_state.instances.main_lock.desired, {});
     assert.deepEqual(entrance.firmware_default_state.instances.lcd.reported.displayed_lines, [
@@ -148,18 +149,46 @@ test('entrance physical operations execute on device and define offline and comp
     assert.equal(Object.keys(entrance.events).includes('main_lock.lock_jammed'), false);
 });
 
-test('camera and face authentication remain planned until firmware support exists', () => {
-    const entrance = compileCatalog(loadCatalogV2()).product_index.prod_entrance_controller;
-    assert.equal(
-        entrance.capability_instances.some(instance => instance.instance_id === 'door_camera'),
-        false,
-    );
-    assert.deepEqual(
-        entrance.planned_capability_instances.map(instance => instance.instance_id),
-        ['door_camera', 'face_auth'],
-    );
-    assert.equal(entrance.resources['door_camera.live_stream'], undefined);
-    assert.equal(entrance.operations['door_camera.create_stream_session'], undefined);
+test('entrance no longer declares a camera or face authentication (camera is its own Product)', () => {
+    const catalog = loadCatalogV2();
+    const entrance = compileCatalog(catalog).product_index.prod_entrance_controller;
+    const instanceIds = [...entrance.capability_instances, ...entrance.planned_capability_instances]
+        .map(instance => instance.instance_id);
+    assert.equal(entrance.catalog_revision, 6);
+    assert.equal(instanceIds.includes('door_camera'), false);
+    assert.equal(instanceIds.includes('face_auth'), false);
+    assert.equal(Object.keys(entrance.resources).length, 0);
+    assert.equal(catalog.capabilities.some(capability => capability.capability_id === 'face_authentication'), false);
+});
+
+test('security camera is a standalone Product with an H.264/AAC media profile and bounded sessions', () => {
+    const camera = compileCatalog(loadCatalogV2()).product_index.prod_security_camera;
+    assert.deepEqual(camera.connectivity_profiles, ['wifi']);
+    assert.equal(camera.ui_profile, 'security_camera');
+    const live = camera.resources['camera.live_stream'];
+    const playback = camera.resources['recording.recording_playback'];
+    assert.equal(live.kind, 'video_stream');
+    assert.equal(live.max_concurrent_sessions, 5);
+    assert.equal(playback.max_concurrent_sessions, 2);
+    assert.equal(live.media_profile.video.codec, 'h264');
+    assert.equal(live.media_profile.audio.codec, 'aac_lc');
+    assert.equal(live.media_profile.recording.segment_seconds, 60);
+    assert.deepEqual(live.media_profile, playback.media_profile);
+    assert.equal(camera.operations['camera.create_stream_session'].ack_policy.reference, 'live_stream');
+    assert.equal(camera.operations['recording.create_playback_session'].ack_policy.reference, 'recording_playback');
+    assert.equal(camera.operations['recording.delete_recordings'].permission, 'camera.recording.manage');
+    assert.equal(camera.operations['recording.list_recordings'].input.from.format, 'date-time');
+    assert.ok(camera.permissions.includes('camera.recording.manage'));
+});
+
+test('linter rejects a media profile with an unsupported codec', () => {
+    const catalog = loadCatalogV2();
+    const stream = catalog.capabilities.find(capability => capability.capability_id === 'camera_stream');
+    stream.resources[0].media_profile.video.codec = 'vp9';
+    stream.resources[0].max_concurrent_sessions = 0;
+    const codes = lintCatalog(catalog).errors.map(error => error.code);
+    assert.ok(codes.includes('INVALID_VIDEO_CODEC'));
+    assert.ok(codes.includes('INVALID_RESOURCE_SESSION_LIMIT'));
 });
 
 test('entrance local policies keep authentication and credential commit on device', () => {

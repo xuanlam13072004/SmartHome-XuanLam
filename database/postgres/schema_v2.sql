@@ -9,7 +9,7 @@ CREATE TABLE public.schema_migrations (
 );
 
 INSERT INTO public.schema_migrations (version, name)
-VALUES (201, 'schema_v2_resource_credential_contract')
+VALUES (202, 'schema_v2_security_camera_contract')
 ON CONFLICT (version) DO NOTHING;
 
 CREATE FUNCTION public.set_updated_at() RETURNS trigger
@@ -189,6 +189,7 @@ INSERT INTO public.permission_scopes (scope, description, owner_only, delegable)
     ('device.view', 'View device metadata and state', false, true),
     ('door.control', 'Lock and unlock an entrance device', false, true),
     ('camera.view', 'Create protected camera sessions', false, true),
+    ('camera.recording.manage', 'Delete camera recordings', true, false),
     ('display.write', 'Change custom LCD content', false, true),
     ('cover.control', 'Move or stop a roof cover', false, true),
     ('irrigation.control', 'Start and stop bounded irrigation cycles', false, true),
@@ -520,6 +521,8 @@ CREATE TABLE public.device_operations (
     status text NOT NULL DEFAULT 'accepted'
         CHECK (status IN ('accepted', 'queued', 'dispatched', 'executing', 'succeeded', 'rejected', 'failed', 'timed_out', 'cancelled')),
     reason_code text,
+    -- Bounded device ACK details (for example list_recordings ranges), returned to the actor.
+    result jsonb,
     catalog_revision integer NOT NULL CHECK (catalog_revision >= 1),
     timeout_at timestamp with time zone NOT NULL,
     accepted_at timestamp with time zone NOT NULL DEFAULT now(),
@@ -529,6 +532,7 @@ CREATE TABLE public.device_operations (
     CHECK (instance_id ~ '^[a-z][a-z0-9_]+$'),
     CHECK (operation_name ~ '^[a-z][a-z0-9_]+$'),
     CHECK (jsonb_typeof(input) = 'object'),
+    CHECK (result IS NULL OR (jsonb_typeof(result) = 'object' AND octet_length(result::text) <= 16384)),
     CHECK (NOT public.operation_input_has_sensitive_key(input)),
     CHECK ((status IN ('succeeded', 'rejected', 'failed', 'timed_out', 'cancelled') AND completed_at IS NOT NULL)
         OR (status IN ('accepted', 'queued', 'dispatched', 'executing') AND completed_at IS NULL)),
@@ -593,6 +597,8 @@ CREATE TABLE public.device_resource_sessions (
     status text NOT NULL DEFAULT 'requested'
         CHECK (status IN ('requested', 'ready', 'failed', 'expired', 'revoked')),
     access_token_hash text NOT NULL,
+    -- Hash of the short-lived token the device presents to the media relay (camera-contract 6.3).
+    ingest_token_hash text,
     resource_locator text,
     reason_code text,
     expires_at timestamp with time zone NOT NULL,

@@ -28,6 +28,7 @@ export interface CompiledProductV2 {
     presentation: Record<string, any>;
     catalog_revision: number;
     contract_maturity: ContractMaturity;
+    connectivity_profiles: Array<'wifi' | 'ethernet' | 'hub_node'>;
     capability_instances: Array<Record<string, unknown>>;
     planned_capability_instances: Array<Record<string, unknown>>;
     firmware_default_state: Record<string, unknown>;

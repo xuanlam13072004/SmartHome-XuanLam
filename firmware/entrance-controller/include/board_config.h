@@ -96,7 +96,7 @@ inline constexpr char MQTT_PASSWORD[] = SMARTHOME_MQTT_PASSWORD;
 inline constexpr char BOOTSTRAP_PIN[] = SMARTHOME_BOOTSTRAP_PIN;
 
 inline constexpr char PRODUCT_ID[] = "prod_entrance_controller";
-inline constexpr std::uint16_t CATALOG_REVISION = 5;
+inline constexpr std::uint16_t CATALOG_REVISION = 6;
 inline constexpr char FIRMWARE_VERSION[] = "2.3.0";
 
 inline constexpr std::uint8_t SERVO_PIN = SMARTHOME_SERVO_PIN;

@@ -3,6 +3,17 @@ import type Redis from 'ioredis';
 import type { Db } from 'mongodb';
 import { env } from '../config/env';
 
+/**
+ * The active-operation projection is sent to the app over realtime. It must
+ * never carry the device's media ingest token (camera-contract 6.3).
+ */
+export function redactOperationForProjection(payload: any) {
+    if (!payload?.context || typeof payload.context !== 'object') return payload;
+    if (!('media_ingest_token' in payload.context)) return payload;
+    const { media_ingest_token: _token, ...context } = payload.context;
+    return { ...payload, context };
+}
+
 type Logger = {
     debug: (obj: unknown, message?: string) => void;
     warn: (obj: unknown, message?: string) => void;
@@ -112,7 +123,7 @@ export class OperationOutboxDispatcher {
                         $set: {
                             device_id: row.payload.device_id,
                             status: 'dispatched',
-                            operation: row.payload,
+                            operation: redactOperationForProjection(row.payload),
                             expires_at: new Date(row.timeout_at),
                             updated_at: new Date(),
                         },

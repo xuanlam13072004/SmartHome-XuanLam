@@ -202,7 +202,50 @@
         "authorization_authority": { "const": "backend" },
         "kind": { "enum": ["video_stream", "snapshot", "diagnostic_file"] },
         "permission": { "$ref": "#/$defs/permission" },
-        "session_ttl_seconds": { "type": "integer", "minimum": 1, "maximum": 3600 }
+        "session_ttl_seconds": { "type": "integer", "minimum": 1, "maximum": 3600 },
+        "max_concurrent_sessions": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "media_profile": { "$ref": "#/$defs/mediaProfile" }
+      },
+      "additionalProperties": false
+    },
+    "mediaProfile": {
+      "type": "object",
+      "required": ["profile_id", "video", "container", "fragment_seconds", "recording", "delivery"],
+      "properties": {
+        "profile_id": { "$ref": "#/$defs/identifier" },
+        "video": {
+          "type": "object",
+          "required": ["codec", "max_width", "max_height", "max_fps"],
+          "properties": {
+            "codec": { "enum": ["h264", "mjpeg"] },
+            "max_width": { "type": "integer", "minimum": 16 },
+            "max_height": { "type": "integer", "minimum": 16 },
+            "max_fps": { "type": "integer", "minimum": 1, "maximum": 120 },
+            "max_bitrate_kbps": { "type": "integer", "minimum": 1 },
+            "keyframe_interval_seconds": { "type": "number", "minimum": 0.1 }
+          },
+          "additionalProperties": false
+        },
+        "audio": {
+          "type": "object",
+          "required": ["codec", "sample_rate_hz", "channels"],
+          "properties": {
+            "codec": { "enum": ["aac_lc", "pcm_s16le"] },
+            "sample_rate_hz": { "type": "integer", "minimum": 8000 },
+            "channels": { "type": "integer", "minimum": 1, "maximum": 2 },
+            "bitrate_kbps": { "type": "integer", "minimum": 1 }
+          },
+          "additionalProperties": false
+        },
+        "container": { "enum": ["cmaf_fmp4"] },
+        "fragment_seconds": { "type": "number", "minimum": 0.5, "maximum": 10 },
+        "recording": {
+          "type": "object",
+          "required": ["segment_seconds"],
+          "properties": { "segment_seconds": { "type": "integer", "minimum": 10, "maximum": 600 } },
+          "additionalProperties": false
+        },
+        "delivery": { "enum": ["hls"] }
       },
       "additionalProperties": false
     },

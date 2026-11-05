@@ -10,6 +10,8 @@ const REDIS_CHANNELS = {
     TOPOLOGY_UPDATED: 'topology.updated',
     TOPOLOGY_REMOVED: 'topology.removed',
     TOPOLOGY_HUB_ACK: 'topology.hub.ack',
+    // Media relay drops viewers/ingest of these sessions immediately (camera-contract 7.5).
+    MEDIA_SESSION_REVOKED: 'media.session.revoked',
 };
 
 const OPERATION_STATUS = {
@@ -45,6 +47,8 @@ const CACHE_PREFIXES = {
     OPERATION_ROUTE: 'operation:route:',
     ELECTION_LOCK: 'topology:election:lock:',
     ELECTION_FAILED: 'topology:election:failed:',
+    // Projection of an authorized media session for the media relay (camera-contract 6.3).
+    MEDIA_SESSION: 'media:session:',
 };
 
 module.exports = {

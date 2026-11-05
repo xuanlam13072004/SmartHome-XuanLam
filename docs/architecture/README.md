@@ -1,7 +1,7 @@
 # Current SmartHome architecture
 
 This repository has one active contract: Product Catalog V2 and database schema
-version 201. There is no V1 compatibility layer.
+version 202. There is no V1 compatibility layer.
 
 ## Authority boundaries
 
@@ -22,6 +22,11 @@ Every MQTT client authenticates; anonymous access is disabled. Devices (real or
 virtual) log in with username = MAC and a per-device factory password, and the
 broker ACL limits each device to `smarthome/<its MAC>/...`. Details, roles and
 provisioning: [mqtt-security.md](mqtt-security.md).
+
+## Security camera (proposal)
+
+Camera Product, media profile, live/playback relay, recording and deletion
+rules: [camera-contract.md](camera-contract.md) (draft, pending approval).
 
 ## Hub–Node
 
