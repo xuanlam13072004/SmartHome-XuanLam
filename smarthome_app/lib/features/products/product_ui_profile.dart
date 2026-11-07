@@ -5,6 +5,7 @@ abstract final class ProductUiProfile {
   static const roofController = 'roof_controller';
   static const hazardMonitor = 'hazard_monitor';
   static const irrigationManager = 'irrigation_manager';
+  static const securityCamera = 'security_camera';
 
   static const supportedVersion = 1;
 

@@ -72,6 +72,10 @@ class AppErrorMapper {
     }
   }
 
+  /// Vietnamese message for a backend or device reason code.
+  static String messageForCode(String errorCode) =>
+      _mapBackendErrorCode(errorCode);
+
   /// Map known backend error codes to Vietnamese user messages.
   static String _mapBackendErrorCode(String errorCode) {
     const errorMessages = {
@@ -121,6 +125,18 @@ class AppErrorMapper {
       'STATE_VERSION_CONFLICT':
           'Trạng thái thiết bị đã thay đổi. Vui lòng thử lại',
       'DEVICE_FORBIDDEN': 'Bạn không có quyền truy cập thiết bị này',
+      'CAMERA_UNAVAILABLE': 'Camera chưa có nguồn hình',
+      'CAMERA_OFFLINE': 'Camera đang ngoại tuyến',
+      'RECORDING_UNAVAILABLE': 'Không có bản ghi trong khoảng thời gian này',
+      'RESOURCE_SESSION_LIMIT':
+          'Đã đủ số người xem cùng lúc. Vui lòng thử lại sau',
+      'RESOURCE_SESSION_INACTIVE': 'Phiên xem đã kết thúc',
+      'MEDIA_RELAY_NOT_CONFIGURED': 'Máy chủ video chưa được cấu hình',
+      'MEDIA_INGEST_UNAVAILABLE': 'Camera chưa kết nối được máy chủ video',
+      'MEDIA_INGEST_FAILED': 'Camera chưa kết nối được máy chủ video',
+      'MEDIA_INGEST_FORBIDDEN': 'Máy chủ video từ chối camera',
+      'DEVICE_OPERATION_REJECTED': 'Thiết bị từ chối thao tác',
+      'INVALID_INPUT': 'Dữ liệu thao tác không hợp lệ',
     };
 
     return errorMessages[errorCode] ?? 'Lỗi: $errorCode';

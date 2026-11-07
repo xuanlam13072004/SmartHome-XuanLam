@@ -43,3 +43,6 @@ dump.rdb
 
 reset-dev-data.log
 check-stack.log
+
+# Virtual camera recordings when the Simulator backend runs outside Docker
+device-simulator/backend/simulator-media/

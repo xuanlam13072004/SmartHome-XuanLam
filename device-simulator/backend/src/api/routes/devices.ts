@@ -591,7 +591,7 @@ const findManagedEntrancePatch = (
     return null;
 };
 
-const getDeviceContext = async (mac: string): Promise<{
+export const getDeviceContext = async (mac: string): Promise<{
     device: SimulatedDeviceRecord;
     run: SimulationRun;
 } | null> => {
@@ -631,7 +631,7 @@ const requireClaimedDevice = async (mac: string, reply: any) => {
     return context;
 };
 
-const getOrCreateRuntime = async (
+export const getOrCreateRuntime = async (
     manager: RuntimeManager,
     context: { device: SimulatedDeviceRecord; run: SimulationRun },
 ) => {

@@ -1,4 +1,6 @@
 import type {
+  CameraSegment,
+  CameraStatus,
   CatalogProduct,
   DeviceDetailPayload,
   DeviceLivePayload,
@@ -210,6 +212,42 @@ export const setPhysicalDoorPosition = (
     sensor_state: sensorState,
   }),
 })
+
+export const fetchCameraStatus = (mac: string) =>
+  request<{ status: CameraStatus; segments: CameraSegment[] }>(`/devices/${encodeURIComponent(mac)}/camera`)
+
+export const startCameraSource = (mac: string, body: {
+  session_id: string
+  force: boolean
+  video: { codec: string; width: number; height: number; framerate: number; description: string }
+  audio: { codec: 'mp4a.40.2'; sample_rate: number; channels: number; description?: string } | null
+}) => request<{ status: CameraStatus }>(`/devices/${encodeURIComponent(mac)}/camera/source`, {
+  method: 'POST',
+  body: JSON.stringify({ action: 'start', ...body }),
+})
+
+export const stopCameraSource = (mac: string, sessionId: string) =>
+  request<{ status: CameraStatus }>(`/devices/${encodeURIComponent(mac)}/camera/source`, {
+    method: 'POST',
+    body: JSON.stringify({ action: 'stop', session_id: sessionId }),
+  })
+
+export const sendCameraChunks = (mac: string, sessionId: string, body: Uint8Array) =>
+  request<null>(
+    `/devices/${encodeURIComponent(mac)}/camera/chunks?session_id=${encodeURIComponent(sessionId)}`,
+    { method: 'POST', body: body as BodyInit, headers: { 'Content-Type': 'application/octet-stream' } },
+  )
+
+/** Downloads one recorded minute (fMP4) for local playback in the dashboard. */
+export const fetchCameraSegment = async (mac: string, segmentId: string): Promise<Blob> => {
+  const token = getAdminToken()
+  const response = await fetch(
+    `${API_BASE}/devices/${encodeURIComponent(mac)}/camera/segments/${encodeURIComponent(segmentId)}`,
+    { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+  )
+  if (!response.ok) throw new ApiError(`Không tải được bản ghi (HTTP ${response.status})`, response.status)
+  return response.blob()
+}
 
 export const revealDeviceSecret = (mac: string) =>
   request<{ device: { mac: string; secret_key: string; product_id: string } }>(

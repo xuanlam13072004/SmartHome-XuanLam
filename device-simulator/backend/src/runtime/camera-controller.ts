@@ -1,13 +1,13 @@
 import type { ProductCatalog } from '../catalog/loader';
 
 /**
- * Virtual security camera, contract step 1 (docs/architecture/camera-contract.md).
+ * Camera operation fallback (docs/architecture/camera-contract.md).
  *
- * The webcam/microphone media pipeline (step 2) does not exist yet, so the
- * virtual camera answers truthfully, exactly as a physical camera with no
- * image source and an empty card would: live and playback sessions are
- * rejected, there are no recordings, and deleting removes nothing. It never
- * fabricates a stream locator; the Gateway builds media locators itself.
+ * Products with both camera_stream and video_recording run the virtual camera
+ * firmware in security-camera.ts. This fallback only answers for a Product
+ * that declares camera capabilities without that firmware: like a camera with
+ * no image source and an empty card, it rejects live and playback sessions,
+ * lists no recordings and deletes nothing. It never fabricates a locator.
  */
 
 export class DeviceOperationRejection extends Error {

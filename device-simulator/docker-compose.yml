@@ -8,6 +8,11 @@ services:
     env_file:
       - path: .env.docker
         required: false
+    environment:
+      # Virtual SD card of the virtual cameras (camera contract, section 9).
+      SIMULATOR_MEDIA_ROOT: /var/lib/simulator-media
+    volumes:
+      - "${SIMULATOR_MEDIA_HOST_DIR:-E:/smarthome_data/device-simulator/media}:/var/lib/simulator-media"
     ports:
       - "4001:4001"
     networks:

@@ -118,6 +118,11 @@ services:
     container_name: api-gateway
     env_file:
       - api-gateway/.env.docker
+    environment:
+      # Camera media (docs/architecture/camera-contract.md). The public URL is
+      # what the app's HLS player opens; the ingest URL is what cameras dial.
+      MEDIA_PUBLIC_URL: ${MEDIA_PUBLIC_URL:-http://localhost:8090}
+      MEDIA_INGEST_URL: ${MEDIA_INGEST_URL:-ws://media-relay-service:8090/v1/ingest}
     ports:
       - "3000:3000"
     networks:
@@ -129,6 +134,23 @@ services:
         condition: service_healthy
       db-initialize:
         condition: service_completed_successfully
+
+  media-relay-service:
+    build:
+      context: .
+      dockerfile: media-relay-service/Dockerfile
+    container_name: media-relay-service
+    environment:
+      PORT: 8090
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "8090:8090"
+    networks:
+      - smarthome_net
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
 
   real-time-service:
     build:

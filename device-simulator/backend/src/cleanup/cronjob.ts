@@ -22,6 +22,7 @@ import {
 } from '../security/auth-session';
 import { apiGateway } from '../infrastructure/api-gateway/client';
 import { classifyAccountCleanupTargets } from './targets';
+import { getMediaStore } from '../media';
 
 export interface CleanupResult {
     status: 'cleaned' | 'cleanup_blocked';
@@ -41,6 +42,7 @@ const cleanupDependencies = {
     registryDb: getMongoDb, mainDb: getMainMongoDb, pgPool: getPgPool,
     runtimeManager: getRuntimeManager, generationQueue: getGenerationQueue,
     gateway: apiGateway, event: recordSimulatorEvent,
+    mediaStore: getMediaStore as (() => Pick<ReturnType<typeof getMediaStore>, 'wipeCamera' | 'removeEmptyRunDir'>) | undefined,
 };
 
 export class CleanupCronjob {
@@ -409,6 +411,17 @@ export class CleanupCronjob {
             registryDb.collection('simulated_users').deleteMany(userFilter),
             registryDb.collection('simulated_devices').deleteMany(deviceFilter),
         ]);
+        // Virtual SD cards of the cleaned cameras (camera contract 7.4).
+        const mediaStore = this.dependencies.mediaStore?.();
+        if (mediaStore) {
+            for (const device of devices) {
+                await mediaStore.wipeCamera(device.run_id, device.mac).catch((error) => this.logger.warn(
+                    { err: error, mac: device.mac },
+                    'Failed to wipe virtual camera recordings during cleanup',
+                ));
+            }
+            if (scope.kind === 'run') await mediaStore.removeEmptyRunDir(run.id).catch(() => undefined);
+        }
         return {
             status: 'cleaned',
             accountsDeleted: accountIds.length,

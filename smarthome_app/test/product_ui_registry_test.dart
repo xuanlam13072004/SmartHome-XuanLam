@@ -15,8 +15,65 @@ const profiles = <String>[
   ProductUiProfile.irrigationManager,
 ];
 
+typedef _Request = (String, dynamic);
+
+Future<List<_Request>> _pumpDetail(
+  WidgetTester tester,
+  DeviceModel device, {
+  double width = 390,
+  double height = 1400,
+  bool resolve = false,
+}) async {
+  tester.view.devicePixelRatio = 1;
+  tester.view.physicalSize = Size(width, height);
+  addTearDown(tester.view.reset);
+  final requests = <_Request>[];
+  await tester.pumpWidget(
+    MaterialApp(
+      key: ValueKey('${device.mac}-$width'),
+      theme: AppTheme.light,
+      home: Scaffold(
+        body: Builder(
+          builder: (context) => Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+            child: productUiRegistry.buildDetail(
+              context,
+              device: device,
+              onCapabilityChanged: (capability, value) async {
+                requests.add((
+                  resolve
+                      ? capability.resolveOperation(value).operationName
+                      : capability.operations.single.operationName,
+                  value,
+                ));
+              },
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.pump();
+  return requests;
+}
+
+/// Pumps fixed frames instead of settling: some pages show endless spinners
+/// for devices that are moving (for example a roof that is closing).
+Future<void> _settle(WidgetTester tester) async {
+  for (var frame = 0; frame < 6; frame++) {
+    await tester.pump(const Duration(milliseconds: 100));
+  }
+}
+
+Future<void> _tapText(WidgetTester tester, String text) async {
+  await tester.ensureVisible(find.text(text));
+  await _settle(tester);
+  await tester.tap(find.text(text));
+  await tester.pump();
+}
+
 void main() {
-  for (final profile in profiles) {
+  for (final profile in [...profiles, ProductUiProfile.securityCamera]) {
     testWidgets('$profile mini card fits the compact dashboard cell',
         (tester) async {
       tester.view.devicePixelRatio = 1;
@@ -50,544 +107,159 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.text(device.name), findsOneWidget);
     });
-
-    testWidgets('$profile detail view renders on a narrow phone',
-        (tester) async {
-      tester.view.devicePixelRatio = 1;
-      tester.view.physicalSize = const Size(320, 900);
-      addTearDown(tester.view.reset);
-      final device = _device(profile);
-
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: AppTheme.light,
-          home: Scaffold(
-            body: Builder(
-              builder: (context) => Padding(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-                child: productUiRegistry.buildDetail(
-                  context,
-                  device: device,
-                  onCapabilityChanged: (_, __) async {},
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-      await tester.pump();
-
-      expect(tester.takeException(), isNull);
-      expect(find.text(device.name), findsOneWidget);
-      expect(find.byType(Scrollable), findsOneWidget);
-    });
   }
 
-  testWidgets(
-      'irrigation detail keeps firmware policy in one note without sliders',
-      (tester) async {
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-    final requests = <(String, dynamic)>[];
+  for (final profile in profiles) {
+    for (final width in [320.0, 414.0, 768.0]) {
+      testWidgets('$profile page renders at ${width.toInt()}px without '
+          'diagnostics', (tester) async {
+        await _pumpDetail(tester, _device(profile), width: width);
 
-    for (final width in [320.0, 375.0, 414.0, 768.0]) {
-      tester.view.physicalSize = Size(width, 1100);
-      requests.clear();
-
-      await tester.pumpWidget(
-        MaterialApp(
-          key: ValueKey(width),
-          theme: AppTheme.light,
-          home: Scaffold(
-            body: Builder(
-              builder: (context) => Padding(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-                child: productUiRegistry.buildDetail(
-                  context,
-                  device: _irrigationDevice,
-                  onCapabilityChanged: (capability, value) async {
-                    requests.add(
-                      (capability.operations.single.operationName, value),
-                    );
-                  },
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-      await tester.pump();
-
-      expect(tester.takeException(), isNull, reason: 'width=$width');
-      expect(find.byType(Slider), findsNothing, reason: 'width=$width');
-      expect(find.text('Tưới thủ công'), findsOneWidget);
-      expect(find.text('Tự động tưới'), findsOneWidget);
-      expect(find.text('Chẩn đoán'), findsNothing);
-      expect(find.text('Kết nối Wi-Fi không ổn định'), findsNothing);
-      expect(
-          find.text('Firmware của thiết bị cần được kiểm tra'), findsNothing);
-      expect(find.text('Thiết lập cố định trong firmware'), findsNothing);
-      expect(find.text('Độ ẩm mục tiêu'), findsNothing);
-      expect(find.text('Vùng trễ'), findsNothing);
-      expect(find.text('Thời lượng tưới tự động'), findsNothing);
-      expect(find.text('Giới hạn chạy an toàn'), findsNothing);
-      expect(find.text('Thời gian nghỉ bảo vệ bơm'), findsNothing);
-      expect(
-        find.textContaining('ngưỡng độ ẩm 50/100 và vùng trễ 5/100'),
-        findsOneWidget,
-      );
-      expect(
-        find.textContaining('Mỗi chu kỳ kéo dài 5 phút'),
-        findsOneWidget,
-      );
-      expect(
-        find.textContaining('tự dừng sau tối đa 15 phút'),
-        findsOneWidget,
-      );
-      expect(
-        find.textContaining('nghỉ ít nhất 1 phút'),
-        findsOneWidget,
-      );
-
-      await tester.ensureVisible(find.text('Tưới nước'));
-      await tester.tap(find.text('Tưới nước'));
-      await tester.pump();
-
-      expect(requests, [('water_for_duration', 300)]);
-      expect(tester.takeException(), isNull, reason: 'width=$width');
+        expect(tester.takeException(), isNull);
+        expect(find.byType(Scrollable), findsWidgets);
+        for (final hidden in [
+          'Chẩn đoán',
+          'Tín hiệu Wi-Fi',
+          'Tình trạng firmware',
+          'Kết nối Wi-Fi không ổn định',
+          'Firmware của thiết bị cần được kiểm tra',
+          'Thông số khác',
+          'Điều khiển khác',
+        ]) {
+          expect(find.text(hidden), findsNothing, reason: hidden);
+        }
+      });
     }
-  });
+  }
 
-  testWidgets('entrance detail exposes only lock and an editable 4x20 LCD',
+  testWidgets('entrance: big lock button unlocks; LCD message lives in a sheet',
       (tester) async {
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-    final requests = <(String, dynamic)>[];
+    final requests =
+        await _pumpDetail(tester, _entranceDevice, height: 1800, resolve: true);
 
-    for (final width in [320.0, 375.0, 414.0, 768.0]) {
-      tester.view.physicalSize = Size(width, 1800);
-      requests.clear();
+    expect(find.text('Đã khóa'), findsOneWidget);
+    expect(find.text('Mở khóa'), findsOneWidget);
+    expect(find.byKey(const ValueKey('entrance-lcd-line-0')), findsNothing);
 
-      await tester.pumpWidget(
-        MaterialApp(
-          key: ValueKey('entrance-$width'),
-          theme: AppTheme.light,
-          home: Scaffold(
-            body: Builder(
-              builder: (context) => Padding(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-                child: productUiRegistry.buildDetail(
-                  context,
-                  device: _entranceDevice,
-                  onCapabilityChanged: (capability, value) async {
-                    requests.add(
-                      (capability.resolveOperation(value).operationName, value),
-                    );
-                  },
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-      await tester.pump();
+    await _tapText(tester, 'Mở khóa');
+    expect(requests, [('unlock', 'unlocking')]);
 
-      expect(tester.takeException(), isNull, reason: 'width=$width');
-      expect(find.text('LCD 4×20'), findsWidgets);
-      expect(find.text('Bốn dòng, mỗi dòng đúng 20 ô ký tự.'), findsOneWidget);
-      expect(find.text('Camera, LCD & bàn phím'), findsNothing);
-      expect(find.text('Thông số khác'), findsNothing);
-      expect(find.text('Trạng thái camera'), findsNothing);
-      expect(find.text('Nhận diện khuôn mặt'), findsNothing);
-      expect(find.text('Nguồn hiển thị'), findsNothing);
-      expect(find.byKey(const ValueKey('entrance-lcd-line-0')), findsOneWidget);
-      expect(find.byKey(const ValueKey('entrance-lcd-line-3')), findsOneWidget);
-
-      await tester.scrollUntilVisible(
-        find.text('Ra vào & bảo mật'),
-        300,
-        scrollable: find.byType(Scrollable).first,
-      );
-      expect(find.text('Ra vào & bảo mật'), findsOneWidget);
-
-      await tester.ensureVisible(
-        find.byKey(const ValueKey('entrance-lcd-line-0')),
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey('entrance-lcd-line-0')),
-        '12345678901234567890EXTRA',
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey('entrance-lcd-line-1')),
-        'Xin chao',
-      );
-      await tester.ensureVisible(find.text('Hiển thị trên LCD'));
-      await tester.tap(find.text('Hiển thị trên LCD'));
-      await tester.pump();
-
-      expect(requests, hasLength(1), reason: 'width=$width');
-      expect(requests.single.$1, 'set_custom_message', reason: 'width=$width');
-      expect(
-        requests.single.$2,
-        ['12345678901234567890', 'Xin chao', 'Cua dang khoa', ''],
-        reason: 'width=$width',
-      );
-      expect(tester.takeException(), isNull, reason: 'width=$width');
-    }
-  });
-
-  testWidgets(
-      'hazard detail is device-first and exposes only safe siren controls',
-      (tester) async {
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-    final requests = <(String, dynamic)>[];
-
-    for (final width in [320.0, 375.0, 414.0, 768.0]) {
-      tester.view.physicalSize = Size(width, 1500);
-      requests.clear();
-
-      await tester.pumpWidget(
-        MaterialApp(
-          key: ValueKey('hazard-$width'),
-          theme: AppTheme.light,
-          home: Scaffold(
-            body: Builder(
-              builder: (context) => Padding(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-                child: productUiRegistry.buildDetail(
-                  context,
-                  device: _hazardDevice(),
-                  onCapabilityChanged: (capability, value) async {
-                    requests.add(
-                      (capability.operations.single.operationName, value),
-                    );
-                  },
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-      await tester.pump();
-
-      expect(tester.takeException(), isNull, reason: 'width=$width');
-      for (final label in [
-        'Nhiệt độ',
-        'Độ ẩm',
-        'Khí gas',
-        'Cảm biến khói',
-        'Cảm biến lửa',
-      ]) {
-        expect(find.text(label), findsOneWidget, reason: 'width=$width');
-      }
-      expect(find.text('30°C'), findsOneWidget, reason: 'width=$width');
-      expect(find.text('65%'), findsOneWidget, reason: 'width=$width');
-      expect(find.text('12/100'), findsOneWidget, reason: 'width=$width');
-      expect(find.text('4/100'), findsOneWidget, reason: 'width=$width');
-      expect(find.text('Còi báo động'), findsOneWidget, reason: 'width=$width');
-      expect(find.text('Bật còi'), findsNothing, reason: 'width=$width');
-      expect(
-        find.text('Tắt còi tạm thời'),
-        findsOneWidget,
-        reason: 'width=$width',
-      );
-      expect(
-        find.text('Thời gian tắt còi cảnh báo'),
-        findsOneWidget,
-        reason: 'width=$width',
-      );
-      expect(find.byType(Slider), findsNothing, reason: 'width=$width');
-      for (final hidden in [
-        'Vòng đời sự cố',
-        'Sự cố đang hoạt động',
-        'Nút tắt âm tại chỗ',
-        'Điều khiển khác',
-        'Thông số khác',
-      ]) {
-        expect(find.text(hidden), findsNothing, reason: 'width=$width');
-      }
-
-      expect(
-        tester.getTopLeft(find.text(_hazardDevice().name)).dy,
-        lessThan(tester.getTopLeft(find.text('Nhiệt độ')).dy),
-      );
-      expect(
-        tester.getTopLeft(find.text('Nhiệt độ')).dy,
-        lessThan(tester.getTopLeft(find.text('Còi báo động')).dy),
-      );
-      expect(
-        tester.getTopLeft(find.text('Còi báo động')).dy,
-        lessThan(tester.getTopLeft(find.text('Kết nối mạng')).dy),
-      );
-
-      expect(requests, isEmpty);
-      expect(tester.takeException(), isNull, reason: 'width=$width');
-    }
-  });
-
-  testWidgets('hazard sounding siren can be muted temporarily', (tester) async {
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(390, 1200);
-    addTearDown(tester.view.reset);
-    final requests = <(String, dynamic)>[];
-
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.light,
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => Padding(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-              child: productUiRegistry.buildDetail(
-                context,
-                device: _hazardDevice(sirenState: 'sounding'),
-                onCapabilityChanged: (capability, value) async {
-                  requests.add(
-                    (capability.operations.single.operationName, value),
-                  );
-                },
-              ),
-            ),
-          ),
-        ),
-      ),
+    requests.clear();
+    await _tapText(tester, 'Lời nhắn trên màn hình cửa');
+    await _settle(tester);
+    expect(find.byKey(const ValueKey('entrance-lcd-line-0')), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const ValueKey('entrance-lcd-line-0')),
+      '12345678901234567890EXTRA',
     );
+    await tester.enterText(
+      find.byKey(const ValueKey('entrance-lcd-line-1')),
+      'Xin chao',
+    );
+    await _tapText(tester, 'Hiển thị lời nhắn');
+
+    expect(requests, hasLength(1));
+    expect(requests.single.$1, 'set_custom_message');
+    expect(
+      requests.single.$2,
+      ['12345678901234567890', 'Xin chao', 'Cua dang khoa', ''],
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('roof: open/close tiles and the automatic switch send commands',
+      (tester) async {
+    final requests = await _pumpDetail(tester, _roofDevice);
+
+    expect(find.text('Đang đóng mái…'), findsOneWidget);
+    expect(find.text('Khô ráo'), findsOneWidget);
+    expect(find.text('Kết nối mạng'), findsNothing, reason: 'Hub–Node is in the chip sheet');
+    expect(find.text('Qua Hub'), findsOneWidget);
+
+    await _tapText(tester, 'Mở mái');
+    await tester.ensureVisible(find.byType(Switch));
+    await tester.tap(find.byType(Switch));
     await tester.pump();
 
-    expect(find.text('Đang kêu'), findsOneWidget);
-    expect(find.text('1 phút'), findsOneWidget);
-    await tester.tap(find.text('1 phút'));
-    await tester.pumpAndSettle();
-    for (final duration in ['3 phút', '5 phút', '10 phút', '30 phút']) {
-      expect(find.text(duration), findsOneWidget);
+    expect(requests, [('open', 'opening'), ('set_control_mode', 'automatic')]);
+
+    await tester.tap(find.text('Qua Hub'));
+    await _settle(tester);
+    expect(find.text('Kết nối mạng'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('hazard: safe state, sensor tiles and temporary siren mute',
+      (tester) async {
+    final requests = await _pumpDetail(tester, _hazardDevice());
+
+    expect(find.text('An toàn'), findsOneWidget);
+    for (final label in ['Khí gas', 'Khói', 'Lửa', 'Nhiệt độ', 'Độ ẩm']) {
+      expect(find.text(label), findsOneWidget, reason: label);
     }
-    await tester.tap(find.text('3 phút'));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Tắt còi tạm thời'));
-    await tester.tap(find.text('Tắt còi tạm thời'));
-    await tester.pump();
+    expect(find.text('30°C'), findsOneWidget);
+    expect(find.text('65%'), findsOneWidget);
+    expect(find.text('12%'), findsOneWidget);
+    expect(find.text('4%'), findsOneWidget);
+    expect(find.text('Không có'), findsOneWidget);
+    expect(find.text('Còi sẵn sàng'), findsOneWidget);
+    expect(find.text('Sự cố đang diễn ra'), findsNothing);
 
+    await _tapText(tester, '3 phút');
+    await _tapText(tester, 'Tắt còi tạm thời');
     expect(requests, [('mute_siren', 180)]);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('hazard standby siren can be muted before danger',
-      (tester) async {
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(390, 1200);
-    addTearDown(tester.view.reset);
-    final requests = <(String, dynamic)>[];
+  testWidgets('hazard: sounding and muted sirens', (tester) async {
+    await _pumpDetail(tester, _hazardDevice(sirenState: 'sounding'));
+    expect(find.text('Còi đang kêu'), findsOneWidget);
 
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.light,
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => Padding(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-              child: productUiRegistry.buildDetail(
-                context,
-                device: _hazardDevice(sirenState: 'silent'),
-                onCapabilityChanged: (capability, value) async {
-                  requests.add(
-                    (capability.operations.single.operationName, value),
-                  );
-                },
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-    await tester.pump();
-
-    expect(find.text('Đang chờ cảnh báo'), findsOneWidget);
-    await tester.ensureVisible(find.text('Tắt còi tạm thời'));
-    await tester.tap(find.text('Tắt còi tạm thời'));
-    await tester.pump();
-
-    expect(requests, [('mute_siren', 60)]);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('muted hazard siren shows warning and can be resumed immediately',
-      (tester) async {
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(390, 1200);
-    addTearDown(tester.view.reset);
-    final requests = <(String, dynamic)>[];
-
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.light,
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => Padding(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-              child: productUiRegistry.buildDetail(
-                context,
-                device: _hazardDevice(sirenState: 'muted'),
-                onCapabilityChanged: (capability, value) async {
-                  requests.add(
-                    (capability.operations.single.operationName, value),
-                  );
-                },
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-    await tester.pump();
-
-    expect(find.text('Đã tắt cảnh báo tạm thời'), findsOneWidget);
-    expect(find.text('Cảnh báo: còi đang tắt tạm thời'), findsOneWidget);
-    await tester.ensureVisible(find.text('Bật lại cảnh báo ngay'));
-    await tester.tap(find.text('Bật lại cảnh báo ngay'));
-    await tester.pump();
-
+    final requests =
+        await _pumpDetail(tester, _hazardDevice(sirenState: 'muted'), width: 391);
+    expect(find.text('Còi đang tạm tắt'), findsOneWidget);
+    await _tapText(tester, 'Bật lại còi ngay');
     expect(requests, [('resume_siren', 'resume')]);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('detail hides diagnostics and shows contextual health warnings',
-      (tester) async {
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(390, 1100);
-    addTearDown(tester.view.reset);
+  testWidgets('hazard: an active incident can be acknowledged', (tester) async {
+    final requests =
+        await _pumpDetail(tester, _hazardDevice(incidentState: 'active'));
 
-    Future<void> pumpDevice(
-      DeviceModel device,
-      String scenario,
-    ) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          key: ValueKey(scenario),
-          theme: AppTheme.light,
-          home: Scaffold(
-            body: Builder(
-              builder: (context) => Padding(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-                child: productUiRegistry.buildDetail(
-                  context,
-                  device: device,
-                  onCapabilityChanged: (_, __) async {},
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-      await tester.pump();
-      expect(tester.takeException(), isNull, reason: scenario);
-      expect(find.text('Chẩn đoán'), findsNothing, reason: scenario);
-    }
-
-    await pumpDevice(
-      _irrigationWithDiagnostics(rssi: -60, firmwareStatus: 'healthy'),
-      'healthy',
-    );
-    expect(find.text('Kết nối Wi-Fi không ổn định'), findsNothing);
-    expect(find.text('Firmware của thiết bị cần được kiểm tra'), findsNothing);
-
-    await pumpDevice(
-      _irrigationWithDiagnostics(rssi: -82, firmwareStatus: 'healthy'),
-      'weak-wifi',
-    );
-    expect(find.text('Kết nối Wi-Fi không ổn định'), findsOneWidget);
-    expect(find.text('Firmware của thiết bị cần được kiểm tra'), findsNothing);
-
-    await pumpDevice(
-      _irrigationWithDiagnostics(rssi: -60, firmwareStatus: 'fault'),
-      'firmware-fault',
-    );
-    expect(find.text('Kết nối Wi-Fi không ổn định'), findsNothing);
-    expect(
-      find.text('Firmware của thiết bị cần được kiểm tra'),
-      findsOneWidget,
-    );
+    expect(find.text('Sự cố đang diễn ra'), findsOneWidget);
+    await _tapText(tester, 'Tôi đã biết');
+    expect(requests, [('acknowledge_incident', 'inc-1')]);
+    expect(tester.takeException(), isNull);
   });
 
-  testWidgets('roof detail keeps only status, network, open close and mode',
+  testWidgets('irrigation: water now with the chosen duration and auto mode',
       (tester) async {
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-    final requests = <(String, dynamic)>[];
+    for (final width in [320.0, 414.0]) {
+      final requests =
+          await _pumpDetail(tester, _irrigationDevice, width: width);
 
-    for (final width in [320.0, 390.0, 768.0]) {
-      tester.view.physicalSize = Size(width, 1400);
-      requests.clear();
+      expect(find.byType(Slider), findsNothing);
+      expect(find.text('Đang nghỉ'), findsOneWidget);
+      expect(find.text('42%'), findsOneWidget);
+      expect(find.text('80%'), findsOneWidget);
+      expect(find.text('Tự động tưới'), findsOneWidget);
+      expect(find.text('Bảo vệ máy bơm'), findsOneWidget);
+      expect(find.textContaining('Giữ độ ẩm đất quanh 50%'), findsOneWidget);
+      expect(find.textContaining('Tối đa 15 phút mỗi lần'), findsOneWidget);
 
-      await tester.pumpWidget(
-        MaterialApp(
-          key: ValueKey('roof-$width'),
-          theme: AppTheme.light,
-          home: Scaffold(
-            body: Builder(
-              builder: (context) => Padding(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-                child: productUiRegistry.buildDetail(
-                  context,
-                  device: _roofDevice,
-                  onCapabilityChanged: (capability, value) async {
-                    requests.add(
-                      (capability.operations.single.operationName, value),
-                    );
-                  },
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
+      await _tapText(tester, 'Tưới ngay');
+      await _tapText(tester, '1 phút');
+      await _tapText(tester, 'Tưới ngay');
+      await tester.ensureVisible(find.byType(Switch));
+      await tester.tap(find.byType(Switch));
       await tester.pump();
 
-      expect(tester.takeException(), isNull, reason: 'width=$width');
-      expect(find.text('Trạng thái mái'), findsOneWidget);
-      expect(find.text('Đang đóng'), findsOneWidget);
-      expect(find.text('Cảm biến mưa'), findsOneWidget);
-      expect(find.text('Khô ráo'), findsOneWidget);
-      expect(find.text('Kết nối mạng'), findsOneWidget);
-      expect(find.text('Mở mái'), findsOneWidget);
-      expect(find.text('Đóng mái'), findsOneWidget);
-      expect(find.text('Thủ công'), findsOneWidget);
-      expect(find.text('Tự động'), findsOneWidget);
-
-      for (final hidden in [
-        'Chuyển động',
-        'Dừng',
-        'Thời gian chạy tối đa',
-        'Bảo vệ khi mưa',
-        'Điều kiện môi trường',
-        'Thông số khác',
-        'Nguồn lệnh gần nhất',
-      ]) {
-        expect(find.text(hidden), findsNothing, reason: 'width=$width');
-      }
-
-      expect(
-        tester.getTopLeft(find.text('Kết nối mạng')).dy,
-        lessThan(tester.getTopLeft(find.text('Điều khiển mái che')).dy),
-      );
-      expect(
-        tester.getTopLeft(find.text('Mở mái')).dy,
-        lessThan(tester.getTopLeft(find.text('Chế độ vận hành')).dy),
-      );
-
-      await tester.ensureVisible(find.text('Mở mái'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Mở mái'));
-      await tester.pump();
-      await tester.ensureVisible(find.text('Tự động'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Tự động'));
-      await tester.pump();
-
-      expect(
-        requests,
-        [('open', 'opening'), ('set_control_mode', 'automatic')],
-      );
+      expect(requests, [
+        ('water_for_duration', 300),
+        ('water_for_duration', 60),
+        ('set_control_mode', 'manual'),
+      ]);
       expect(tester.takeException(), isNull, reason: 'width=$width');
     }
   });
@@ -739,7 +411,11 @@ final _entranceDevice = DeviceModel(
   ),
 );
 
-DeviceModel _hazardDevice({String sirenState = 'silent'}) => DeviceModel(
+DeviceModel _hazardDevice({
+  String sirenState = 'silent',
+  String incidentState = 'idle',
+}) =>
+    DeviceModel(
       mac: 'AA:BB:CC:DD:EE:30',
       ownerId: 'owner-1',
       name: 'Cảnh báo an toàn bếp',
@@ -816,11 +492,32 @@ DeviceModel _hazardDevice({String sirenState = 'silent'}) => DeviceModel(
           capabilityId: 'hazard_controller',
           section: CapabilitySection.sensor,
         ),
-        const CapabilityModel(
+        CapabilityModel(
           id: 'incident_state',
           type: 'enum',
           name: 'Vòng đời sự cố',
-          value: 'idle',
+          value: incidentState,
+          instance: 'hazard',
+          capabilityId: 'hazard_controller',
+          section: CapabilitySection.control,
+          operations: const [
+            CapabilityOperationDescriptor(
+              operationName: 'acknowledge_incident',
+              inputNames: ['incident_id'],
+              confirmation: 'confirm',
+            ),
+            CapabilityOperationDescriptor(
+              operationName: 'reset_incident',
+              inputNames: ['incident_id'],
+              confirmation: 'reauthenticate',
+            ),
+          ],
+        ),
+        CapabilityModel(
+          id: 'active_incident_id',
+          type: 'sensor',
+          name: 'Sự cố hiện tại',
+          value: incidentState == 'idle' ? null : 'inc-1',
           isReadOnly: true,
           instance: 'hazard',
           capabilityId: 'hazard_controller',
@@ -1111,6 +808,10 @@ DeviceModel _irrigationWithDiagnostics({
 DeviceModel _device(String profile) {
   if (profile == ProductUiProfile.roofController) return _roofDevice;
   if (profile == ProductUiProfile.hazardMonitor) return _hazardDevice();
+  if (profile == ProductUiProfile.entranceController) return _entranceDevice;
+  if (profile == ProductUiProfile.irrigationManager) {
+    return _irrigationWithDiagnostics(rssi: -82, firmwareStatus: 'fault');
+  }
   return DeviceModel(
     mac: 'AA:BB:CC:DD:EE:FF',
     ownerId: 'owner-1',

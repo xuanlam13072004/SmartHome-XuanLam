@@ -78,25 +78,33 @@ class EntranceProductMiniCard extends StatelessWidget {
       ids: const ['door_state'],
       capabilityIds: const ['door_position'],
     );
-    final locked =
-        '${lock?.value}'.toLowerCase() == 'locked' || lock?.value == true;
+    final pin = device.capabilityMatching(ids: const ['pin_configured']);
+    final state = '${lock?.value}'.toLowerCase();
+    final locked = state == 'locked' || lock?.value == true;
     return ProductMiniCardFrame(
       device: device,
       onTap: onTap,
       icon: locked ? Icons.lock_rounded : Icons.lock_open_rounded,
       eyebrow: 'CỬA CHÍNH',
-      statusLabel: locked ? 'Đã khóa' : 'Đã mở khóa',
-      accent: locked ? context.colorScheme.primary : context.colorScheme.error,
+      statusLabel: switch (state) {
+        'locked' => 'Đã khóa',
+        'unlocked' => 'Đã mở khóa',
+        'locking' => 'Đang khóa…',
+        'unlocking' => 'Đang mở khóa…',
+        'fault' => 'Khóa gặp lỗi',
+        _ => 'Chưa rõ',
+      },
+      accent: locked ? context.colorScheme.primary : context.neu.warningColor,
       metrics: [
         ProductMiniMetric(
           icon: Icons.door_front_door_rounded,
           label: 'Cửa',
           value: _doorStateLabel('${door?.value}'),
         ),
-        const ProductMiniMetric(
-          icon: Icons.password_rounded,
-          label: 'Bảo mật',
-          value: 'Đã cấu hình',
+        ProductMiniMetric(
+          icon: Icons.dialpad_rounded,
+          label: 'Mã PIN',
+          value: pin?.value == true ? 'Đã cài' : 'Chưa cài',
         ),
       ],
     );
@@ -123,26 +131,32 @@ class RoofProductMiniCard extends StatelessWidget {
       ids: const ['movement'],
       capabilityIds: const ['cover_controller'],
     );
-    final raining =
-        rain?.value == true || '${rain?.value}'.toLowerCase().contains('rain');
+    final mode = device.capabilityMatching(ids: const ['control_mode'], capabilityIds: const ['roof_policy']);
+    final raining = rain?.value == true || '${rain?.value}'.toLowerCase() == 'true';
+    final state = '${movement?.value}'.toLowerCase();
     return ProductMiniCardFrame(
       device: device,
       onTap: onTap,
       icon: Icons.roofing_rounded,
       eyebrow: 'MÁI CHE',
-      statusLabel: movement?.value?.toString() ?? 'Đang ổn định',
-      accent:
-          raining ? context.colorScheme.secondary : context.colorScheme.primary,
+      statusLabel: switch (state) {
+        'open' => 'Đang mở',
+        'closed' => 'Đã đóng',
+        'opening' => 'Đang mở ra…',
+        'closing' => 'Đang đóng lại…',
+        _ => 'Chưa rõ',
+      },
+      accent: state == 'opening' || state == 'closing' ? context.neu.warningColor : context.colorScheme.primary,
       metrics: [
         ProductMiniMetric(
-          icon: Icons.open_in_full_rounded,
-          label: 'Mái che',
-          value: productCapabilityValue(movement, fallback: 'Đã dừng'),
+          icon: raining ? Icons.water_drop_rounded : Icons.wb_sunny_rounded,
+          label: 'Thời tiết',
+          value: raining ? 'Đang mưa' : 'Khô ráo',
         ),
         ProductMiniMetric(
-          icon: raining ? Icons.water_drop_rounded : Icons.cloud_outlined,
-          label: 'Thời tiết',
-          value: raining ? 'Có mưa' : 'Khô ráo',
+          icon: Icons.auto_mode_rounded,
+          label: 'Chế độ',
+          value: '${mode?.value}'.toLowerCase() == 'automatic' ? 'Tự động' : 'Thủ công',
         ),
       ],
     );
@@ -165,33 +179,37 @@ class HazardProductMiniCard extends StatelessWidget {
       ids: const ['flame_detected'],
       capabilityIds: const ['flame_detection'],
     );
-    final gas = device.capabilityMatching(
-      ids: const ['gas_level', 'smoke_level'],
-      capabilityIds: const ['gas_measurement', 'smoke_measurement'],
-    );
-    final siren = device.capabilityMatching(
-      ids: const ['audible_state'],
-      capabilityIds: const ['alarm_siren'],
-    );
-    final sirenState = '${siren?.value}'.toLowerCase();
-    final alert = flame?.value == true || sirenState == 'sounding';
+    final gas = device.capabilityMatching(ids: const ['gas_level'], capabilityIds: const ['gas_measurement']);
+    final risk = '${device.capabilityMatching(ids: const ['risk_level'])?.value}'.toLowerCase();
+    final flameDetected = flame?.value == true;
+    final danger = flameDetected || risk == 'alarm' || risk == 'emergency';
+    final caution = risk == 'warning' || risk == 'sensor_fault';
+    final gasValue = gas?.value;
     return ProductMiniCardFrame(
       device: device,
       onTap: onTap,
-      icon: alert ? Icons.warning_rounded : Icons.health_and_safety_rounded,
-      eyebrow: 'AN TOÀN',
-      statusLabel: alert ? 'Cần kiểm tra' : 'An toàn',
-      accent: alert ? context.colorScheme.error : context.neu.deviceOnline,
+      icon: danger || caution ? Icons.warning_rounded : Icons.verified_user_rounded,
+      eyebrow: 'AN TOÀN BẾP',
+      statusLabel: danger
+          ? (flameDetected ? 'Phát hiện lửa' : 'Báo động')
+          : caution
+              ? (risk == 'sensor_fault' ? 'Cảm biến lỗi' : 'Cần chú ý')
+              : 'An toàn',
+      accent: danger
+          ? context.colorScheme.error
+          : caution
+              ? context.neu.warningColor
+              : context.neu.deviceOnline,
       metrics: [
         ProductMiniMetric(
-          icon: Icons.local_fire_department_rounded,
-          label: 'Ngọn lửa',
-          value: flame?.value == true ? 'Phát hiện' : 'Bình thường',
+          icon: Icons.air_rounded,
+          label: 'Khí gas',
+          value: gasValue is num ? '${gasValue.round()}%' : '—',
         ),
         ProductMiniMetric(
-          icon: Icons.air_rounded,
-          label: 'Khí/khói',
-          value: productCapabilityValue(gas, fallback: 'Ổn định'),
+          icon: Icons.local_fire_department_rounded,
+          label: 'Lửa',
+          value: flame?.value == null ? '—' : flameDetected ? 'Phát hiện' : 'Không có',
         ),
       ],
     );
@@ -211,35 +229,39 @@ class IrrigationProductMiniCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final moisture = device.capabilityMatching(
-      ids: const ['soil_moisture', 'moisture_level'],
+      ids: const ['moisture_level'],
       capabilityIds: const ['soil_moisture_measurement'],
     );
-    final water = device.capabilityMatching(
-      ids: const ['level_normalized', 'water_availability'],
-      capabilityIds: const ['water_level_measurement'],
-    );
+    final water = device.capabilityMatching(ids: const ['water_availability'], capabilityIds: const ['water_level_measurement']);
     final pump = device.capabilityMatching(
-      ids: const ['pump_active', 'pump_state', 'pump_output_state'],
+      ids: const ['pump_output_state'],
       capabilityIds: const ['irrigation_pump'],
     );
     final pumping = _isActiveState(pump?.value);
+    final moistureValue = moisture?.value;
+    final waterState = '${water?.value}'.toLowerCase();
     return ProductMiniCardFrame(
       device: device,
       onTap: onTap,
       icon: pumping ? Icons.water_rounded : Icons.grass_rounded,
-      eyebrow: 'TƯỚI TIÊU',
-      statusLabel: pumping ? 'Đang tưới' : 'Đang theo dõi',
+      eyebrow: 'TƯỚI CÂY',
+      statusLabel: pumping ? 'Đang tưới' : 'Đang nghỉ',
       accent: context.colorScheme.primary,
       metrics: [
         ProductMiniMetric(
           icon: Icons.eco_rounded,
           label: 'Độ ẩm đất',
-          value: productCapabilityValue(moisture, fallback: '—'),
+          value: moistureValue is num ? '${moistureValue.round()}%' : '—',
         ),
         ProductMiniMetric(
           icon: Icons.water_drop_outlined,
-          label: 'Nguồn nước',
-          value: productCapabilityValue(water, fallback: '—'),
+          label: 'Bể nước',
+          value: switch (waterState) {
+            'available' => 'Đủ nước',
+            'low' => 'Sắp hết',
+            'empty' => 'Đã cạn',
+            _ => '—',
+          },
         ),
       ],
     );
@@ -274,10 +296,13 @@ class ProductMiniCardFrame extends StatelessWidget {
     required this.statusLabel,
     required this.accent,
     required this.metrics,
+    this.showConnection = true,
   });
 
   final DeviceModel device;
   final VoidCallback onTap;
+  /// Hub–Node connection icon; off for Products that never join Hub–Node.
+  final bool showConnection;
   final IconData icon;
   final String eyebrow;
   final String statusLabel;
@@ -315,7 +340,7 @@ class ProductMiniCardFrame extends StatelessWidget {
                     ),
                     const Spacer(),
                     StatusBadge(status: device.status, size: 9),
-                    if (device.topology != null) ...[
+                    if (showConnection && device.topology != null) ...[
                       const SizedBox(width: AppSpacing.sm),
                       Icon(
                         _connectionIcon(device),

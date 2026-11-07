@@ -173,7 +173,43 @@ thuẫn:
   **202** (quyền `camera.recording.manage`, `device_operations.result`,
   `device_resource_sessions.ingest_token_hash`), Gateway B1–B7. Camera ảo trả lời
   `CAMERA_UNAVAILABLE` cho tới bước 2. Người dùng cho phép **xóa sạch dữ liệu dự án**
-  khi đổi schema (không viết migration 201→202). Bước tiếp theo: Simulator webcam.
+  khi đổi schema (không viết migration 201→202).
+- **Bước 2 đã làm (2026-11-05):** camera ảo dùng webcam/micro của dashboard Simulator.
+  Trình duyệt (Chrome/Edge, WebCodecs) mã hóa H.264 + AAC, khung hình khóa mỗi 2 giây,
+  gửi chunk đã mã hóa về backend Simulator qua HTTP nội bộ
+  (`/api/devices/:mac/camera/*`, chỉ dashboard dùng). Backend đóng vai firmware:
+  `src/media/fmp4.ts` (đóng gói CMAF, đã kiểm bằng ffmpeg), `camera-recorder.ts` (file
+  1 phút theo phút UTC, mỗi file có init segment), `media-store.ts` (thẻ SD ảo, trần
+  toàn kho `SIMULATOR_MEDIA_QUOTA_BYTES` = 10 GB, ghi vòng, khôi phục `.part`, xóa theo
+  thế hệ chủ), `runtime/security-camera.ts` (trạng thái, `list_recordings`,
+  `delete_recordings`, sự kiện `recordings_deleted`/`storage_recycled`/`recordings_wiped`).
+  Live/xem lại trả `MEDIA_INGEST_UNAVAILABLE` cho tới bước 3 (`media-relay-service`).
+  Docker mount `E:/smarthome_data/device-simulator/media`.
+- **Bước 3 + 5 đã làm (2026-11-06):** dịch vụ mới `media-relay-service` (cổng 8090,
+  HLS live dùng chung tối đa 5 người, VOD xem lại lấy file từ camera khi cần, kiểm vé
+  qua Redis projection, thu hồi qua `media.session.revoked`); camera ảo mở ingest
+  theo context của operation. Flutter **web** (người dùng demo bằng Chrome/Edge):
+  profile `security_camera`, `lib/features/camera/` (API, giữ phiên, trình phát
+  hls.js, dòng thời gian, xóa bản ghi). Chưa chạy được `flutter analyze` ở môi
+  trường của AI (không tải được Flutter SDK); người dùng cần chạy. Chi tiết: contract
+  mục 14.3–14.4.
+- **Giao diện trang sản phẩm làm lại (2026-11-07, theo yêu cầu người dùng):** app chỉ
+  giữ chức năng người dùng cần; chẩn đoán (Wi-Fi, firmware, uptime), MAC và chi tiết
+  Hub–Node không hiện trên trang (chẩn đoán chỉ còn ở Simulator). Bộ khung chung
+  `lib/features/products/widgets/product_page_kit.dart`: header trạng thái (chip kết
+  nối Hub–Node, chạm để xem chi tiết), một điều khiển chính lớn, ô thông số, cài
+  đặt dạng danh sách. Trang riêng: `entrance_product_page.dart` (nút khóa lớn; lời
+  nhắn LCD trong bottom sheet), `roof_product_page.dart`, `hazard_product_page.dart`
+  (xác nhận/kết thúc sự cố, tắt/thử còi), `irrigation_product_page.dart`; lịch sử
+  hoạt động chung `product_activity_panel.dart` (chỉ chủ thiết bị, Gateway chỉ cho
+  chủ đọc). Camera: trang là khung video tự phát trực tiếp, không Hub–Node. Đã kiểm
+  cú pháp toàn bộ Dart bằng tree-sitter-dart; chưa chạy `flutter analyze/test`.
+- **Android chưa có trình phát (người dùng chọn làm sau, 2026-11-06).** Khi người
+  dùng yêu cầu: thay `hls_video_view_stub.dart` bằng bản dùng `video_player`
+  (ExoPlayer phát HLS fMP4); tự đọc `EXT-X-PROGRAM-DATE-TIME` từ playlist để tua
+  theo giờ; thêm quyền `INTERNET` và cho phép cleartext (dev) trong
+  `android/app/src/main/AndroidManifest.xml`; `API_BASE_URL` và `MEDIA_PUBLIC_URL`
+  phải là IP LAN/`10.0.2.2`/tên miền, không phải `localhost`.
 
 ## Trạng thái camera: kế hoạch, chưa phải tính năng hoàn tất
 

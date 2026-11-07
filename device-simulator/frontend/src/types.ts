@@ -348,3 +348,28 @@ export interface Preflight {
   environment: string
   checks: Record<string, PreflightCheck>
 }
+
+export interface CameraStatus {
+  source_active: boolean
+  session_id: string | null
+  video_resolution: string | null
+  audio: boolean
+  recording: boolean
+  generation: string | null
+  storage: {
+    used_bytes: number
+    total_bytes: number
+    store_used_bytes: number
+    segments: number
+    oldest_recording_at: string | null
+    newest_recording_at: string | null
+  }
+  last_error: string | null
+}
+
+export interface CameraSegment {
+  id: string
+  start: string
+  end: string
+  size: number
+}

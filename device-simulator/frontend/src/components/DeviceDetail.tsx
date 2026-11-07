@@ -26,6 +26,7 @@ import { CapabilityControl } from './device/CapabilityControl'
 import { DeviceTelemetryPanel } from './device/DeviceTelemetryPanel'
 import { EntrancePhysicalWorkbench } from './device/EntrancePhysicalWorkbench'
 import { LcdSimulator } from './device/LcdSimulator'
+import { SecurityCameraWorkbench } from './device/SecurityCameraWorkbench'
 import {
   formatValue,
   humanize,
@@ -435,6 +436,26 @@ function PhysicalWorkbench({
         onKeypad={onKeypad}
         onPatch={onPatch}
         virtualHardware={virtualHardware}
+        wifiControl={diagnostics && wifiRssi ? (
+          <WifiSignalControl
+            device={device}
+            instance={diagnostics}
+            onPatch={onPatch}
+            property={wifiRssi}
+          />
+        ) : null}
+      />
+    )
+  }
+
+  if (
+    ordered.some((instance) => instance.capability_id === 'camera_stream')
+    && ordered.some((instance) => instance.capability_id === 'video_recording')
+  ) {
+    return (
+      <SecurityCameraWorkbench
+        device={device}
+        instances={ordered}
         wifiControl={diagnostics && wifiRssi ? (
           <WifiSignalControl
             device={device}

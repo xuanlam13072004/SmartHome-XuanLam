@@ -107,12 +107,12 @@ class _EntranceLcdPanelState extends State<EntranceLcdPanel> {
       if (!mounted) return;
       setState(() {
         _dirty = _draftLines.join('\u0000') != submitted.join('\u0000');
-        _feedback = 'Đã gửi nội dung tới thiết bị.';
+        _feedback = 'Đã gửi lời nhắn tới màn hình cửa.';
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _feedback = 'Không thể gửi nội dung. Kiểm tra kết nối rồi thử lại.';
+        _feedback = 'Chưa gửi được lời nhắn. Kiểm tra kết nối rồi thử lại.';
         _feedbackIsError = true;
       });
     } finally {
@@ -133,12 +133,12 @@ class _EntranceLcdPanelState extends State<EntranceLcdPanel> {
       if (!mounted) return;
       setState(() {
         _dirty = false;
-        _feedback = 'Đã trả quyền hiển thị về firmware.';
+        _feedback = 'Màn hình cửa đã về nội dung mặc định.';
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _feedback = 'Không thể trả màn hình về firmware. Hãy thử lại.';
+        _feedback = 'Chưa đưa được màn hình về mặc định. Hãy thử lại.';
         _feedbackIsError = true;
       });
     } finally {
@@ -151,10 +151,10 @@ class _EntranceLcdPanelState extends State<EntranceLcdPanel> {
     final lines = _draftLines;
     final source = '${widget.sourceCapability?.value}'.trim().toLowerCase();
     final sourceLabel = switch (source) {
-      'custom' => 'Nội dung tùy chỉnh',
-      'authentication' => 'Xác thực',
+      'custom' => 'Đang hiện lời nhắn',
+      'authentication' => 'Đang xác thực',
       'safety' => 'Cảnh báo an toàn',
-      _ => 'Firmware',
+      _ => 'Mặc định',
     };
 
     return NeuCard(
@@ -175,10 +175,10 @@ class _EntranceLcdPanelState extends State<EntranceLcdPanel> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('LCD 4×20', style: context.textTheme.titleLarge),
+                    Text('Màn hình cửa', style: context.textTheme.titleLarge),
                     const SizedBox(height: AppSpacing.xs),
                     Text(
-                      'Bốn dòng, mỗi dòng đúng 20 ô ký tự.',
+                      'Tối đa 4 dòng, mỗi dòng 20 ký tự.',
                       style: context.textTheme.bodySmall,
                     ),
                   ],
@@ -245,14 +245,14 @@ class _EntranceLcdPanelState extends State<EntranceLcdPanel> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.dvr_rounded),
-                label: Text(_saving ? 'Đang gửi…' : 'Hiển thị trên LCD'),
+                label: Text(_saving ? 'Đang gửi…' : 'Hiển thị lời nhắn'),
               );
               final secondary = OutlinedButton.icon(
                 onPressed: _canRestore && source == 'custom' && !_saving
                     ? _restoreFirmware
                     : null,
                 icon: const Icon(Icons.settings_backup_restore_rounded),
-                label: const Text('Trả về firmware'),
+                label: const Text('Về mặc định'),
               );
               if (compact) {
                 return Column(
@@ -280,7 +280,7 @@ class _EntranceLcdPanelState extends State<EntranceLcdPanel> {
               _feedback.isNotEmpty
                   ? _feedback
                   : widget.deviceOnline
-                      ? 'Thông báo an toàn và xác thực vẫn được firmware ưu tiên.'
+                      ? 'Thông báo an toàn và xác thực luôn được ưu tiên hiển thị.'
                       : 'Thiết bị đang ngoại tuyến nên chưa thể nhận nội dung mới.',
               style: context.textTheme.bodySmall?.copyWith(
                 color: _feedbackIsError

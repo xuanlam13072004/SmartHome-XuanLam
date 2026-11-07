@@ -12,6 +12,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
+RUN mkdir -p /var/lib/simulator-media && chown node:node /var/lib/simulator-media
 USER node
 EXPOSE 4001
 HEALTHCHECK --interval=15s --timeout=5s --retries=5 \

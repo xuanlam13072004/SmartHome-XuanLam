@@ -1,8 +1,10 @@
-# Contract camera an ninh (v0.4)
+# Contract camera an ninh (v0.6)
 
-> Trạng thái: các điểm mở đã được người dùng chốt (2026-11-04). **Bước 1 (backend
-> B1–B8, Catalog revision 13, schema PostgreSQL 202) đã triển khai**; các bước 2–7
-> chưa làm (mục 16).
+> Trạng thái: các điểm mở đã được người dùng chốt (2026-11-04). **Đã triển khai:**
+> bước 1 (backend B1–B8, Catalog revision 13, schema PostgreSQL 202), bước 2 (camera
+> ảo dùng webcam/micro, mục 14.2), bước 3 (`media-relay-service`, mục 14.3) và
+> bước 5 cho bản web của app (mục 14.4). Còn lại: kiểm thử đầu-cuối trên máy người
+> dùng, Cloudflare Tunnel, giới hạn/audit/kiểm thử tải (mục 16).
 >
 > Nguồn quyết định: `docs/AI_HANDOFF.md`, mục "Quyết định camera đã chốt với
 > người dùng". So với v0.1: chỉ còn **một** Product camera, chất lượng theo
@@ -191,14 +193,21 @@ chỉ đúng camera đó đọc được topic điều khiển của nó.
 
 ### 6.2 Giao thức ingest `smarthome-media-ingest.v1` (camera → máy chủ)
 
-WebSocket. Có hai loại message:
+WebSocket tới `<MEDIA_INGEST_URL>` (`/v1/ingest`). Vé không nằm trong URL mà trong
+message đầu tiên. Có hai loại message:
 - **Văn bản (JSON), điều khiển:**
-  - camera → máy chủ: `hello` (mac, session, `profile_id`, độ phân giải), `segment_list` (trả lời `list`), `end` (lý do)
-  - máy chủ → camera: `stop`, `fetch {segment_start}`, `cancel_fetch`
+  - camera → máy chủ: `hello {protocol, session_id, ingest_token, mac, kind: live|playback, profile_id}`,
+    `segment_list {segments: [{id, start, end, size, init_length, init_id}]}` (xem
+    lại, gửi ngay sau `ready`), `fetch_done {request_id}`, `fetch_error {request_id, reason}`,
+    `end {reason}`
+  - máy chủ → camera: `ready {session_id}` (sau khi kiểm vé; camera chỉ ACK
+    operation sau message này), `viewers {count}` (live), `stop {reason}`,
+    `fetch {request_id, segment_id, offset, length|null}`, `cancel_fetch {request_id}`,
+    `error {code, message}` rồi đóng kết nối
 - **Nhị phân, dữ liệu:** 1 byte loại + dữ liệu:
   - `0x10` init segment (`ftyp`+`moov`)
   - `0x11` mảnh media (`moof`+`mdat`, hình và tiếng chung một mảnh)
-  - `0x12` một phần file ghi được `fetch` (xem lại)
+  - `0x12` + `request_id` (u32 big-endian) + một phần byte của file được `fetch`
 
 Camera gửi đúng các byte nó ghi vào thẻ, không xử lý lại. Khi thiếu băng thông,
 camera bỏ mảnh live cũ chứ không giữ hàng đợi vô hạn. Bản ghi trên thẻ vẫn đầy đủ.
@@ -333,8 +342,8 @@ File được đặt tên theo giờ UTC.
   - màn hình chi tiết (live, dòng thời gian, chọn ngày, play/pause/tua, thanh
     dung lượng);
   - nút xóa, chỉ hiện với chủ thiết bị.
-- Trình phát HLS có sẵn của nền tảng (gói `video_player`; trên web dùng thư viện
-  HLS cho trình duyệt).
+- Trình phát: bản web dùng `<video>` + hls.js (mục 14.4). Bản di động/desktop
+  thay file `hls_video_view_stub.dart` bằng trình phát nền tảng khi cần.
 - Trạng thái trung lập: `Camera ngoại tuyến`, `Không có bản ghi`,
   `Bản ghi không còn khả dụng`, `Đã đủ người xem`. Không bao giờ nhắc tới Simulator.
 
@@ -425,6 +434,96 @@ thẻ trống:
 - `delete_recordings` → `deleted_segments: 0`.
 
 Simulator không còn tạo locator giả `simulator://`.
+
+### 14.2 Camera ảo dùng webcam (bước 2, đã làm 2026-11-05)
+
+Cách triển khai mục 9, kèm các chi tiết đã chốt khi làm:
+
+- **Phân vai.** Trình duyệt chỉ là cảm biến kiêm bộ mã hóa: WebCodecs H.264
+  (Constrained Baseline trước, rồi Main, High), `latencyMode: realtime`, khung hình
+  khóa mỗi 2 giây; AAC-LC 96 kbps nếu trình duyệt mã hóa được. Backend Simulator
+  đóng vai firmware: đóng gói CMAF (`src/media/fmp4.ts`), ghi file, trả lời MQTT.
+  Cần Chrome hoặc Edge (WebCodecs + `MediaStreamTrackProcessor`).
+- **Không có AAC thì không có tiếng.** Nếu trình duyệt không mã hóa được AAC, camera
+  ghi hình không tiếng và báo `audio_state = unavailable`; backend không chuyển mã
+  âm thanh. Chrome/Edge trên Windows có AAC.
+- **Kênh nội bộ** dashboard → backend Simulator: HTTP
+  `POST /api/devices/:mac/camera/source` (bật/tắt, cấu hình giải mã) và
+  `POST /api/devices/:mac/camera/chunks` (lô chunk nhị phân khoảng 0,5 giây). Gửi
+  theo nhịp đầu ra của bộ mã hóa chứ không theo hẹn giờ, nên vẫn chạy khi tab bị ẩn.
+  Không có dữ liệu trong 6 giây: camera về `unavailable` và đóng file đang ghi.
+  Hệ thống chính không thấy kênh này.
+- **File ghi:** mỗi file bắt đầu bằng init segment rồi đến các mảnh 2 giây, nên tự
+  phát được. Tên file là giây bắt đầu theo UTC; file đổi ở ranh giới phút UTC hoặc
+  khi bật lại nguồn. Thư mục camera dùng MAC bỏ dấu `:` vì Windows không cho dấu
+  này trong tên file.
+- **Thế hệ chủ sở hữu:** lấy `members[].device_id` của assignment; khi chưa nhận
+  assignment, lấy `device_id` lưu lúc claim (cùng là `device_metadata.id`). Chưa
+  biết thế hệ thì không ghi (`recording_state = stopped`).
+- **`delete_recordings`** xóa các file 1 phút đã hoàn tất **giao** với khoảng
+  `[from, to)`, hoặc tất cả khi `all = true`; file đang ghi không bao giờ bị xóa.
+- **`list_recordings`** gộp các file cách nhau ≤ 3 giây thành một khoảng, tối đa
+  120 khoảng mỗi trang; `next_cursor` là thời điểm kết thúc của khoảng cuối trang.
+- **Live và xem lại:** khi có nguồn hình, `create_stream_session` trả
+  `MEDIA_INGEST_UNAVAILABLE`. Khi có bản ghi trong khoảng, `create_playback_session`
+  cũng trả `MEDIA_INGEST_UNAVAILABLE`. Hai lệnh này chạy được ở bước 3.
+- **Docker:** thư mục `E:/smarthome_data/device-simulator/media` (đổi bằng
+  `SIMULATOR_MEDIA_HOST_DIR`) mount vào `/var/lib/simulator-media`.
+- **Kiểm thử:** file ghi từ H.264 + AAC thật (ffmpeg) giải mã sạch. Pipeline trình
+  duyệt đã chạy với camera giả của Chromium: 1080p H.264, file giải mã đúng.
+  Phần AAC chỉ kiểm được trên Chrome/Edge thật.
+
+### 14.3 Máy chủ media (bước 3, đã làm 2026-11-06)
+
+- Dịch vụ mới `media-relay-service` (Node/TypeScript, `ws`, `ioredis`), cổng **8090**
+  trong `docker-compose.yml`. Chỉ chuyển tiếp và đóng gói HLS; không lưu file,
+  không chuyển mã.
+- **Xác thực:** đọc Redis projection `media:session:<id>` do Gateway ghi; so hash
+  SHA-256 của vé (so sánh thời gian hằng); vé xem chỉ hợp lệ khi phiên `ready`, vé
+  ingest hợp lệ khi `requested` hoặc `ready` và MAC khớp. Kênh
+  `media.session.revoked` xóa cache và cắt kết nối ngay.
+- **HLS** (đường dẫn có vé xem, CORS `*`):
+  - `GET /v1/sessions/<id>/<token>/index.m3u8`: live chờ tối đa 10 giây cho 2 mảnh
+    đầu; xem lại chờ `segment_list`.
+  - Live: `live/init-<n>.mp4`, `live/<seq>.m4s`; cửa sổ 15 mảnh (khoảng 30 giây);
+    đổi init segment thì thêm `EXT-X-DISCONTINUITY`.
+  - Xem lại: playlist VOD, mỗi file 1 phút là một đoạn `rec/<file>/media.m4s` (file
+    bỏ phần init), `rec/<file>/init.mp4` làm `EXT-X-MAP`; mỗi đoạn có
+    `EXT-X-PROGRAM-DATE-TIME`; khoảng trống > 3 giây hoặc đổi init thì
+    `EXT-X-DISCONTINUITY`.
+- **Live dùng chung:** một ingest mỗi camera; người xem thứ hai trở đi chỉ tạo
+  phiên mới, camera ACK ngay. Máy chủ báo số người xem (`viewers`) để camera báo
+  `live_viewers`. Không còn request HLS nào trong 15 giây (sau 25 giây đầu) thì máy
+  chủ gửi `stop`; camera về `idle`.
+- **Xem lại:** máy chủ `fetch` file từ camera khi trình phát xin đoạn đó và truyền
+  thẳng cho app; camera giới hạn bộ đệm gửi 4 MB. Phiên xem lại không có request
+  trong 90 giây, hết hạn hoặc bị thu hồi thì máy chủ đóng ingest.
+- **Camera ảo:** `src/media/ingest-client.ts` dùng WebSocket có sẵn của Node 22;
+  mảnh live là đúng các byte được ghi vào thẻ; bỏ mảnh khi bộ đệm gửi vượt 8 MB.
+  Tối đa 720 file (12 giờ) mỗi phiên xem lại.
+- **Cấu hình:** Compose đặt cho Gateway `MEDIA_PUBLIC_URL`
+  (mặc định `http://localhost:8090`, URL trình phát của app mở) và `MEDIA_INGEST_URL`
+  (mặc định `ws://media-relay-service:8090/v1/ingest`); đổi bằng file `.env` ở thư
+  mục gốc.
+- **Kiểm thử:** test relay (vé, chia sẻ live, dừng khi hết người xem, VOD, fetch)
+  và test đầu-cuối camera ảo + relay. Với H.264 + AAC thật, ffprobe đọc được cả
+  playlist live lẫn VOD qua relay, ffmpeg giải mã sạch.
+
+### 14.4 Flutter web (bước 5, đã làm 2026-11-06)
+
+- Profile `security_camera`: thẻ nhỏ (trạng thái, ghi hình, bộ nhớ; không có biểu
+  tượng Hub–Node) và trang chi tiết là chính khung video (`CameraViewerPanel`): vào
+  trang là tự mở xem trực tiếp, không có hero, Hub–Node hay chẩn đoán (2026-11-07,
+  theo yêu cầu người dùng).
+- Khung video: bắt đầu ở chế độ tắt tiếng; lớp điều khiển riêng (nhãn TRỰC TIẾP,
+  số người xem, phát/dừng khi xem lại, bật tiếng, toàn màn hình) chạy hls.js
+  (`web/vendor/hls/hls.min.js`, bản 1.6.15, Apache-2.0); dòng thời gian 24 giờ theo
+  ngày, chọn ngày, chọn đoạn; tua trong phiên dựa trên `EXT-X-PROGRAM-DATE-TIME`;
+  xóa bản ghi trong ngày hoặc toàn bộ (chủ thiết bị hoặc người có
+  `camera.recording.manage`), có hộp xác nhận.
+- Phiên được gia hạn 60 giây trước khi hết hạn và đóng khi rời màn hình hoặc
+  chuyển tab.
+- Chỉ bản web có trình phát; bản Android/Windows hiện thông báo.
 
 ## 15. Quyết định đã chốt (2026-11-04)
 

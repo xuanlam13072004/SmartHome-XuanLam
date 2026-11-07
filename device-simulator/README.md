@@ -9,7 +9,14 @@ active virtual Hub, switch to direct MQTT fallback when its lease disappears,
 and return to relay after a valid topology update. Operation inputs are checked
 again against the published catalog before state mutation.
 
-Protected camera operations return a short-lived simulated resource locator.
+Virtual security cameras (`prod_security_camera`) use the dashboard's webcam
+and microphone as their image sensor: the browser encodes H.264 + AAC with
+WebCodecs (Chrome or Edge) and the backend plays the camera firmware, recording
+1-minute CMAF files 24/7 into a virtual SD card (`SIMULATOR_MEDIA_ROOT`, whole-store
+quota `SIMULATOR_MEDIA_QUOTA_BYTES`, default 10 GB, oldest minute recycled first).
+Unpairing, an owner change or run cleanup wipes a camera's recordings. Live and
+playback delivery arrive with the media relay (camera contract step 3). See
+`docs/architecture/camera-contract.md`.
 Each virtual device also has its own RSA key pair: the public key is provisioned
 in PostgreSQL, while the private key is encrypted in the simulator registry.
 Credential envelopes are decrypted only inside that virtual device; the

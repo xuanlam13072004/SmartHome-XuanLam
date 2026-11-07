@@ -84,6 +84,11 @@ const envSchema = z.object({
     CLEANUP_RETENTION_HOURS: z.coerce.number().int().min(1).max(24 * 365).default(24),
     EVENT_RETENTION_DAYS: z.coerce.number().int().min(1).max(365).default(7),
     MAX_PAGE_SIZE: z.coerce.number().int().min(10).max(1000).default(200),
+
+    // Virtual SD card of all virtual cameras (camera contract, section 9).
+    SIMULATOR_MEDIA_ROOT: z.string().min(1).default('./simulator-media'),
+    SIMULATOR_MEDIA_QUOTA_BYTES: z.coerce.number().int().min(64 * 1024 * 1024)
+        .max(Number.MAX_SAFE_INTEGER).default(10 * 1024 * 1024 * 1024),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);

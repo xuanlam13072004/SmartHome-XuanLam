@@ -22,6 +22,8 @@ import { loadCatalog, getCachedCatalog } from './catalog/loader';
 import { createRunsRoutes } from './api/routes/runs';
 import { createUsersRoutes } from './api/routes/users';
 import devicesRoutes from './api/routes/devices';
+import cameraRoutes from './api/routes/camera';
+import { configureMediaLogger, getMediaStore } from './media';
 import eventsRoutes from './api/routes/events';
 import streamRoutes from './api/routes/stream';
 import catalogRoutes from './api/routes/catalog';
@@ -184,6 +186,8 @@ export const buildApp = async (): Promise<{
     await startDependency('MongoDB', () => initMongo(app.log), app.log);
     await startDependency('API Gateway Product Catalog', loadCatalog, app.log);
     app.log.info({ productCount: getCachedCatalog().length }, 'Product catalog loaded');
+    configureMediaLogger((message, data) => app.log.info(data || {}, message));
+    await startDependency('Virtual camera storage', () => getMediaStore().init(), app.log);
     const runtimeManager = getRuntimeManager(app.log);
     await startDependency('MQTT broker', () => runtimeManager.start(), app.log);
     const metricsService = getRunMetricsService(app.log);
@@ -193,6 +197,7 @@ export const buildApp = async (): Promise<{
     await app.register(createRunsRoutes(cleanupJob));
     await app.register(createUsersRoutes(cleanupJob));
     await app.register(devicesRoutes);
+    await app.register(cameraRoutes);
     await app.register(eventsRoutes);
     await app.register(streamRoutes);
     await app.register(catalogRoutes);

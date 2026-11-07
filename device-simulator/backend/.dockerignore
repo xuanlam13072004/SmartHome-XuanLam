@@ -3,3 +3,4 @@ dist
 test
 .env
 npm-debug.log
+simulator-media

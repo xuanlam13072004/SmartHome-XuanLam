@@ -18,6 +18,7 @@ import {
     type RuntimeTransportCoordinator,
 } from './device-runtime';
 import { getTelemetryScheduler } from './telemetry-scheduler';
+import { getMediaStore } from '../media';
 import type { IrrigationSession } from './irrigation-controller';
 import {
     parseTopologyAssignment,
@@ -191,7 +192,15 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
         const mac = normalizeMac(macInput);
         this.assignments.delete(mac);
         await this.assignmentTasks.get(mac)?.catch(() => undefined);
+        const runId = this.devices.get(mac)?.runId ?? await this.registryRunId(mac);
         await this.removeDevice(mac);
+        // Owner boundary (camera contract 7.5): an unpaired camera keeps no recordings.
+        if (runId) {
+            await getMediaStore().wipeCamera(runId, mac).catch((error) => this.logger.warn(
+                { err: error, mac },
+                'Failed to wipe recordings of an unpaired virtual camera',
+            ));
+        }
         await this.registryDb().collection('simulated_devices').updateOne(
             { mac },
             {
@@ -207,6 +216,17 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
                 },
             },
         );
+    }
+
+    private async registryRunId(mac: string): Promise<string | undefined> {
+        try {
+            const record = await this.registryDb().collection<SimulatedDeviceRecord>('simulated_devices')
+                .findOne({ mac }, { projection: { run_id: 1 } });
+            return record?.run_id;
+        } catch (error) {
+            this.logger.warn({ err: error, mac }, 'Could not resolve the run of an unpaired device');
+            return undefined;
+        }
     }
 
     async stopRun(runId: string): Promise<number> {

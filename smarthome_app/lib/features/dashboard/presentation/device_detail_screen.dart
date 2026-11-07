@@ -12,7 +12,7 @@ import '../../../core/utils/app_error_mapper.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../models/capability_model.dart';
 import '../../../domain/models/product_model.dart';
-import '../../products/widgets/entrance_event_history_panel.dart';
+import '../../products/widgets/product_activity_panel.dart';
 
 class DeviceDetailScreen extends ConsumerWidget {
   const DeviceDetailScreen({
@@ -127,68 +127,20 @@ class DeviceDetailScreen extends ConsumerWidget {
                 value,
               );
             },
-            onOpenResource: (resource) => _openResource(
-              context,
-              ref,
-              device,
-              resource,
-            ),
             onReplaceCredential: (credential) => _replaceCredential(
               context,
               ref,
               device,
               credential,
             ),
-            entranceActivitySection: EntranceEventHistoryPanel(
-              deviceMac: device.mac,
-            ),
+            activitySection: device.membershipRole == 'owner' &&
+                    productUiRegistry.hasActivity(device)
+                ? ProductActivityPanel(device: device)
+                : null,
           ),
         );
       },
     );
-  }
-
-  Future<void> _openResource(
-    BuildContext context,
-    WidgetRef ref,
-    DeviceModel device,
-    DeviceResourceDefinition resource,
-  ) async {
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      final session =
-          await ref.read(devicesProvider.notifier).createResourceSession(
-                device.mac,
-                resource,
-              );
-      final status = session['status']?.toString() ?? 'requested';
-      if (!context.mounted) return;
-      if (status != 'ready') {
-        throw StateError(
-          session['reason_code']?.toString() ??
-              'Thiết bị chưa sẵn sàng cung cấp tài nguyên',
-        );
-      }
-      await showDialog<void>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('Phiên camera đã sẵn sàng'),
-          content: SelectableText(
-            session['resource_locator']?.toString() ?? '',
-          ),
-          actions: [
-            FilledButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Đóng'),
-            ),
-          ],
-        ),
-      );
-    } catch (error) {
-      messenger.showSnackBar(
-        SnackBar(content: Text(AppErrorMapper.mapError(error))),
-      );
-    }
   }
 
   Future<void> _replaceCredential(

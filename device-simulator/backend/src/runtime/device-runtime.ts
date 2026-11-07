@@ -31,6 +31,8 @@ import { getRunMetricsService } from '../metrics/service';
 import { decrypt, encrypt } from '../security/crypto';
 import { startupDelayMs } from './scheduling';
 import { cameraOperationOutcome, DeviceOperationRejection } from './camera-controller';
+import { productHasSecurityCamera, VirtualSecurityCamera } from './security-camera';
+import { getMediaStore } from '../media';
 import { getTelemetryScheduler } from './telemetry-scheduler';
 import {
     registerPresenceHeartbeat,
@@ -135,6 +137,7 @@ export class DeviceRuntime {
     private stateMutationQueue: Promise<void> = Promise.resolve();
     private readonly operationResults = new Map<string, OperationResult>();
     private readonly logger: FastifyBaseLogger;
+    private readonly camera: VirtualSecurityCamera | null = null;
 
     constructor(
         private readonly simulationRunId: string,
@@ -185,10 +188,32 @@ export class DeviceRuntime {
         }
         this.resumeRoofMotionFromState();
         this.resumeSirenTimerFromState();
+        if (productHasSecurityCamera(product)) {
+            this.camera = new VirtualSecurityCamera({
+                mac: this.mac,
+                runId: this.simulationRunId,
+                product,
+                assignment: () => this.assignment,
+                claimedDeviceId: async () => (await getMongoDb()
+                    .collection<SimulatedDeviceRecord>('simulated_devices')
+                    .findOne({ mac: this.mac }, { projection: { device_id: 1 } }))?.device_id ?? null,
+                requestReportedSync: () => this.syncCameraReported(),
+                emitEvent: (draft) => this.emitDeviceEvent(draft),
+                log: (level, message, data) => this.logger[level](data || {}, message),
+            }, getMediaStore());
+            // Firmware-owned camera state never survives a restart: the image
+            // source is gone until the dashboard reconnects the webcam.
+            mergeReportedState(this.state, this.camera.reported());
+        }
     }
 
     get id(): string {
         return this.mac;
+    }
+
+    /** Virtual camera firmware, for Products with camera_stream + video_recording. */
+    get securityCamera(): VirtualSecurityCamera | null {
+        return this.camera;
     }
 
     get connected(): boolean {
@@ -238,6 +263,10 @@ export class DeviceRuntime {
     async dispose(): Promise<void> {
         if (this.disposed) return;
         this.disposed = true;
+        await this.camera?.dispose().catch((error) => this.logger.warn(
+            { err: error },
+            'Virtual camera did not close its recording cleanly',
+        ));
         this.cancelRoofMotion();
         this.cancelSirenTimer();
         this.cancelEntranceTimer();
@@ -319,6 +348,12 @@ export class DeviceRuntime {
             const pump = product.capability_instances.find(i => i.capability_id === 'irrigation_pump');
             if (pump && patch.instances?.[pump.instance_id]) {
                 throw new Error('Pump state is controlled by virtual firmware; use the physical pump action or a backend operation');
+            }
+            if (this.camera && (
+                patch.instances?.[this.camera.cameraInstanceId]
+                || patch.instances?.[this.camera.recordingInstanceId]
+            )) {
+                throw new Error('Camera and recording state are reported by the virtual camera firmware; use the webcam controls');
             }
             this.state = reconcileHazardSafetyState(
                 patchDeviceState(this.state, product, patch),
@@ -492,6 +527,7 @@ export class DeviceRuntime {
         this.assignment = incoming;
         this.directFallbackOverride = false;
         this.lastTopologyAckKey = null;
+        await this.camera?.onAssignment(incoming);
 
         await getMongoDb().collection<SimulatedDeviceRecord>('simulated_devices').updateOne(
             { mac: this.mac },
@@ -918,7 +954,9 @@ export class DeviceRuntime {
                 return;
             }
 
-            const cameraOutcome = cameraOperationOutcome(product, operation);
+            const cameraOutcome = this.camera
+                ? await this.camera.handleOperation(operation)
+                : cameraOperationOutcome(product, operation);
             const roofMotion = roofMotionPlanForOperation(product, operation, this.state);
             const sirenPlan = sirenTimerPlanForOperation(product, operation);
             const sirenResumeInstance = sirenResumeInstanceForOperation(product, operation);
@@ -1705,6 +1743,18 @@ export class DeviceRuntime {
         );
     }
 
+    /** Publishes firmware-owned camera properties after a camera state change. */
+    private syncCameraReported(): void {
+        const camera = this.camera;
+        if (!camera || this.disposed) return;
+        void this.serializeStateMutation(async () => {
+            if (this.disposed || !mergeReportedState(this.state, camera.reported())) return;
+            this.state.state_version += 1;
+            await this.persistRegistryState(new Date(), true);
+            if (this.connected && !this.isPaused) await this.publishTelemetry(false);
+        }).catch((error) => this.logger.warn({ err: error }, 'Failed to publish virtual camera state'));
+    }
+
     async refreshTransportAvailability(): Promise<void> {
         if (
             this.assignment?.transport_mode === 'relay'
@@ -1725,3 +1775,21 @@ export class DeviceRuntime {
         if (this.desiredOnline) await this.reconcileTransport();
     }
 }
+
+/** Writes firmware-owned reported values; returns true when anything changed. */
+const mergeReportedState = (
+    state: DeviceState,
+    reported: Record<string, Record<string, unknown>>,
+): boolean => {
+    let changed = false;
+    for (const [instanceId, values] of Object.entries(reported)) {
+        const envelope = state.instances[instanceId];
+        if (!envelope) continue;
+        for (const [property, value] of Object.entries(values)) {
+            if (JSON.stringify(envelope.reported[property]) === JSON.stringify(value)) continue;
+            envelope.reported[property] = value;
+            changed = true;
+        }
+    }
+    return changed;
+};

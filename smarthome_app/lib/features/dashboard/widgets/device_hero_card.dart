@@ -4,7 +4,6 @@ import '../../../core/widgets/widgets.dart';
 import '../../../domain/models/device_model.dart';
 import '../models/capability_model.dart';
 import 'capabilities/capability_visuals.dart';
-import 'topology_badge.dart';
 
 class DeviceHeroCard extends StatelessWidget {
   const DeviceHeroCard({
@@ -150,19 +149,6 @@ class _DeviceIdentity extends StatelessWidget {
                     ),
                   ),
                 ],
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              if (device.topology != null) ...[
-                TopologyBadge(topology: device.topology!),
-                const SizedBox(height: AppSpacing.sm),
-              ],
-              Text(
-                device.mac,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: context.textTheme.labelSmall?.copyWith(
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
               ),
               if (device.lastSeen != null) ...[
                 const SizedBox(height: AppSpacing.xs),
