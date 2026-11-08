@@ -211,6 +211,48 @@ thuẫn:
   `android/app/src/main/AndroidManifest.xml`; `API_BASE_URL` và `MEDIA_PUBLIC_URL`
   phải là IP LAN/`10.0.2.2`/tên miền, không phải `localhost`.
 
+## Xưởng sản xuất và tem QR của Simulator (2026-11-07)
+
+Người dùng yêu cầu: mỗi thiết bị Simulator sinh ra có tem QR để người dùng thật quét
+và thêm vào tài khoản; Simulator "sản xuất" được thiết bị trắng chưa thuộc về ai.
+
+- **Mô hình.** Thiết bị xuất xưởng nằm trong `simulated_devices` với
+  `origin = 'factory'`, `run_id = 'factory'`, `simulator_user_id = ''`,
+  `factory_batch_id`, `serial_number` (`SX-CAM-2611-0007`), `retention_policy =
+  permanent`. Lô ở `factory_batches` (`LOT-261107-003`), bộ đếm ở
+  `factory_counters`. Không thuộc lần chạy nào nên cleanup lần chạy không đụng tới;
+  chỉ thao tác **Tiêu hủy** (thiết bị chưa có chủ) mới xóa `factory_devices`, danh
+  tính broker, registry, dữ liệu MongoDB chính theo MAC và video. Code:
+  `device-simulator/backend/src/factory/{pairing,service}.ts`,
+  `api/routes/factory.ts`.
+- **Firmware chờ ghép nối.** `DeviceRuntime` có option `awaitClaim`: giữ phiên
+  broker, nghe `smarthome/{mac}/topology`, không gửi telemetry/presence/event
+  (`runtime_state = 'awaiting_claim'`). Assignment đầu tiên chính là claim:
+  `RuntimeManager.recordFactoryClaim` ghi `provisioning_state = claimed`,
+  `device_id`, rồi thiết bị chạy như thường. Unpair (tombstone rỗng) với thiết bị
+  xưởng thì **reset về kệ** (`provisioned`, quay lại chờ ghép nối, xóa video), không
+  retire như thiết bị của lần chạy. Bật nguồn thiết bị đã có chủ thì kiểm
+  `device_metadata` còn active; nếu chủ đã gỡ lúc thiết bị tắt thì reset.
+  Khởi động lại Simulator: `FactoryService.recover()` bật lại thiết bị có công tắc
+  nguồn đang bật.
+- **API/Dashboard.** `GET/POST /api/factory/batches`, `GET /api/factory/devices`
+  (`include_pairing=1` trả nội dung QR), `POST /api/factory/devices/:mac/power`,
+  `.../scrap`, `POST /api/factory/batches/:id/scrap-unclaimed`,
+  `GET /api/devices/:mac/pairing` (tem của mọi thiết bị, kể cả thiết bị của lần
+  chạy). Dashboard: trang **Xưởng sản xuất** và tab **Tem QR** trong chi tiết thiết
+  bị; tem vẽ bằng `qrcode-generator` (SVG, tải PNG, in nhiều tem trên A4). Đã kiểm
+  QR giải mã đúng payload (jsQR) cả bản SVG và PNG.
+- **App.** Không đổi giao thức: nội dung QR đúng `DeviceQrPayload`
+  (`{"type":"smarthome-device","version":1,"mac","secret_key"}`). Màn quét có thêm
+  **Dán mã ghép nối** vì trên web camera laptop không quét được tem đang hiện trên
+  chính màn hình đó.
+- **Giới hạn đã biết.** Claim từ app không gửi `network_fingerprint`, nên mỗi thiết
+  bị ghép bằng QR là một mạng riêng (không gộp Hub–Node). Muốn gộp cần cơ chế thiết
+  bị/app báo fingerprint mạng Wi-Fi (chưa làm). Thiết bị của lần chạy cũng có tem,
+  nhưng khi tài khoản ảo gỡ thì nó tắt theo lần chạy; thiết bị trắng thì dùng Xưởng.
+- Env: `FACTORY_TELEMETRY_INTERVAL_SECONDS` (30), `FACTORY_MAX_BATCH_SIZE` (20).
+  Test: `device-simulator/backend/test/factory.test.ts`.
+
 ## Trạng thái camera: kế hoạch, chưa phải tính năng hoàn tất
 
 Đây là mục tiêu sắp tới đã được người dùng làm rõ:

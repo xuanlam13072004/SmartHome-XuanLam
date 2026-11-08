@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -81,6 +82,25 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
       _scannerController.start();
       setState(() => _isProcessing = false);
     });
+  }
+
+  /// Mã ghép nối là nội dung của tem QR. Trên web, camera của máy tính không
+  /// quét được tem đang hiển thị trên chính màn hình đó, nên người dùng sao
+  /// chép mã từ Simulator rồi dán vào đây.
+  Future<void> _openPasteCode() async {
+    setState(() => _isProcessing = true);
+    _scannerController.stop();
+    final payload = await showDialog<DeviceQrPayload>(
+      context: context,
+      builder: (context) => const _PasteCodeDialog(),
+    );
+    if (!mounted) return;
+    if (payload == null) {
+      _scannerController.start();
+      setState(() => _isProcessing = false);
+      return;
+    }
+    _openConfirmationSheet(payload.mac, payload.secretKey);
   }
 
   void _openManualEntry() {
@@ -183,24 +203,138 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
             ),
           ),
 
-          // Nút Nhập thủ công
+          // Nhập thủ công hoặc dán mã ghép nối
           Positioned(
-            bottom: 40,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: TextButton.icon(
-                onPressed: _openManualEntry,
-                icon: const Icon(LucideIcons.keyboard, color: Colors.white),
-                label: const Text(
-                  'Nhập mã thủ công',
-                  style: TextStyle(color: Colors.white, fontSize: 16),
+            bottom: 32,
+            left: AppSpacing.md,
+            right: AppSpacing.md,
+            child: Wrap(
+              alignment: WrapAlignment.center,
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.xs,
+              children: [
+                TextButton.icon(
+                  onPressed: _openManualEntry,
+                  icon: const Icon(LucideIcons.keyboard, color: Colors.white),
+                  label: const Text(
+                    'Nhập mã thủ công',
+                    style: TextStyle(color: Colors.white, fontSize: 16),
+                  ),
                 ),
-              ),
+                TextButton.icon(
+                  onPressed: _openPasteCode,
+                  icon: const Icon(LucideIcons.clipboard, color: Colors.white),
+                  label: const Text(
+                    'Dán mã ghép nối',
+                    style: TextStyle(color: Colors.white, fontSize: 16),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Hộp thoại dán nội dung tem QR (mã ghép nối) đã sao chép.
+class _PasteCodeDialog extends StatefulWidget {
+  const _PasteCodeDialog();
+
+  @override
+  State<_PasteCodeDialog> createState() => _PasteCodeDialogState();
+}
+
+class _PasteCodeDialogState extends State<_PasteCodeDialog> {
+  final _controller = TextEditingController();
+  String? _error;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pasteFromClipboard() async {
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      final text = data?.text?.trim() ?? '';
+      if (!mounted) return;
+      if (text.isEmpty) {
+        setState(() => _error = 'Bộ nhớ tạm đang trống');
+        return;
+      }
+      _controller.text = text;
+      setState(() => _error = null);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() =>
+          _error = 'Trình duyệt chặn đọc bộ nhớ tạm, hãy nhấn Ctrl+V vào ô');
+    }
+  }
+
+  void _submit() {
+    try {
+      Navigator.of(context).pop(DeviceQrPayload.parse(_controller.text.trim()));
+    } catch (_) {
+      setState(() => _error = 'Mã ghép nối không đúng định dạng thiết bị');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Dán mã ghép nối'),
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Sao chép mã trên tem thiết bị (trong Simulator: Tem QR → '
+              'Sao chép mã ghép nối) rồi dán vào đây.',
+              style: context.textTheme.bodyMedium?.copyWith(
+                color: context.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            TextField(
+              controller: _controller,
+              autofocus: true,
+              minLines: 3,
+              maxLines: 5,
+              keyboardType: TextInputType.multiline,
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+              onChanged: (_) {
+                if (_error != null) setState(() => _error = null);
+              },
+              decoration: InputDecoration(
+                hintText: '{"type":"smarthome-device","version":1,…}',
+                errorText: _error,
+                errorMaxLines: 2,
+                border: const OutlineInputBorder(),
+                suffixIcon: IconButton(
+                  tooltip: 'Dán từ bộ nhớ tạm',
+                  icon: const Icon(LucideIcons.clipboard),
+                  onPressed: _pasteFromClipboard,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Hủy'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Tiếp tục'),
+        ),
+      ],
     );
   }
 }

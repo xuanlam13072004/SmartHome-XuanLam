@@ -85,6 +85,10 @@ const envSchema = z.object({
     EVENT_RETENTION_DAYS: z.coerce.number().int().min(1).max(365).default(7),
     MAX_PAGE_SIZE: z.coerce.number().int().min(10).max(1000).default(200),
 
+    /** Telemetry cadence of devices manufactured by the simulator factory. */
+    FACTORY_TELEMETRY_INTERVAL_SECONDS: z.coerce.number().int().min(5).max(3600).default(30),
+    FACTORY_MAX_BATCH_SIZE: z.coerce.number().int().min(1).max(200).default(20),
+
     // Virtual SD card of all virtual cameras (camera contract, section 9).
     SIMULATOR_MEDIA_ROOT: z.string().min(1).default('./simulator-media'),
     SIMULATOR_MEDIA_QUOTA_BYTES: z.coerce.number().int().min(64 * 1024 * 1024)

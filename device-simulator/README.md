@@ -36,6 +36,38 @@ Automatic runs expire after 24 hours; manually retained runs remain until
 explicit cleanup. Persistent PostgreSQL and MongoDB data live under
 `E:\smarthome_data` as configured by the root Compose file.
 
+## Factory: blank devices and QR labels
+
+The **Xưởng sản xuất** page manufactures blank devices that belong to nobody.
+Each one gets a factory identity in PostgreSQL (`factory_devices`), its own
+broker account, a serial number (`SX-CAM-2611-0007`) and a QR label. The label
+holds the same payload the SmartHome app scans:
+
+```json
+{"type":"smarthome-device","version":1,"mac":"02:1A:7C:E4:3B:11","secret_key":"…"}
+```
+
+A powered-on blank device holds its broker session in pairing mode: it listens
+on its own topology topic and publishes nothing (`runtime_state` =
+`awaiting_claim`). Claiming it in the app (scan the label, or on the web use
+"Dán mã ghép nối" with the copied code) makes the backend publish the topology
+assignment; the device records its new owner and starts reporting like any other
+device. When the owner unpairs it, the device is factory reset and waits for a
+new owner with the same label. Factory devices are not part of any run, so run
+cleanup never touches them; only unclaimed devices can be scrapped.
+
+Every simulated device, including run-generated ones, shows its label in the
+device workbench (tab **Tem QR**): download as PNG, print, or copy the code.
+
+API: `GET|POST /api/factory/batches`, `GET /api/factory/devices?batch_id=&include_pairing=1`,
+`POST /api/factory/devices/:mac/power`, `POST /api/factory/devices/:mac/scrap`,
+`POST /api/factory/batches/:id/scrap-unclaimed`, `GET /api/devices/:mac/pairing`.
+Settings: `FACTORY_TELEMETRY_INTERVAL_SECONDS` (default 30) and
+`FACTORY_MAX_BATCH_SIZE` (default 20).
+
+A device claimed from the app sends no Wi-Fi network fingerprint, so each one
+forms its own single-device network (no Hub–Node grouping).
+
 ## Recovering incomplete generation
 
 The user list shows **created / planned** device counts and a separate claimed

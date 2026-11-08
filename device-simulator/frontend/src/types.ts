@@ -138,6 +138,11 @@ export interface DeviceOperation {
 export interface SimulatedDevice {
   run_id: string
   simulator_user_id: string
+  /** `factory`: manufactured blank by the simulator factory. Absent means `run`. */
+  origin?: 'run' | 'factory'
+  factory_batch_id?: string
+  serial_number?: string
+  claimed_at?: string
   generation_index: number
   mac: string
   device_id?: string
@@ -372,4 +377,49 @@ export interface CameraSegment {
   start: string
   end: string
   size: number
+}
+
+export interface DeviceOwner {
+  device_id: string
+  device_name: string
+  account_email: string | null
+  claimed_at: string | null
+}
+
+export interface FactoryBatch {
+  id: string
+  product_id: string
+  catalog_revision: number
+  quantity: number
+  power_on: boolean
+  note?: string
+  created_at: string
+  in_stock: number
+  claimed: number
+  powered_on: number
+}
+
+export interface FactoryDevice {
+  mac: string
+  serial_number: string | null
+  name: string
+  product_id: string
+  catalog_revision: number | null
+  factory_batch_id: string | null
+  provisioning_state: string
+  runtime_state: string
+  desired_state: 'online' | 'offline'
+  created_at: string
+  owner: DeviceOwner | null
+  pairing_payload?: string
+}
+
+export interface DevicePairing {
+  mac: string
+  serial_number: string | null
+  product_id: string
+  origin: 'run' | 'factory'
+  payload: string
+  claimable: boolean
+  owner: DeviceOwner | null
 }

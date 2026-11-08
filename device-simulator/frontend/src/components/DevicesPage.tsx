@@ -58,7 +58,7 @@ export function DevicesPage({
     return devices.filter((device) => {
       if (status !== 'all' && device.runtime_state !== status) return false
       const product = productMap.get(device.product_id)
-      return !normalized || `${device.name} ${device.mac} ${device.product_id} ${product?.display_name || ''}`
+      return !normalized || `${device.name} ${device.mac} ${device.serial_number || ''} ${device.product_id} ${product?.display_name || ''}`
         .toLowerCase()
         .includes(normalized)
     })
@@ -103,6 +103,7 @@ export function DevicesPage({
             <option value="online">Trực tuyến</option>
             <option value="offline">Ngoại tuyến</option>
             <option value="paused">Tạm dừng</option>
+            <option value="awaiting_claim">Chờ ghép nối</option>
           </select>
         </label>
         <button className="icon-button" onClick={() => void load()} title="Tải lại danh sách" type="button">
@@ -136,7 +137,10 @@ export function DevicesPage({
                 <span className="device-row__symbol" aria-hidden="true">{categoryCode(product?.category)}</span>
                 <span className="device-row__identity">
                   <strong>{device.name}</strong>
-                  <small>{product?.display_name || device.product_id}</small>
+                  <small>
+                    {product?.display_name || device.product_id}
+                    {device.origin === 'factory' ? ` · Xưởng ${device.serial_number || ''}` : ''}
+                  </small>
                   <code>{device.mac}</code>
                 </span>
                 <span className="device-row__values">
@@ -144,7 +148,7 @@ export function DevicesPage({
                     <span key={item.label}><small>{item.label}</small><strong>{item.value}</strong></span>
                   ))}
                 </span>
-                <span className={`runtime-badge runtime-badge--${device.runtime_state === 'online' ? 'online' : device.runtime_state === 'paused' ? 'paused' : ['contract_error', 'mqtt_error'].includes(device.runtime_state) ? 'error' : 'offline'}`}>
+                <span className={`runtime-badge runtime-badge--${device.runtime_state === 'online' ? 'online' : device.runtime_state === 'awaiting_claim' ? 'pairing' : device.runtime_state === 'paused' ? 'paused' : ['contract_error', 'mqtt_error'].includes(device.runtime_state) ? 'error' : 'offline'}`}>
                   <i aria-hidden="true" />{humanize(device.runtime_state)}
                 </span>
                 <Icon name="arrow" />

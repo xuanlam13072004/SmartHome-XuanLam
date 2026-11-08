@@ -11,6 +11,11 @@ export type IconName =
   | 'refresh'
   | 'copy'
   | 'search'
+  | 'factory'
+  | 'qr'
+  | 'print'
+  | 'download'
+  | 'power'
 
 const paths: Record<IconName, ReactNode> = {
   overview: <><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="4" /><rect x="14" y="11" width="7" height="10" /><rect x="3" y="14" width="7" height="7" /></>,
@@ -25,6 +30,11 @@ const paths: Record<IconName, ReactNode> = {
   refresh: <><path d="M20 6v5h-5M4 18v-5h5" /><path d="M18.5 9A7 7 0 0 0 6 6.5L4 9m2 6a7 7 0 0 0 12.5 2.5L20 15" /></>,
   copy: <><rect x="8" y="8" width="11" height="11" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /></>,
   search: <><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></>,
+  factory: <><path d="M3 21V10l5 3V10l5 3V10l5 3V4h3v17Z" /><path d="M7 17h2M12 17h2M17 17h1" /></>,
+  qr: <><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><path d="M14 14h3v3M21 14v.01M17 21h4v-4M14 21h.01" /></>,
+  print: <><path d="M6 9V3h12v6" /><rect x="3" y="9" width="18" height="8" rx="1" /><path d="M6 14h12v7H6Z" /></>,
+  download: <><path d="M12 3v12M7 10l5 5 5-5" /><path d="M4 21h16" /></>,
+  power: <><path d="M12 3v8" /><path d="M6.3 6.8a8 8 0 1 0 11.4 0" /></>,
 }
 
 export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {

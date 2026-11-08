@@ -5,6 +5,7 @@ import ControlPanel from './components/ControlPanel'
 import { DeviceDetail } from './components/DeviceDetail'
 import { DevicesPage } from './components/DevicesPage'
 import { EventsLog } from './components/EventsLog'
+import { FactoryPage } from './components/factory/FactoryPage'
 import { Icon, type IconName } from './components/Icon'
 import { PreflightPanel } from './components/PreflightPanel'
 import RunsList from './components/RunsList'
@@ -12,7 +13,7 @@ import StatsOverview from './components/StatsOverview'
 import { UserDetail } from './components/UserDetail'
 import { UsersPage } from './components/UsersPage'
 
-export type MainView = 'devices' | 'users' | 'create' | 'runs' | 'system'
+export type MainView = 'devices' | 'users' | 'create' | 'factory' | 'runs' | 'system'
 type DetailView =
   | { type: 'user'; id: string }
   | { type: 'device'; id: string }
@@ -45,6 +46,13 @@ const navigation: NavigationItem[] = [
     shortLabel: 'Tạo mới',
     description: 'Sinh user và device theo cấu hình',
     icon: 'create',
+  },
+  {
+    id: 'factory',
+    label: 'Xưởng sản xuất',
+    shortLabel: 'Xưởng',
+    description: 'Sản xuất thiết bị trắng kèm tem QR để ghép nối từ app',
+    icon: 'factory',
   },
   {
     id: 'runs',
@@ -171,6 +179,13 @@ function App() {
           {!detail && view === 'create' && (
             <ControlPanel enabled={infrastructureReady} onCreated={runCreated} />
           )}
+          {!detail && view === 'factory' && (
+            <FactoryPage
+              enabled={infrastructureReady}
+              // Back from the device workbench returns to the factory.
+              onSelectDevice={(mac) => setDetail({ type: 'device', id: mac })}
+            />
+          )}
           {!detail && view === 'runs' && (
             <RunsList
               enabled={infrastructureReady}
@@ -204,6 +219,7 @@ const getViewTitle = (view: MainView, detail: DetailView): string => {
   if (view === 'devices') return 'Thiết bị'
   if (view === 'users') return 'Người dùng'
   if (view === 'create') return 'Tạo dữ liệu mô phỏng'
+  if (view === 'factory') return 'Xưởng sản xuất'
   if (view === 'runs') return 'Lần chạy mô phỏng'
   return 'Hệ thống'
 }

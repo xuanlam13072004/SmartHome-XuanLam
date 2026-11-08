@@ -104,6 +104,11 @@ export interface RuntimeTransportCoordinator {
     onTopologyMessage(mac: string, payload: Buffer): Promise<void>;
 }
 
+export interface DeviceRuntimeOptions {
+    /** Factory device without an owner: stay in pairing mode until claimed. */
+    awaitClaim?: boolean;
+}
+
 interface OperationResult {
     status: 'succeeded' | 'rejected';
     reasonCode?: string;
@@ -138,6 +143,7 @@ export class DeviceRuntime {
     private readonly operationResults = new Map<string, OperationResult>();
     private readonly logger: FastifyBaseLogger;
     private readonly camera: VirtualSecurityCamera | null = null;
+    private readonly awaitClaim: boolean;
 
     constructor(
         private readonly simulationRunId: string,
@@ -153,7 +159,9 @@ export class DeviceRuntime {
         initialAssignment?: TopologyAssignment,
         private accessPin?: string,
         storedIrrigationSession?: IrrigationSession,
+        options: DeviceRuntimeOptions = {},
     ) {
+        this.awaitClaim = Boolean(options.awaitClaim);
         this.seq = initialSeq;
         this.logger = logger.child({
             mac,
@@ -216,8 +224,17 @@ export class DeviceRuntime {
         return this.camera;
     }
 
+    /**
+     * Pairing mode of a factory device: it holds a broker session and listens
+     * on its own topology topic, but has no owner yet, so it publishes nothing
+     * until the backend's claim assignment arrives.
+     */
+    get awaitingClaim(): boolean {
+        return this.awaitClaim && !this.assignment;
+    }
+
     get connected(): boolean {
-        if (!this.desiredOnline) return false;
+        if (!this.desiredOnline || this.awaitingClaim) return false;
         return this.effectiveTransportMode === 'relay'
             ? this.transportCoordinator.isRelayAvailable(this)
             : Boolean(this.mqttClient?.connected);
@@ -646,6 +663,13 @@ export class DeviceRuntime {
             await this.refreshSubscriptions();
         } else {
             await this.releaseBrokerConnection();
+        }
+
+        if (this.awaitingClaim) {
+            this.stopTelemetry();
+            this.stopPresenceHeartbeat();
+            await this.updateRuntimeState(this.brokerConnected ? 'awaiting_claim' : 'offline');
+            return;
         }
 
         if (this.connected) {
@@ -1601,6 +1625,9 @@ export class DeviceRuntime {
         draft: DeviceEventDraft,
         occurredAt = new Date(),
     ): Promise<void> {
+        // An unclaimed device has no owner to report to; nothing is queued for
+        // whoever claims it later.
+        if (this.awaitingClaim) return;
         const nextSeq = await this.reserveNextSequence();
         const payload = {
             schema: 'device.event.v2',

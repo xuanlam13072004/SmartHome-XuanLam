@@ -23,6 +23,8 @@ import { decrypt } from '../../security/crypto';
 import { ensureAccessPin } from '../../security/device-pin';
 import { assignmentFromClaim } from '../../runtime/topology';
 import { initializeEntranceController } from '../../runtime/entrance-controller';
+import { getFactoryService } from '../../factory/service';
+import { factoryRunContext } from '../../factory/pairing';
 
 const deviceProjection = {
     secret: 0,
@@ -201,6 +203,11 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         const context = await requireClaimedDevice(mac, reply);
         if (!context) return;
 
+        if (context.device.origin === 'factory') {
+            const runtime = await getFactoryService(app.log).powerOn(mac);
+            await recordDeviceAction(context.device, 'device.connected', 'Factory device powered on');
+            return { success: true, runtime_state: runtime?.awaitingClaim ? 'awaiting_claim' : 'online' };
+        }
         await getMongoDb().collection<SimulatedDeviceRecord>('simulated_devices').updateOne(
             { mac },
             { $set: { desired_state: 'online', updated_at: new Date() } },
@@ -247,7 +254,10 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
             { mac },
             { $set: { desired_state: 'online', updated_at: new Date() } },
         );
-        const runtime = await getOrCreateRuntime(runtimeManager, context);
+        const runtime = context.device.origin === 'factory'
+            ? await getFactoryService(app.log).powerOn(mac)
+            : await getOrCreateRuntime(runtimeManager, context);
+        if (!runtime) return reply.status(409).send({ success: false, error: 'Device cannot power on' });
         await runtime.connect();
         await runtime.resume();
         await recordDeviceAction(context.device, 'device.resumed', 'Virtual device telemetry resumed');
@@ -297,6 +307,11 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         const context = await requireClaimedDevice(mac, reply);
         if (!context) return;
         await runtimeManager.removeDevice(mac);
+        if (context.device.origin === 'factory') {
+            await getFactoryService(app.log).powerOn(mac);
+            await recordDeviceAction(context.device, 'device.reconnected', 'Factory device restarted');
+            return { success: true, runtime_state: 'online' };
+        }
         await getMongoDb().collection<SimulatedDeviceRecord>('simulated_devices').updateOne(
             { mac },
             { $set: { desired_state: 'online', updated_at: new Date() } },
@@ -598,6 +613,8 @@ export const getDeviceContext = async (mac: string): Promise<{
     const device = await getMongoDb().collection<SimulatedDeviceRecord>('simulated_devices')
         .findOne({ mac });
     if (!device) return null;
+    // Manufactured devices belong to no run; the factory supplies their settings.
+    if (device.origin === 'factory') return { device, run: factoryRunContext() };
     const run = await getMongoDb().collection<SimulationRun>('simulation_runs')
         .findOne({ id: device.run_id });
     if (!run) return null;
@@ -610,6 +627,8 @@ const requireClaimedDevice = async (mac: string, reply: any) => {
         reply.status(404).send({ success: false, error: 'Device not found' });
         return null;
     }
+    // A factory device can always be switched on: unclaimed, it waits in pairing mode.
+    if (context.device.origin === 'factory') return context;
     if (context.device.provisioning_state === 'unpaired') {
         const claimed = await getPgPool().query<{ id: string }>(
             'SELECT id::text FROM device_metadata WHERE mac = $1 AND owner_id = $2 AND is_active = true',
@@ -635,6 +654,7 @@ export const getOrCreateRuntime = async (
     manager: RuntimeManager,
     context: { device: SimulatedDeviceRecord; run: SimulationRun },
 ) => {
+    if (context.device.origin === 'factory') return getFactoryService().runtimeFor(context.device);
     const product = await resolveDeviceProduct(context.device);
     return manager.addDevice(
         context.run.id,
@@ -668,7 +688,7 @@ const recordDeviceAction = async (
         type,
         severity: type.startsWith('security.') ? 'warning' : 'info',
         run_id: device.run_id,
-        account_id: device.simulator_user_id,
+        ...(device.simulator_user_id ? { account_id: device.simulator_user_id } : {}),
         mac: device.mac,
         message,
         ...(data ? { data } : {}),

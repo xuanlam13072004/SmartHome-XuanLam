@@ -13,7 +13,9 @@ export type DeviceRuntimeState =
     | 'offline'
     | 'stopped'
     | 'mqtt_error'
-    | 'contract_error';
+    | 'contract_error'
+    /** Factory device powered on without an owner: connected, waiting for a claim. */
+    | 'awaiting_claim';
 export type DeviceDesiredState = 'online' | 'offline';
 export type TopologyRole = 'hub' | 'node';
 export type TopologyState = 'stable' | 'degraded_direct' | 'electing' | 'empty';
@@ -45,9 +47,25 @@ export interface SimulatedUserRecord {
     updated_at: Date;
 }
 
+/**
+ * `run`: generated and claimed by a simulated user of a simulation run.
+ * `factory`: manufactured blank by the simulator factory; owned by whoever
+ * claims it with its QR label (a real app user), never by a simulated user.
+ */
+export type DeviceOrigin = 'run' | 'factory';
+
 export interface SimulatedDeviceRecord {
+    /** Simulation run, or the fixed `factory` scope for manufactured devices. */
     run_id: string;
+    /** Simulated owner account; empty for factory devices. */
     simulator_user_id: string;
+    /** Absent on records created before the factory existed (= `run`). */
+    origin?: DeviceOrigin;
+    factory_batch_id?: string;
+    /** Printed on the factory label, e.g. SX-CAM-2611-0007. */
+    serial_number?: string;
+    /** When the current owner claimed a factory device. */
+    claimed_at?: Date;
     generation_index: number;
     mac: string;
     device_id?: string;

@@ -45,6 +45,7 @@ const setupCollections = async (logger: FastifyBaseLogger): Promise<void> => {
             'simulated_users',
             'simulated_devices',
             'simulator_events',
+            'factory_batches',
         ]) {
             if (!collectionNames.has(collectionName)) {
                 await registryDb.createCollection(collectionName);
@@ -82,6 +83,12 @@ const setupCollections = async (logger: FastifyBaseLogger): Promise<void> => {
                 network_id: 1,
                 topology_role: 1,
             }),
+            registryDb.collection('simulated_devices').createIndex(
+                { origin: 1, factory_batch_id: 1, generation_index: -1 },
+                { partialFilterExpression: { origin: 'factory' } },
+            ),
+            registryDb.collection('factory_batches').createIndex({ id: 1 }, { unique: true }),
+            registryDb.collection('factory_batches').createIndex({ created_at: -1 }),
             registryDb.collection('simulator_events').createIndex({ run_id: 1, created_at: -1 }),
             registryDb.collection('simulator_events').createIndex({ mac: 1, created_at: -1 }),
             registryDb.collection('simulator_events').createIndex(

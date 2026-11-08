@@ -27,6 +27,8 @@ import { configureMediaLogger, getMediaStore } from './media';
 import eventsRoutes from './api/routes/events';
 import streamRoutes from './api/routes/stream';
 import catalogRoutes from './api/routes/catalog';
+import factoryRoutes from './api/routes/factory';
+import { getFactoryService } from './factory/service';
 import { CleanupCronjob } from './cleanup/cronjob';
 import { RecoveryService } from './recovery/service';
 import { getGenerationQueue } from './generation/queue';
@@ -190,6 +192,8 @@ export const buildApp = async (): Promise<{
     await startDependency('Virtual camera storage', () => getMediaStore().init(), app.log);
     const runtimeManager = getRuntimeManager(app.log);
     await startDependency('MQTT broker', () => runtimeManager.start(), app.log);
+    // Registers the claim/unpair listener before any device runtime starts.
+    getFactoryService(app.log);
     const metricsService = getRunMetricsService(app.log);
     metricsService.start();
 
@@ -201,6 +205,7 @@ export const buildApp = async (): Promise<{
     await app.register(eventsRoutes);
     await app.register(streamRoutes);
     await app.register(catalogRoutes);
+    await app.register(factoryRoutes);
 
     app.addHook('onClose', async () => {
         await cleanupJob.stop();
@@ -222,6 +227,7 @@ export const start = async (): Promise<void> => {
     app.log.info({ host: env.HOST, port: env.PORT }, 'Device Simulator backend listening');
     await cleanupJob.recoverInterruptedCleanups();
     await new RecoveryService(app.log).recover();
+    await getFactoryService(app.log).recover();
     cleanupJob.start();
     const shutdown = () => {
         void app.close().catch(error => {

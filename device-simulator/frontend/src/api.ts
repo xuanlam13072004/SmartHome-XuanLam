@@ -5,7 +5,10 @@ import type {
   DeviceDetailPayload,
   DeviceLivePayload,
   DeviceOperation,
+  DevicePairing,
   DeviceStatePatch,
+  FactoryBatch,
+  FactoryDevice,
   Preflight,
   RunMetrics,
   RunConfig,
@@ -252,6 +255,45 @@ export const fetchCameraSegment = async (mac: string, segmentId: string): Promis
 export const revealDeviceSecret = (mac: string) =>
   request<{ device: { mac: string; secret_key: string; product_id: string } }>(
     `/devices/${encodeURIComponent(mac)}/reveal-secret`,
+    { method: 'POST' },
+  )
+
+/** QR label content of any simulated device (decrypts the factory secret). */
+export const fetchDevicePairing = async (mac: string): Promise<DevicePairing> =>
+  (await request<{ pairing: DevicePairing }>(`/devices/${encodeURIComponent(mac)}/pairing`)).pairing
+
+export const fetchFactoryBatches = async () =>
+  request<{ batches: FactoryBatch[]; max_batch_size: number }>('/factory/batches')
+
+export const manufactureBatch = (body: {
+  product_id: string
+  quantity: number
+  power_on: boolean
+  note?: string
+}) => request<{ batch: FactoryBatch; devices: FactoryDevice[] }>('/factory/batches', {
+  method: 'POST',
+  body: JSON.stringify(body),
+})
+
+export const fetchFactoryDevices = async (options: { batchId?: string; includePairing?: boolean } = {}) => {
+  const params = new URLSearchParams()
+  if (options.batchId) params.set('batch_id', options.batchId)
+  if (options.includePairing) params.set('include_pairing', '1')
+  return (await request<{ devices: FactoryDevice[] }>(`/factory/devices?${params}`)).devices
+}
+
+export const setFactoryPower = (mac: string, on: boolean) =>
+  request<{ runtime_state: string }>(`/factory/devices/${encodeURIComponent(mac)}/power`, {
+    method: 'POST',
+    body: JSON.stringify({ on }),
+  })
+
+export const scrapFactoryDevice = (mac: string) =>
+  request(`/factory/devices/${encodeURIComponent(mac)}/scrap`, { method: 'POST' })
+
+export const scrapUnclaimedBatch = (batchId: string) =>
+  request<{ scrapped: number; kept: number }>(
+    `/factory/batches/${encodeURIComponent(batchId)}/scrap-unclaimed`,
     { method: 'POST' },
   )
 

@@ -27,6 +27,7 @@ import { DeviceTelemetryPanel } from './device/DeviceTelemetryPanel'
 import { EntrancePhysicalWorkbench } from './device/EntrancePhysicalWorkbench'
 import { LcdSimulator } from './device/LcdSimulator'
 import { SecurityCameraWorkbench } from './device/SecurityCameraWorkbench'
+import { DevicePairingPanel } from './factory/DevicePairingPanel'
 import {
   formatValue,
   humanize,
@@ -40,7 +41,7 @@ import {
   readPropertyValue,
 } from './device/device-utils'
 
-type DeviceTab = 'controls' | 'data' | 'history' | 'technical'
+type DeviceTab = 'controls' | 'data' | 'history' | 'pairing' | 'technical'
 
 export function DeviceDetail({
   mac,
@@ -266,6 +267,10 @@ export function DeviceDetail({
 
   const { device, product, backend_shadow: backendShadow, operations, events } = payload
   const online = device.runtime_state === 'online'
+  const factoryMade = device.origin === 'factory'
+  // A blank factory device is switched on while it waits for its first owner.
+  const powered = online || device.runtime_state === 'awaiting_claim'
+  const productName = product.presentation?.display_name || product.model_name
 
   return (
     <section className="device-workbench" aria-labelledby="device-title">
@@ -275,19 +280,25 @@ export function DeviceDetail({
         <div className="device-hero__identity">
           <div className="product-symbol" aria-hidden="true">{productSymbol(product.category)}</div>
           <div>
-            <p>{product.presentation?.display_name || product.model_name}</p>
+            <p>{productName}</p>
             <h2 id="device-title">{device.name || device.mac}</h2>
-            <code>{device.mac}</code>
+            <code>{device.serial_number ? `${device.serial_number} · ${device.mac}` : device.mac}</code>
           </div>
         </div>
         <div className="device-hero__status">
           <RuntimeBadge status={device.runtime_state} />
+          {factoryMade && <span>Xưởng · {device.factory_batch_id || 'không rõ lô'}</span>}
           <span>{device.topology_role === 'hub' ? 'Hub' : device.topology_role === 'node' ? 'Node' : 'Chưa phân vai'}</span>
           <span>{device.transport_mode ? humanize(device.transport_mode) : 'Direct'}</span>
         </div>
       </header>
 
       {error && <p className="notice notice--error" role="alert">{error}</p>}
+      {factoryMade && device.provisioning_state !== 'claimed' && (
+        <p className="notice">
+          Thiết bị xuất xưởng chưa có chủ{device.runtime_state === 'awaiting_claim' ? ' và đang chờ ghép nối' : ''}. Mở tab <strong>Tem QR</strong> để lấy mã cho app SmartHome.
+        </p>
+      )}
       {(!payload.product_contract_compatible || device.runtime_state === 'contract_error') && (
         <p className="notice notice--error" role="alert">
           {device.last_error || 'Product Contract của thiết bị không còn tương thích với Catalog runtime. Hãy migrate thiết bị hoặc tạo lại dữ liệu test.'}
@@ -298,12 +309,14 @@ export function DeviceDetail({
         <button
           className="button button--primary"
           disabled={Boolean(acting)}
-          onClick={() => void setConnection(!online)}
+          onClick={() => void setConnection(!powered)}
           type="button"
         >
           {acting === 'connect' || acting === 'disconnect'
             ? 'Đang đổi kết nối…'
-            : online ? 'Ngắt kết nối' : 'Kết nối thiết bị'}
+            : factoryMade
+              ? powered ? 'Tắt nguồn' : 'Bật nguồn'
+              : online ? 'Ngắt kết nối' : 'Kết nối thiết bị'}
         </button>
         <button
           className="button button--quiet"
@@ -331,6 +344,7 @@ export function DeviceDetail({
             void load()
           }}
         />
+        <DetailTab active={tab === 'pairing'} label="Tem QR" onClick={() => setTab('pairing')} />
         <DetailTab active={tab === 'technical'} label="Kỹ thuật" onClick={() => setTab('technical')} />
       </nav>
 
@@ -361,6 +375,14 @@ export function DeviceDetail({
           deviceEvents={payload.device_events}
           events={events}
           operations={operations}
+        />
+      )}
+
+      {tab === 'pairing' && (
+        <DevicePairingPanel
+          mac={device.mac}
+          productName={productName}
+          provisioningState={device.provisioning_state}
         />
       )}
 
@@ -1154,6 +1176,8 @@ function DetailTab({ active, label, onClick }: { active: boolean; label: string;
 function RuntimeBadge({ status }: { status: string }) {
   const tone = status === 'online'
     ? 'online'
+    : status === 'awaiting_claim'
+      ? 'pairing'
     : status === 'paused'
       ? 'paused'
       : status === 'contract_error' || status === 'mqtt_error'

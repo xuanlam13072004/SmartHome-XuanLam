@@ -15,6 +15,7 @@ import type { RuntimeMetricStats } from '../metrics/service';
 import {
     type BrokerMessageKind,
     DeviceRuntime,
+    type DeviceRuntimeOptions,
     type RuntimeTransportCoordinator,
 } from './device-runtime';
 import { getTelemetryScheduler } from './telemetry-scheduler';
@@ -46,6 +47,14 @@ export const deriveMemberAssignment = (
 });
 
 
+/** Ownership changes of factory devices, observed on their own topology topic. */
+export interface FactoryLifecycleListener {
+    /** First assignment after a factory device was claimed from its QR label. */
+    onClaimed(mac: string, deviceId: string | null): void;
+    /** The owner unpaired the device: it has been factory reset. */
+    onReleased(mac: string): Promise<void>;
+}
+
 export class RuntimeManager implements RuntimeTransportCoordinator {
     private readonly devices = new Map<string, DeviceRuntime>();
     private readonly assignments = new Map<string, TopologyAssignment>();
@@ -54,6 +63,7 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
     private logger: FastifyBaseLogger;
     private readonly brokerCredentials = new Map<string, Promise<BrokerCredentials>>();
     private shuttingDown = false;
+    private factoryListener: FactoryLifecycleListener | null = null;
 
     constructor(
         logger: FastifyBaseLogger,
@@ -107,6 +117,10 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
         return resolved;
     }
 
+    setFactoryLifecycleListener(listener: FactoryLifecycleListener | null): void {
+        this.factoryListener = listener;
+    }
+
     /** Factory retirement: the broker deletes the identity and drops its session. */
     async revokeBrokerIdentity(macInput: string): Promise<void> {
         const mac = normalizeMac(macInput);
@@ -126,6 +140,7 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
         initialAssignment?: TopologyAssignment,
         accessPin?: string,
         irrigationSession?: IrrigationSession,
+        options: DeviceRuntimeOptions = {},
     ): DeviceRuntime {
         const mac = normalizeMac(macInput);
         if (this.devices.has(mac)) {
@@ -162,6 +177,7 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
             assignment,
             accessPin,
             irrigationSession,
+            options,
         );
         this.devices.set(mac, device);
         return device;
@@ -192,7 +208,8 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
         const mac = normalizeMac(macInput);
         this.assignments.delete(mac);
         await this.assignmentTasks.get(mac)?.catch(() => undefined);
-        const runId = this.devices.get(mac)?.runId ?? await this.registryRunId(mac);
+        const identity = await this.registryIdentity(mac);
+        const runId = this.devices.get(mac)?.runId ?? identity?.run_id;
         await this.removeDevice(mac);
         // Owner boundary (camera contract 7.5): an unpaired camera keeps no recordings.
         if (runId) {
@@ -200,6 +217,33 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
                 { err: error, mac },
                 'Failed to wipe recordings of an unpaired virtual camera',
             ));
+        }
+        if (identity?.origin === 'factory') {
+            // Factory reset: the device forgets its owner and returns to the
+            // shelf, claimable again with the same QR label.
+            await this.registryDb().collection('simulated_devices').updateOne(
+                { mac },
+                {
+                    $set: {
+                        topology_state: 'empty', active_hub_mac: null,
+                        provisioning_state: 'provisioned', runtime_state: 'offline',
+                        updated_at: new Date(),
+                    },
+                    $unset: {
+                        network_id: '', topology_role: '', topology_epoch: '', join_rank: '',
+                        device_id: '', claimed_at: '', state_snapshot: '', irrigation_session: '',
+                        pending_device_events: '', transport_mode: '',
+                    },
+                },
+            );
+            const listener = this.factoryListener;
+            if (listener) {
+                setImmediate(() => void listener.onReleased(mac).catch((error) => this.logger.warn(
+                    { err: error, mac },
+                    'Factory device could not return to pairing mode after unpair',
+                )));
+            }
+            return;
         }
         await this.registryDb().collection('simulated_devices').updateOne(
             { mac },
@@ -218,14 +262,38 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
         );
     }
 
-    private async registryRunId(mac: string): Promise<string | undefined> {
+    private async registryIdentity(mac: string): Promise<Pick<SimulatedDeviceRecord, 'run_id' | 'origin'> | undefined> {
         try {
             const record = await this.registryDb().collection<SimulatedDeviceRecord>('simulated_devices')
-                .findOne({ mac }, { projection: { run_id: 1 } });
-            return record?.run_id;
+                .findOne({ mac }, { projection: { run_id: 1, origin: 1 } });
+            return record ? { run_id: record.run_id, origin: record.origin } : undefined;
         } catch (error) {
             this.logger.warn({ err: error, mac }, 'Could not resolve the run of an unpaired device');
             return undefined;
+        }
+    }
+
+    /** A factory device's first assignment is its claim: record the new owner's device id. */
+    private async recordFactoryClaim(mac: string, assignment: TopologyAssignment): Promise<void> {
+        const runtime = this.devices.get(mac);
+        if (runtime && !runtime.awaitingClaim) return;
+        const deviceId = assignment.members.find((member) => normalizeMac(member.mac) === mac)?.device_id || null;
+        try {
+            const now = new Date();
+            const result = await this.registryDb().collection<SimulatedDeviceRecord>('simulated_devices').updateOne(
+                { mac, origin: 'factory', provisioning_state: { $ne: 'claimed' } },
+                {
+                    $set: {
+                        provisioning_state: 'claimed',
+                        claimed_at: now,
+                        ...(deviceId ? { device_id: deviceId } : {}),
+                        updated_at: now,
+                    },
+                },
+            );
+            if (result?.modifiedCount === 1) this.factoryListener?.onClaimed(mac, deviceId);
+        } catch (error) {
+            this.logger.warn({ err: error, mac }, 'Could not record the claim of a factory device');
         }
     }
 
@@ -441,6 +509,7 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
         const current = this.assignments.get(mac);
         if (!shouldApplyAssignment(current, assignment)) return false;
         this.assignments.set(mac, assignment);
+        if (!current) await this.recordFactoryClaim(mac, assignment);
         await this.registryDb().collection('simulated_devices').updateOne(
             { mac },
             {
