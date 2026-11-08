@@ -139,6 +139,11 @@ export class CameraRecorder {
         await this.chain;
     }
 
+    /** The minute file being written, up to its last complete fragment. */
+    openSegmentSnapshot(): SegmentInfo | null {
+        return this.writer?.snapshot() ?? null;
+    }
+
     private pushVideo(chunk: EncodedMediaChunk): void {
         if (this.baseUs === null) {
             if (!chunk.keyframe) return; // a fragment must start with a sync sample

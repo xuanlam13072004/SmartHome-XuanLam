@@ -141,6 +141,8 @@ export const validateOperationInput = (
     if (unknown.length > 0) throw new Error(`Unexpected operation input: ${unknown.join(', ')}`);
     for (const [name, schema] of Object.entries(operation.input || {})) {
         if (!Object.prototype.hasOwnProperty.call(input, name)) {
+            // Fields are required unless the catalog says `"required": false`.
+            if (schema.required === false) continue;
             throw new Error(`Missing operation input ${name}`);
         }
         validateValueAgainstSchema(input[name], schema, name);

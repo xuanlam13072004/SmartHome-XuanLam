@@ -41,9 +41,13 @@ class _CameraViewerPanelState extends ConsumerState<CameraViewerPanel> {
   bool _liveAutoStarted = false;
 
   DateTime _day = _today();
+  /// Visible part of the day on the timeline (24 h, 6 h or 1 h).
+  Duration _span = const Duration(hours: 24);
+  DateTime _windowStart = _today();
+  Timer? _rangesTimer;
   List<RecordingRange> _ranges = const [];
-  bool _rangesLoaded = false;
   bool _loadingRanges = false;
+  bool _rangesInFlight = false;
   String? _rangesError;
   DateTime? _playbackFrom;
   DateTime? _playbackTo;
@@ -70,6 +74,11 @@ class _CameraViewerPanelState extends ConsumerState<CameraViewerPanel> {
       final now = _player.currentWallTime;
       if (now != null && now != _cursor && mounted) setState(() => _cursor = now);
     });
+    // Today's recordings grow while the camera records: keep the timeline fresh.
+    _rangesTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      if (_mode != CameraViewMode.playback || _rangesInFlight || _day != _today()) return;
+      unawaited(_loadRanges(silent: true));
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) => _maybeAutoStartLive());
   }
 
@@ -84,6 +93,7 @@ class _CameraViewerPanelState extends ConsumerState<CameraViewerPanel> {
   @override
   void dispose() {
     _cursorTimer?.cancel();
+    _rangesTimer?.cancel();
     _player.removeListener(_onPlayerChanged);
     _player.dispose();
     unawaited(_holder.close());
@@ -149,21 +159,30 @@ class _CameraViewerPanelState extends ConsumerState<CameraViewerPanel> {
     if (mode == CameraViewMode.live) {
       _liveAutoStarted = false;
       _maybeAutoStartLive();
-    } else if (!_rangesLoaded) {
-      await _loadRanges();
+    } else {
+      // Always re-read: a recording may have been made since the last visit.
+      await _loadRanges(focus: true);
     }
   }
 
-  Future<void> _loadRanges() async {
+  /// Reads the day's recordings. [focus] moves the timeline to the latest one;
+  /// [silent] refreshes without a progress bar.
+  Future<void> _loadRanges({bool focus = false, bool silent = false}) async {
     final recording = _device.cameraResource('recording_playback');
     if (recording == null) {
       setState(() => _rangesError = 'Bạn không có quyền xem lại camera này.');
       return;
     }
-    setState(() {
-      _loadingRanges = true;
-      _rangesError = null;
-    });
+    // Background refreshes never overlap; a user action always loads.
+    if (silent && _rangesInFlight) return;
+    _rangesInFlight = true;
+    if (!silent) {
+      setState(() {
+        _loadingRanges = true;
+        _rangesError = null;
+      });
+    }
+    final day = _day;
     try {
       final ranges = await _api.listRecordings(
         _device.mac,
@@ -171,16 +190,19 @@ class _CameraViewerPanelState extends ConsumerState<CameraViewerPanel> {
         from: _day,
         to: _day.add(const Duration(days: 1)),
       );
-      if (mounted) {
+      // The day may have changed while the camera answered.
+      if (mounted && day == _day) {
         setState(() {
           _ranges = ranges;
-          _rangesLoaded = true;
+          _rangesError = null;
+          if (focus) _focusLatest();
         });
       }
     } catch (error) {
-      if (mounted) setState(() => _rangesError = _message(error));
+      if (mounted && !silent) setState(() => _rangesError = _message(error));
     } finally {
-      if (mounted) setState(() => _loadingRanges = false);
+      _rangesInFlight = false;
+      if (mounted && !silent) setState(() => _loadingRanges = false);
     }
   }
 
@@ -189,9 +211,65 @@ class _CameraViewerPanelState extends ConsumerState<CameraViewerPanel> {
       _day = DateTime(day.year, day.month, day.day);
       _ranges = const [];
       _cursor = null;
+      _span = const Duration(hours: 24);
+      _windowStart = _day;
     });
     await _stopSession();
-    await _loadRanges();
+    await _loadRanges(focus: true);
+  }
+
+  /// Stretches the ruler so the latest recording fills about a third of it
+  /// (a 5-minute clip gets a 15-minute window); the whole day when empty.
+  void _focusLatest() {
+    if (_ranges.isEmpty) {
+      _span = kMaxTimelineSpan;
+      _windowStart = _day;
+      return;
+    }
+    final latest = _ranges.reduce((a, b) => a.end.isAfter(b.end) ? a : b);
+    _span = _clampSpan(latest.duration * 3, min: const Duration(minutes: 5), max: const Duration(hours: 2));
+    _windowStart = _clampWindow(latest.start.subtract((_span - latest.duration) ~/ 2), _span);
+  }
+
+  Duration _clampSpan(Duration span, {Duration min = kMinTimelineSpan, Duration max = kMaxTimelineSpan}) {
+    if (span < min) return min;
+    if (span > max) return max;
+    return span;
+  }
+
+  DateTime _clampWindow(DateTime start, Duration span) {
+    final latestStart = _day.add(const Duration(days: 1)).subtract(span);
+    if (start.isBefore(_day)) return _day;
+    if (start.isAfter(latestStart)) return latestStart;
+    return start;
+  }
+
+  void _setSpan(Duration span) {
+    final current = _cursor;
+    final inWindow = current != null && !current.isBefore(_windowStart) && current.isBefore(_windowStart.add(_span));
+    final center = inWindow ? current : _windowStart.add(_span ~/ 2);
+    setState(() {
+      _span = _clampSpan(span);
+      _windowStart = _clampWindow(center.subtract(_span ~/ 2), _span);
+    });
+  }
+
+  /// Zooms by [factor] keeping [focus] under the finger / mouse pointer.
+  void _zoom(double factor, DateTime focus) {
+    final span = _clampSpan(Duration(milliseconds: (_span.inMilliseconds * factor).round()));
+    if (span == _span) return;
+    final ratio = span.inMilliseconds / _span.inMilliseconds;
+    final offset = Duration(milliseconds: (focus.difference(_windowStart).inMilliseconds * ratio).round());
+    setState(() {
+      _span = span;
+      _windowStart = _clampWindow(focus.subtract(offset), span);
+    });
+  }
+
+  void _showLatest() => setState(_focusLatest);
+
+  void _pan(Duration delta) {
+    setState(() => _windowStart = _clampWindow(_windowStart.add(delta), _span));
   }
 
   Future<void> _pickDay() async {
@@ -364,6 +442,12 @@ class _CameraViewerPanelState extends ConsumerState<CameraViewerPanel> {
         if (!live)
           _PlaybackSection(
             day: _day,
+            windowStart: _windowStart,
+            span: _span,
+            onSpan: _setSpan,
+            onPan: _pan,
+            onZoom: _zoom,
+            onShowLatest: _showLatest,
             ranges: _ranges,
             cursor: _cursor,
             loading: _loadingRanges,
@@ -373,7 +457,7 @@ class _CameraViewerPanelState extends ConsumerState<CameraViewerPanel> {
                 ? () => _changeDay(_day.add(const Duration(days: 1)))
                 : null,
             onPickDay: _pickDay,
-            onRefresh: _loadRanges,
+            onRefresh: () => _loadRanges(),
             onSelect: _playFrom,
           ),
         if (!live && _device.canManageRecordings) ...[
@@ -744,6 +828,12 @@ class _StripItem extends StatelessWidget {
 class _PlaybackSection extends StatelessWidget {
   const _PlaybackSection({
     required this.day,
+    required this.windowStart,
+    required this.span,
+    required this.onSpan,
+    required this.onPan,
+    required this.onZoom,
+    required this.onShowLatest,
     required this.ranges,
     required this.cursor,
     required this.loading,
@@ -756,7 +846,21 @@ class _PlaybackSection extends StatelessWidget {
   });
 
   final DateTime day;
+  final DateTime windowStart;
+  final Duration span;
+  final ValueChanged<Duration> onSpan;
+  final ValueChanged<Duration> onPan;
+  final void Function(double factor, DateTime focus) onZoom;
+  final VoidCallback onShowLatest;
   final List<RecordingRange> ranges;
+
+  static const _presets = <(String, Duration)>[
+    ('24 giờ', Duration(hours: 24)),
+    ('6 giờ', Duration(hours: 6)),
+    ('1 giờ', Duration(hours: 1)),
+    ('15 phút', Duration(minutes: 15)),
+    ('5 phút', Duration(minutes: 5)),
+  ];
   final DateTime? cursor;
   final bool loading;
   final String? error;
@@ -791,10 +895,97 @@ class _PlaybackSection extends StatelessWidget {
                 onPressed: onNextDay,
                 icon: const Icon(Icons.chevron_right_rounded),
               ),
+              IconButton(
+                tooltip: 'Tải lại bản ghi',
+                onPressed: loading ? null : onRefresh,
+                icon: const Icon(Icons.refresh_rounded),
+              ),
             ],
           ),
           const SizedBox(height: AppSpacing.xs),
-          RecordingTimeline(day: day, ranges: ranges, cursor: cursor, onSelect: onSelect),
+          Row(
+            children: [
+              IconButton(
+                tooltip: 'Thu nhỏ (xem dài hơn)',
+                onPressed: span < kMaxTimelineSpan
+                    ? () => onZoom(2, windowStart.add(span ~/ 2))
+                    : null,
+                icon: const Icon(Icons.zoom_out_rounded),
+              ),
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (final (label, preset) in _presets)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs / 2),
+                          child: ChoiceChip(
+                            label: Text(label),
+                            selected: span == preset,
+                            showCheckmark: false,
+                            visualDensity: VisualDensity.compact,
+                            onSelected: (_) => onSpan(preset),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Phóng to (kéo dãn thời gian)',
+                onPressed: span > kMinTimelineSpan
+                    ? () => onZoom(0.5, windowStart.add(span ~/ 2))
+                    : null,
+                icon: const Icon(Icons.zoom_in_rounded),
+              ),
+            ],
+          ),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${formatShortClock(windowStart)} – ${formatShortClock(windowStart.add(span))}'
+                  ' · kéo để di chuyển, chụm hoặc cuộn chuột để phóng to',
+                  style: context.textTheme.bodySmall?.copyWith(color: context.colorScheme.onSurfaceVariant),
+                ),
+              ),
+              if (ranges.isNotEmpty)
+                TextButton(onPressed: onShowLatest, child: const Text('Bản ghi mới nhất')),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Row(
+            children: [
+              IconButton(
+                tooltip: 'Lùi thời gian',
+                visualDensity: VisualDensity.compact,
+                onPressed: windowStart.isAfter(day) ? () => onPan(-(span ~/ 2)) : null,
+                icon: const Icon(Icons.keyboard_arrow_left_rounded),
+              ),
+              Expanded(
+                child: RecordingTimeline(
+                  start: windowStart,
+                  span: span,
+                  ranges: ranges,
+                  cursor: cursor,
+                  onSelect: onSelect,
+                  onPan: onPan,
+                  onZoom: onZoom,
+                ),
+              ),
+              IconButton(
+                tooltip: 'Tiến thời gian',
+                visualDensity: VisualDensity.compact,
+                onPressed: windowStart.add(span).isBefore(day.add(const Duration(days: 1)))
+                    ? () => onPan(span ~/ 2)
+                    : null,
+                icon: const Icon(Icons.keyboard_arrow_right_rounded),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          const RecordingLegend(),
           const SizedBox(height: AppSpacing.xs),
           if (loading)
             const LinearProgressIndicator(minHeight: 2)

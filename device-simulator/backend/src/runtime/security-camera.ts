@@ -82,8 +82,20 @@ const MAX_FETCH_BUFFER_BYTES = 4 * 1024 * 1024;
 interface PlaybackServer {
     connection: IngestConnection;
     cancelled: Set<number>;
+    /** The minute that was still being recorded when the session opened. */
+    snapshots: Map<string, SegmentInfo>;
 }
 const RANGE_GAP_MS = 3000;
+
+/** A snapshot of the recording minute points at its `.part` file, renamed when the minute closes. */
+const openRecording = async (filePath: string): Promise<fs.FileHandle> => {
+    try {
+        return await fs.open(filePath, 'r');
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || !filePath.endsWith('.part')) throw error;
+        return fs.open(filePath.slice(0, -'.part'.length), 'r');
+    }
+};
 
 let activeSourceCamera: VirtualSecurityCamera | null = null;
 
@@ -310,7 +322,7 @@ export class VirtualSecurityCamera {
             case 'create_playback_session': {
                 const from = parseTime(input.from, 'from');
                 const to = input.to === undefined ? Date.now() : parseTime(input.to, 'to');
-                const available = this.segments().some((segment) => segment.endMs > from && segment.startMs < to);
+                const available = this.recordedSegments().some((segment) => segment.endMs > from && segment.startMs < to);
                 if (!available) {
                     throw new DeviceOperationRejection('RECORDING_UNAVAILABLE', 'No recording exists in the requested range');
                 }
@@ -398,9 +410,13 @@ export class VirtualSecurityCamera {
     // ---------------------------------------------------------- playback ingest
 
     private async openPlayback(target: IngestTarget, from: number, to: number): Promise<number> {
-        const segments = this.segments()
+        const segments = this.recordedSegments()
             .filter((segment) => segment.endMs > from && segment.startMs < to)
             .slice(0, MAX_PLAYBACK_SEGMENTS);
+        const completedIds = new Set(this.segments().map((segment) => segment.id));
+        const snapshots = new Map(segments
+            .filter((segment) => !completedIds.has(segment.id))
+            .map((segment) => [segment.id, segment]));
         const entries = (await Promise.all(segments.map(async (segment) => {
             try {
                 const init = await this.initInfo(segment);
@@ -419,7 +435,7 @@ export class VirtualSecurityCamera {
         if (entries.length === 0) {
             throw new DeviceOperationRejection('RECORDING_UNAVAILABLE', 'No readable recording exists in the requested range');
         }
-        const server: PlaybackServer = { connection: null as unknown as IngestConnection, cancelled: new Set() };
+        const server: PlaybackServer = { connection: null as unknown as IngestConnection, cancelled: new Set(), snapshots };
         try {
             server.connection = await IngestConnection.open(target, (message) => this.onPlaybackMessage(server, message));
         } catch (error) {
@@ -444,7 +460,10 @@ export class VirtualSecurityCamera {
     private async serveFetch(server: PlaybackServer, request: Extract<RelayMessage, { type: 'fetch' }>): Promise<void> {
         const connection = server.connection;
         const requestId = Number(request.request_id);
-        const segment = this.segments().find((item) => item.id === request.segment_id);
+        // A minute announced while it was being recorded keeps its announced size,
+        // so the bytes match the playlist even after the file is completed.
+        const segment = server.snapshots.get(String(request.segment_id))
+            ?? this.segments().find((item) => item.id === request.segment_id);
         if (!segment) {
             connection.sendJson({ type: 'fetch_error', request_id: requestId, reason: 'recording_unavailable' });
             return;
@@ -455,7 +474,7 @@ export class VirtualSecurityCamera {
             : Math.min(segment.size, offset + Math.max(0, Math.floor(Number(request.length))));
         let handle: fs.FileHandle | null = null;
         try {
-            handle = await fs.open(segment.path, 'r');
+            handle = await openRecording(segment.path);
             const buffer = Buffer.alloc(FETCH_CHUNK_BYTES);
             let position = offset;
             while (position < end) {
@@ -487,12 +506,24 @@ export class VirtualSecurityCamera {
         return info;
     }
 
+    /**
+     * Completed minute files plus the minute being recorded (up to its last
+     * fragment), so a recording can be watched seconds after it was made.
+     */
+    private recordedSegments(): SegmentInfo[] {
+        const completed = this.segments();
+        const open = this.recorder.openSegmentSnapshot();
+        if (!open || open.generation !== this.generation) return completed;
+        if (completed.some((segment) => segment.id === open.id)) return completed;
+        return [...completed, open];
+    }
+
     private listRecordings(input: Record<string, unknown>) {
         const from = parseTime(input.from, 'from');
         const to = parseTime(input.to, 'to');
         if (to <= from) throw new DeviceOperationRejection('INVALID_INPUT', 'to must be after from');
         const after = input.cursor === undefined ? from : Math.max(from, parseTime(input.cursor, 'cursor'));
-        const ranges = mergeRanges(this.segments())
+        const ranges = mergeRanges(this.recordedSegments())
             .filter((range) => range.endMs > after && range.startMs < to)
             .map((range) => ({ startMs: Math.max(range.startMs, after), endMs: Math.min(range.endMs, to) }))
             .filter((range) => range.endMs > range.startMs);

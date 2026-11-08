@@ -174,3 +174,48 @@ test('timeline ranges merge consecutive minutes and split real gaps', () => {
         { startMs: 300_000, endMs: 360_000 },
     ]);
 });
+
+test('the minute still being recorded can be listed and played back seconds later', async () => {
+    const wall = Date.UTC(2026, 10, 8, 9, 30, 10);
+    const { camera } = await setup({ now: () => wall });
+    await startSource(camera);
+    camera.pushChunks('session-0001', syntheticStream(20));
+    await (camera as any).recorder.idle();
+
+    // The webcam is still on: the minute file is open, yet it is already listed.
+    assert.equal(camera.segments().length, 0);
+    const listed = await camera.handleOperation({
+        instance_id: 'recording',
+        operation_name: 'list_recordings',
+        input: { from: '2026-11-08T09:00:00.000Z', to: '2026-11-08T10:00:00.000Z' },
+    });
+    const range = (listed?.details as any).ranges[0];
+    assert.equal(range.start, '2026-11-08T09:30:10.000Z');
+    assert.ok(Date.parse(range.end) >= Date.parse('2026-11-08T09:30:26.000Z'));
+
+    // Playback serves the bytes written so far, also after the minute file is renamed.
+    const snapshot = (camera as any).recordedSegments().at(-1);
+    const frames: Uint8Array[] = [];
+    const messages: any[] = [];
+    const server = {
+        connection: {
+            isOpen: true,
+            bufferedAmount: 0,
+            sendFrame: (_kind: number, data: Uint8Array) => { frames.push(Buffer.from(data)); },
+            sendJson: (message: unknown) => { messages.push(message); },
+        },
+        cancelled: new Set<number>(),
+        snapshots: new Map([[snapshot.id, snapshot]]),
+    };
+    const fetchAll = async () => {
+        frames.length = 0;
+        await (camera as any).serveFetch(server, { type: 'fetch', request_id: 1, segment_id: snapshot.id, offset: 0, length: null });
+        return frames.reduce((sum, frame) => sum + frame.byteLength, 0);
+    };
+    assert.equal(await fetchAll(), snapshot.size);
+    await camera.stopSource('session-0001');
+    assert.equal(camera.segments().length, 1);
+    assert.equal(await fetchAll(), snapshot.size);
+    assert.ok(messages.every((message) => message.type === 'fetch_done'));
+    await camera.dispose();
+});

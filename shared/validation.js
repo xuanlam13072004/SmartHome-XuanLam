@@ -108,8 +108,11 @@ function validateObjectAgainstSchema(input, schemaMap) {
     if (unknown.length > 0) {
         return { valid: false, error: `Unknown input fields: ${unknown.join(', ')}` };
     }
+    // Every declared field is required unless the catalog marks it
+    // `"required": false` (for example a paging cursor on the first page).
     for (const [key, schema] of Object.entries(schemaMap)) {
-        const result = validateValueAgainstSchema(input[key], schema, { required: true });
+        const required = !isPlainObject(schema) || schema.required !== false;
+        const result = validateValueAgainstSchema(input[key], schema, { required });
         if (!result.valid) return { valid: false, error: `${key}: ${result.error}` };
     }
     return { valid: true, error: null };

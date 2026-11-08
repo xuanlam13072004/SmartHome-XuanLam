@@ -135,6 +135,13 @@ Operation:
 | `create_playback_session` | `camera.view` | `from`, `to?` | Mở phiên xem lại (mục 7.2) |
 | `delete_recordings` | `camera.recording.manage` | `{from, to}` hoặc `{all: true}` | `deleted_segments`, `freed_bytes` |
 
+Trường có dấu `?` (và `from`, `to`, `all` của `delete_recordings`) được khai báo
+`"required": false` trong catalog. Quy ước chung của catalog: mọi trường input đều bắt
+buộc, trừ khi ghi rõ `"required": false`. Gateway, worker (`shared/validation.js`) và
+Simulator (`validateOperationInput`) cùng áp dụng quy ước này. Sửa 2026-11-08: trước đó cả
+hai bộ kiểm tra bỏ qua cờ này, nên trang đầu `list_recordings` (chưa có `cursor`) bị
+Gateway trả `400 OPERATION_INPUT_INVALID` và app không thấy bản ghi nào.
+
 Event:
 
 | Event | Mức | Khi nào |
@@ -462,6 +469,16 @@ Cách triển khai mục 9, kèm các chi tiết đã chốt khi làm:
   biết thế hệ thì không ghi (`recording_state = stopped`).
 - **`delete_recordings`** xóa các file 1 phút đã hoàn tất **giao** với khoảng
   `[from, to)`, hoặc tất cả khi `all = true`; file đang ghi không bao giờ bị xóa.
+- **Phút đang ghi** (bổ sung 2026-11-08): `list_recordings`, `create_playback_session` và
+  việc phục vụ file của phiên xem lại tính cả file phút đang ghi, tới fragment hoàn chỉnh
+  cuối cùng (`SegmentWriter.snapshot()`), nên đoạn vừa quay xem lại được ngay mà không
+  phải đợi hết phút. Phiên xem lại giữ kích thước đã báo của phút đó (khớp playlist), kể
+  cả sau khi file `.part` được đổi tên thành `.mp4`. App làm mới dòng thời gian mỗi 20 giây
+  khi đang xem lại ngày hôm nay; khoảng có bản ghi tô vàng, không có bản ghi để trắng.
+  Thước thời gian phóng to/thu nhỏ liên tục từ 24 giờ xuống 2 phút (chụm hai ngón, cuộn
+  chuột, nút +/−, mẫu 24 giờ · 6 giờ · 1 giờ · 15 phút · 5 phút), kéo để di chuyển; khi
+  mở, tự kéo dãn để bản ghi mới nhất chiếm khoảng một phần ba thước (đoạn 5 phút → khung
+  15 phút).
 - **`list_recordings`** gộp các file cách nhau ≤ 3 giây thành một khoảng, tối đa
   120 khoảng mỗi trang; `next_cursor` là thời điểm kết thúc của khoảng cuối trang.
 - **Live và xem lại:** khi có nguồn hình, `create_stream_session` trả

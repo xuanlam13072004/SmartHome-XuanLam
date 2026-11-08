@@ -100,6 +100,22 @@ test('operation input rejects missing, unknown and out-of-range fields', () => {
     assert.throws(() => validateOperationInput(setLevel, { level: 101 }), /at most 100/);
 });
 
+test('operation input may omit a field the catalog marks as not required', () => {
+    const listRecordings = {
+        id: 'list_recordings',
+        input: {
+            from: { type: 'string', required: true },
+            cursor: { type: 'string', max_length: 128, required: false },
+        },
+    } as unknown as Parameters<typeof validateOperationInput>[0];
+    assert.doesNotThrow(() => validateOperationInput(listRecordings, { from: '2026-11-08T00:00:00Z' }));
+    assert.throws(() => validateOperationInput(listRecordings, { cursor: 'x' }), /Missing operation input from/);
+    assert.throws(
+        () => validateOperationInput(listRecordings, { from: '2026-11-08T00:00:00Z', cursor: 7 }),
+        /cursor must be a string/,
+    );
+});
+
 test('applied operations mutate only contract-defined state and advance state version', () => {
     const current = generateInitialState(product);
     const next = applyOperationToState(current, product, {

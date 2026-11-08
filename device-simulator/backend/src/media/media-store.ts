@@ -191,6 +191,25 @@ export class SegmentWriter {
         return this.closed;
     }
 
+    /**
+     * What is on disk so far, as a segment ending at the last whole fragment.
+     * Lets playback and `list_recordings` include the minute being recorded;
+     * the file keeps the same bytes after it is renamed on close.
+     */
+    snapshot(): SegmentInfo | null {
+        if (this.closed || this.bytes === 0 || this.lastEndMs <= this.startMs) return null;
+        return {
+            id: this.id,
+            runId: this.entry.runId,
+            macKey: this.entry.macKey,
+            generation: this.generation,
+            path: this.partPath,
+            startMs: this.startMs,
+            endMs: this.lastEndMs,
+            size: this.bytes,
+        };
+    }
+
     /** Appends bytes; writes are serialized in call order. */
     append(data: Uint8Array, endMs: number): Promise<void> {
         if (this.closed) return Promise.reject(new Error('Recording segment is already closed'));

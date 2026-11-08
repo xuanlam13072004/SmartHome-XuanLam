@@ -181,6 +181,23 @@ test('security camera is a standalone Product with an H.264/AAC media profile an
     assert.ok(camera.permissions.includes('camera.recording.manage'));
 });
 
+test('optional camera inputs may be omitted while the other fields stay required', () => {
+    const camera = compileCatalog(loadCatalogV2()).product_index.prod_security_camera;
+    const list = camera.operations['recording.list_recordings'].input;
+    const playback = camera.operations['recording.create_playback_session'].input;
+    const remove = camera.operations['recording.delete_recordings'].input;
+    const from = '2026-11-08T00:00:00.000Z';
+    const to = '2026-11-09T00:00:00.000Z';
+
+    // First page of the timeline: no cursor yet.
+    assert.equal(validateObjectAgainstSchema({ from, to }, list).valid, true);
+    assert.equal(validateObjectAgainstSchema({ from, to, cursor: from }, list).valid, true);
+    assert.equal(validateObjectAgainstSchema({ from }, list).error, 'to: Value is required');
+    assert.equal(validateObjectAgainstSchema({ from }, playback).valid, true);
+    assert.equal(validateObjectAgainstSchema({ all: true }, remove).valid, true);
+    assert.equal(validateObjectAgainstSchema({ from, to }, remove).valid, true);
+});
+
 test('linter rejects a media profile with an unsupported codec', () => {
     const catalog = loadCatalogV2();
     const stream = catalog.capabilities.find(capability => capability.capability_id === 'camera_stream');
