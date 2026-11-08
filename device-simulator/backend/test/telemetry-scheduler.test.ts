@@ -71,3 +71,43 @@ test('unregister removes a device from the central schedule', async () => {
     });
     scheduler.stop();
 });
+
+test('due devices publish in due-time order and re-registering never publishes twice', async () => {
+    const scheduler = new TelemetryScheduler(1);
+    const order: string[] = [];
+    const schedule = (deviceId: string, initialDelayMs: number) => scheduler.register({
+        deviceId,
+        runId: 'run-test',
+        intervalMs: 60_000,
+        jitterPercent: 0,
+        initialDelayMs,
+        publish: async () => { order.push(deviceId); },
+    });
+    schedule('late', 40);
+    schedule('early', 10);
+    schedule('middle', 25);
+    schedule('middle', 25); // re-register replaces the pending slot
+    await waitUntil(() => order.length === 3);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    assert.deepEqual(order, ['early', 'middle', 'late']);
+    scheduler.stop();
+});
+
+test('thousands of devices are scheduled without scanning every device per publish', async () => {
+    const scheduler = new TelemetryScheduler(50);
+    let published = 0;
+    for (let index = 0; index < 20_000; index += 1) {
+        scheduler.register({
+            deviceId: `device-${index}`,
+            runId: 'run-test',
+            intervalMs: 60_000,
+            jitterPercent: 0,
+            initialDelayMs: 0,
+            publish: async () => { published += 1; },
+        });
+    }
+    const started = Date.now();
+    await waitUntil(() => published === 20_000, 5_000);
+    assert.ok(Date.now() - started < 3_000, 'heap scheduler drains 20k due devices quickly');
+    scheduler.stop();
+});

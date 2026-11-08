@@ -88,6 +88,17 @@ const setupCollections = async (logger: FastifyBaseLogger): Promise<void> => {
                 { partialFilterExpression: { origin: 'factory' } },
             ),
             registryDb.collection('factory_batches').createIndex({ id: 1 }, { unique: true }),
+            // Paged dashboard registry (api/routes/devices.ts, users.ts).
+            registryDb.collection('simulated_devices').createIndex({ created_at: -1, mac: 1 }),
+            // Device list order (api/routes/devices.ts NATURAL_NAME_ORDER).
+            registryDb.collection('simulated_devices').createIndex(
+                { run_id: 1, name: 1, mac: 1 },
+                { name: 'run_natural_name', collation: { locale: 'en', numericOrdering: true } },
+            ),
+            registryDb.collection('simulated_devices').createIndex({ runtime_state: 1, created_at: -1 }),
+            registryDb.collection('simulated_devices').createIndex({ product_id: 1, created_at: -1 }),
+            registryDb.collection('simulated_devices').createIndex({ simulator_user_id: 1, generation_index: 1 }),
+            registryDb.collection('simulated_users').createIndex({ email: 1 }),
             registryDb.collection('factory_batches').createIndex({ created_at: -1 }),
             registryDb.collection('simulator_events').createIndex({ run_id: 1, created_at: -1 }),
             registryDb.collection('simulator_events').createIndex({ mac: 1, created_at: -1 }),

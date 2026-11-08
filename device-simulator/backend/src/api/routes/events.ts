@@ -8,8 +8,11 @@ const eventsRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
             run_id?: string;
             mac?: string;
             limit?: string;
+            /** `warning`: warnings and errors only (hides per-device info noise). */
+            severity?: string;
         };
         const filter: Record<string, unknown> = {};
+        if (query.severity === 'warning') filter.severity = { $in: ['warning', 'error'] };
         if (query.run_id) filter.run_id = query.run_id;
         if (query.mac) filter.mac = query.mac.trim().toUpperCase();
         const limit = Math.min(Math.max(Number(query.limit) || 100, 1), env.MAX_PAGE_SIZE);

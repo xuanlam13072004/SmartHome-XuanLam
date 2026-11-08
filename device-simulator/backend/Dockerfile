@@ -8,6 +8,8 @@ RUN npm run build
 
 FROM node:22-alpine AS runtime
 ENV NODE_ENV=production
+# RSA key generation and argon2 hashing of new devices run on the libuv pool.
+ENV UV_THREADPOOL_SIZE=16
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force

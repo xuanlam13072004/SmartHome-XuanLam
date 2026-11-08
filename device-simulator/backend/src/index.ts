@@ -28,6 +28,7 @@ import eventsRoutes from './api/routes/events';
 import streamRoutes from './api/routes/stream';
 import catalogRoutes from './api/routes/catalog';
 import factoryRoutes from './api/routes/factory';
+import overviewRoutes from './api/routes/overview';
 import { getFactoryService } from './factory/service';
 import { CleanupCronjob } from './cleanup/cronjob';
 import { RecoveryService } from './recovery/service';
@@ -35,6 +36,8 @@ import { getGenerationQueue } from './generation/queue';
 import { getRuntimeManager } from './runtime/manager';
 import { getRunMetricsService } from './metrics/service';
 import { getTelemetryScheduler } from './runtime/telemetry-scheduler';
+import { getRegistryWriter } from './runtime/registry-writer';
+import { flushSimulatorEvents } from './events/service';
 import { stopPresenceHeartbeatScheduler } from './runtime/presence-heartbeat-scheduler';
 import { retryStartupDependency } from './startup/retry';
 
@@ -206,11 +209,14 @@ export const buildApp = async (): Promise<{
     await app.register(streamRoutes);
     await app.register(catalogRoutes);
     await app.register(factoryRoutes);
+    await app.register(overviewRoutes);
 
     app.addHook('onClose', async () => {
         await cleanupJob.stop();
         await getGenerationQueue(app.log).stopAll();
         await runtimeManager.disconnectAll();
+        await getRegistryWriter().stop();
+        await flushSimulatorEvents();
         await closeBrokerIdentityRegistry().catch(() => undefined);
         getTelemetryScheduler().stop();
         stopPresenceHeartbeatScheduler();

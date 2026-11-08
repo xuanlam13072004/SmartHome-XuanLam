@@ -3,13 +3,8 @@ import type { SimulationRun } from '../domain/simulation-run';
 import type { SimulatedDeviceRecord } from '../domain/registry';
 import { getMongoDb } from '../infrastructure/mongodb/client';
 import { getGenerationQueue } from '../generation/queue';
-import { getRuntimeManager } from '../runtime/manager';
 import { recordSimulatorEvent } from '../events/service';
-import { shouldRestoreRunRuntime } from '../runtime/recovery-policy';
-import { ensureAccessPin } from '../security/device-pin';
-import { assignmentFromClaim } from '../runtime/topology';
-import { resolveDeviceProduct } from '../catalog/device-contract';
-import { verifyLiveDeviceOwnership } from '../provisioning/ownership';
+import { restoreDeviceRuntimes } from '../runtime/restore-run';
 
 export class RecoveryService {
     private readonly logger: FastifyBaseLogger;
@@ -57,37 +52,8 @@ export class RecoveryService {
         const runs = await db.collection<SimulationRun>('simulation_runs')
             .find({ id: { $in: runIds } })
             .toArray();
-        const runMap = new Map(runs.map((run) => [run.id, run]));
-        const manager = getRuntimeManager(this.logger);
-
-        let recoveredDevices = 0;
-        for (const device of onlineDevices) {
-            const run = runMap.get(device.run_id);
-            if (!run || !shouldRestoreRunRuntime(run.status)) {
-                continue;
-            }
-            try {
-                if (!await verifyLiveDeviceOwnership(device, manager)) continue;
-                const product = await resolveDeviceProduct(device);
-                const runtime = manager.addDevice(
-                    run.id,
-                    device.mac,
-                    product,
-                    run.config.telemetry_interval * 1000,
-                    run.config.telemetry_jitter_percent ?? 10,
-                    run.config.startup_ramp_seconds ?? 30,
-                    device.seq || 0,
-                    device.state_snapshot,
-                    assignmentFromClaim(device),
-                    await ensureAccessPin(device),
-                    device.irrigation_session,
-                );
-                await runtime.connect();
-                recoveredDevices += 1;
-            } catch (error) {
-                this.logger.warn({ err: error, mac: device.mac }, 'Failed to recover virtual device runtime');
-            }
-        }
+        // Batched ownership check and parallel restore (runtime/restore-run.ts).
+        const { recovered: recoveredDevices } = await restoreDeviceRuntimes(runs, onlineDevices, this.logger);
 
         await recordSimulatorEvent({
             type: 'system.recovered',

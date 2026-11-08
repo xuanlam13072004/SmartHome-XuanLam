@@ -27,11 +27,16 @@ technical form.
 
 ## Information architecture
 
-1. Thiết bị — default route; searchable virtual-device inventory.
-2. Người dùng — virtual accounts and their owned devices.
-3. Tạo dữ liệu — simulation-run configuration.
-4. Lần chạy — generation progress, retention, and cleanup.
-5. Hệ thống — admin token, dependency checks, totals, and events.
+Rebuilt 2026-11-08 for load testing. Every feature has its own menu entry
+with a one-line description (users asked not to hide features in tabs):
+
+1. Kiểm thử tải — default route; live board (devices, msg/s, ingest latency,
+   simulator CPU/memory/event loop), scenario presets, run history and actions.
+2. Thiết bị — server-paged device table; device workbench opens from here.
+3. Người dùng — account list beside the selected account's app login and devices.
+4. Xưởng sản xuất — manufacture blank devices, lots, QR labels.
+5. Hệ thống — admin token, dependency checks, and the operations log
+   (warnings and errors by default).
 
 ## Theme
 

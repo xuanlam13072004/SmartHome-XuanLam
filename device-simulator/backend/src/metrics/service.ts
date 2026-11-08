@@ -144,6 +144,23 @@ export class RunMetricsService {
         this.buckets.set(runId, buckets);
     }
 
+    /** Rates of all runs together (factory devices included). */
+    globalRates(): RunMetricsSnapshot['rates'] {
+        const nowSecond = Math.floor(Date.now() / 1000);
+        const merged = new Map<number, RunMetricIncrement>();
+        for (const buckets of this.buckets.values()) {
+            for (const bucket of buckets) {
+                const counters = merged.get(bucket.second) || {};
+                addCounters(counters, bucket.counters);
+                merged.set(bucket.second, counters);
+            }
+        }
+        const ordered = [...merged.entries()]
+            .sort(([left], [right]) => left - right)
+            .map(([second, counters]) => ({ second, counters }));
+        return calculateWindowRates(ordered, nowSecond, Math.min(10, env.METRICS_RATE_WINDOW_SECONDS));
+    }
+
     async snapshot(
         runId: string,
         runtime: RuntimeMetricStats,

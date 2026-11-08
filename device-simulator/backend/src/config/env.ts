@@ -35,16 +35,27 @@ const envSchema = z.object({
     STARTUP_RETRY_ATTEMPTS: z.coerce.number().int().min(1).max(120).default(30),
     STARTUP_RETRY_DELAY_MS: z.coerce.number().int().min(100).max(60000).default(2000),
     // Matches API Gateway RATE_LIMIT_REGISTER_PER_IP_PER_MINUTE=20 (one IP).
-    REGISTRATION_DELAY_MS: z.coerce.number().int().min(0).max(120000).default(3100),
-    CLAIM_DELAY_MS: z.coerce.number().int().min(0).max(120000).default(6500),
+    /**
+     * Generation pacing; must not exceed the API Gateway's RATE_LIMIT_* values
+     * (registration and login per client IP, claim per account). Raise both
+     * sides together for large load tests.
+     */
+    GATEWAY_REGISTER_PER_MINUTE: z.coerce.number().int().min(1).max(100000).default(20),
+    GATEWAY_LOGIN_PER_MINUTE: z.coerce.number().int().min(1).max(100000).default(100),
+    GATEWAY_CLAIM_PER_ACCOUNT_PER_MINUTE: z.coerce.number().int().min(1).max(10000).default(10),
+    /** Simulated users generated at the same time. */
+    GENERATION_CONCURRENCY: z.coerce.number().int().min(1).max(256).default(16),
     MAX_USERS_PER_RUN: z.coerce.number().int().min(1).max(100000).default(10000),
-    MAX_DEVICES_PER_RUN: z.coerce.number().int().min(1).max(1000000).default(10000),
-    MAX_ACTIVE_DEVICES: z.coerce.number().int().min(1).max(1000000).default(10000),
-    MAX_TELEMETRY_MESSAGES_PER_SECOND: z.coerce.number().positive().max(1000000).default(1000),
+    MAX_DEVICES_PER_RUN: z.coerce.number().int().min(1).max(1000000).default(40000),
+    MAX_ACTIVE_DEVICES: z.coerce.number().int().min(1).max(1000000).default(40000),
+    MAX_TELEMETRY_MESSAGES_PER_SECOND: z.coerce.number().positive().max(1000000).default(2000),
     TELEMETRY_PUBLISH_CONCURRENCY: z.coerce.number().int().min(1).max(10000).default(100),
     METRICS_FLUSH_INTERVAL_MS: z.coerce.number().int().min(250).max(60000).default(1000),
     METRICS_RATE_WINDOW_SECONDS: z.coerce.number().int().min(10).max(300).default(60),
-    REGISTRY_STATE_FLUSH_INTERVAL_MS: z.coerce.number().int().min(1000).max(60000).default(5000),
+    /** Batched registry writes of running devices (state snapshot, runtime state). */
+    REGISTRY_STATE_FLUSH_INTERVAL_MS: z.coerce.number().int().min(250).max(60000).default(5000),
+    /** Message sequence numbers reserved per registry write. */
+    SEQUENCE_LEASE_SIZE: z.coerce.number().int().min(1).max(100000).default(500),
 
     POSTGRES_USER: z.string(),
     POSTGRES_PASSWORD: z.string(),

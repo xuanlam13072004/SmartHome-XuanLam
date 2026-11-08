@@ -21,7 +21,8 @@ export const createDeviceMqttClient = (
     username: credentials.username,
     password: credentials.password,
     clean: cleanSession,
-    reconnectPeriod: 5000,
+    // Jittered so thousands of devices do not reconnect in lockstep after a broker restart.
+    reconnectPeriod: 3000 + Math.floor(Math.random() * 7000),
     connectTimeout: env.MQTT_CONNECT_TIMEOUT_MS,
 });
 

@@ -31,15 +31,39 @@ const extendSchema = z.object({
 export const createUsersRoutes = (cleanupJob: CleanupCronjob): FastifyPluginAsync =>
     async (app: FastifyInstance) => {
         app.get('/api/users', async (request) => {
-            const query = request.query as { run_id?: string; limit?: string };
-            const filter = query.run_id ? { run_id: query.run_id } : {};
-            const limit = Math.min(Math.max(Number(query.limit) || 100, 1), env.MAX_PAGE_SIZE);
-            const users = await getMongoDb().collection<SimulatedUserRecord>('simulated_users')
-                .find(filter, { projection: userProjection })
-                .sort({ created_at: -1 })
-                .limit(limit)
-                .toArray();
-            return { success: true, users: await withDeviceCounts(getMongoDb(), users) };
+            const query = request.query as {
+                run_id?: string;
+                q?: string;
+                page?: string;
+                page_size?: string;
+                limit?: string;
+            };
+            const filter: Record<string, unknown> = {};
+            if (query.run_id) filter.run_id = query.run_id;
+            const search = query.q?.trim();
+            if (search) {
+                const pattern = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+                filter.$or = [{ email: pattern }, { full_name: pattern }];
+            }
+            const pageSize = Math.min(Math.max(Number(query.page_size || query.limit) || 50, 1), env.MAX_PAGE_SIZE);
+            const page = Math.max(Number(query.page) || 1, 1);
+            const collection = getMongoDb().collection<SimulatedUserRecord>('simulated_users');
+            const [users, total] = await Promise.all([
+                collection
+                    .find(filter, { projection: userProjection })
+                    .sort({ created_at: -1, generation_index: 1 })
+                    .skip((page - 1) * pageSize)
+                    .limit(pageSize)
+                    .toArray(),
+                collection.countDocuments(filter),
+            ]);
+            return {
+                success: true,
+                page,
+                page_size: pageSize,
+                total,
+                users: await withDeviceCounts(getMongoDb(), users),
+            };
         });
 
         app.get('/api/users/:accountId', async (request, reply) => {

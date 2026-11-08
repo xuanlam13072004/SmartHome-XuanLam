@@ -1,116 +1,75 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { fetchPreflight, getAdminToken } from './api'
-import { CommandPalette } from './components/CommandPalette'
-import ControlPanel from './components/ControlPanel'
 import { DeviceDetail } from './components/DeviceDetail'
-import { DevicesPage } from './components/DevicesPage'
 import { EventsLog } from './components/EventsLog'
 import { FactoryPage } from './components/factory/FactoryPage'
 import { Icon, type IconName } from './components/Icon'
+import { LoadTestPage } from './components/load/LoadTestPage'
 import { PreflightPanel } from './components/PreflightPanel'
-import RunsList from './components/RunsList'
-import StatsOverview from './components/StatsOverview'
-import { UserDetail } from './components/UserDetail'
-import { UsersPage } from './components/UsersPage'
+import { DevicesPage } from './components/registry/DevicesPage'
+import { emptyDeviceFilters, type DeviceFilters } from './components/registry/filters'
+import { UsersPage } from './components/registry/UsersPage'
 
-export type MainView = 'devices' | 'users' | 'create' | 'factory' | 'runs' | 'system'
-type DetailView =
-  | { type: 'user'; id: string }
-  | { type: 'device'; id: string }
-  | null
+export type MainView = 'load' | 'devices' | 'users' | 'factory' | 'system'
 
-export interface NavigationItem {
-  id: MainView
-  label: string
-  shortLabel?: string
-  description: string
-  icon: IconName
-}
-
-const navigation: NavigationItem[] = [
-  {
-    id: 'devices',
-    label: 'Thiết bị',
-    description: 'Xem state, telemetry và mô phỏng phần cứng',
-    icon: 'device',
-  },
-  {
-    id: 'users',
-    label: 'Người dùng',
-    description: 'Tài khoản ảo và thiết bị đang sở hữu',
-    icon: 'user',
-  },
-  {
-    id: 'create',
-    label: 'Tạo dữ liệu',
-    shortLabel: 'Tạo mới',
-    description: 'Sinh user và device theo cấu hình',
-    icon: 'create',
-  },
-  {
-    id: 'factory',
-    label: 'Xưởng sản xuất',
-    shortLabel: 'Xưởng',
-    description: 'Sản xuất thiết bị trắng kèm tem QR để ghép nối từ app',
-    icon: 'factory',
-  },
-  {
-    id: 'runs',
-    label: 'Lần chạy',
-    description: 'Tiến độ, retention và cleanup',
-    icon: 'runs',
-  },
-  {
-    id: 'system',
-    label: 'Hệ thống',
-    description: 'Admin token, hạ tầng và sự kiện',
-    icon: 'settings',
-  },
+const navigation: Array<{ id: MainView; label: string; description: string; icon: IconName }> = [
+  { id: 'load', label: 'Kiểm thử tải', description: 'Tạo người dùng, thiết bị và đo tải', icon: 'events' },
+  { id: 'devices', label: 'Thiết bị', description: 'Điều khiển, dữ liệu, tem QR', icon: 'device' },
+  { id: 'users', label: 'Người dùng', description: 'Tài khoản đăng nhập app', icon: 'user' },
+  { id: 'factory', label: 'Xưởng sản xuất', description: 'Tạo thiết bị trắng có tem QR', icon: 'factory' },
+  { id: 'system', label: 'Hệ thống', description: 'Token, hạ tầng, nhật ký', icon: 'settings' },
 ]
 
 function App() {
-  const [view, setView] = useState<MainView>('devices')
-  const [detail, setDetail] = useState<DetailView>(null)
+  const [view, setView] = useState<MainView>('load')
+  const [deviceMac, setDeviceMac] = useState<string | null>(null)
+  const [deviceFilters, setDeviceFilters] = useState<DeviceFilters>(emptyDeviceFilters)
+  const [scenarioFocus, setScenarioFocus] = useState(0)
   const [infrastructureReady, setInfrastructureReady] = useState(false)
-  const [focusRunId, setFocusRunId] = useState<string>()
 
   useEffect(() => {
-    if (!getAdminToken()) return
+    if (!getAdminToken()) {
+      setView('system')
+      return
+    }
     void fetchPreflight()
-      .then((result) => setInfrastructureReady(result.success))
-      .catch(() => setInfrastructureReady(false))
+      .then((result) => {
+        setInfrastructureReady(result.success)
+        if (!result.success) setView('system')
+      })
+      .catch(() => {
+        setInfrastructureReady(false)
+        setView('system')
+      })
+  }, [])
+
+  const navigate = useCallback((next: MainView) => {
+    setDeviceMac(null)
+    setView(next)
   }, [])
 
   useEffect(() => {
-    const navigateSystem = () => navigate('system')
-    window.addEventListener('simulator:navigate-system', navigateSystem)
-    return () => window.removeEventListener('simulator:navigate-system', navigateSystem)
-  })
+    const toSystem = () => navigate('system')
+    window.addEventListener('simulator:navigate-system', toSystem)
+    return () => window.removeEventListener('simulator:navigate-system', toSystem)
+  }, [navigate])
 
-  const navigate = (nextView: MainView) => {
-    setDetail(null)
-    setView(nextView)
+  const openRunDevices = (runId: string) => {
+    setDeviceFilters({ ...emptyDeviceFilters, runId })
+    navigate('devices')
   }
 
-  const openUser = (accountId: string) => {
-    setDetail({ type: 'user', id: accountId })
-    setView('users')
+  const createRun = () => {
+    navigate('load')
+    setScenarioFocus((value) => value + 1)
   }
 
-  const openDevice = (mac: string) => {
-    setDetail({ type: 'device', id: mac })
-    setView('devices')
-  }
-
-  const runCreated = (runId: string) => {
-    setFocusRunId(runId)
-    navigate('runs')
-  }
+  const current = navigation.find((item) => item.id === view) as (typeof navigation)[number]
 
   return (
     <div className="app-shell">
       <aside className="app-rail">
-        <button className="brand" onClick={() => navigate('devices')} type="button">
+        <button className="brand" onClick={() => navigate('load')} type="button">
           <span className="brand-mark" aria-hidden="true">SX</span>
           <span><strong>Device Simulator</strong><small>SmartHome XuanLam</small></span>
         </button>
@@ -118,7 +77,7 @@ function App() {
         <nav className="primary-nav" aria-label="Điều hướng chính">
           {navigation.map((item) => (
             <button
-              aria-current={view === item.id && !detail ? 'page' : undefined}
+              aria-current={view === item.id ? 'page' : undefined}
               className="nav-button"
               key={item.id}
               onClick={() => navigate(item.id)}
@@ -126,102 +85,62 @@ function App() {
               type="button"
             >
               <Icon name={item.icon} />
-              <span>{item.shortLabel || item.label}</span>
+              <span className="nav-button__text">
+                <span>{item.label}</span>
+                <small>{item.description}</small>
+              </span>
             </button>
           ))}
         </nav>
 
         <div className="rail-status">
           <span className={`status-mark status-mark--${infrastructureReady ? 'ok' : 'warning'}`} />
-          <span>{infrastructureReady ? 'Sẵn sàng' : 'Cần preflight'}</span>
+          <span>{infrastructureReady ? 'Sẵn sàng' : 'Cần kiểm tra hệ thống'}</span>
         </div>
       </aside>
 
       <div className="app-stage">
         <header className="topbar">
           <div>
-            <p>SIMULATOR / LOCAL OPERATIONS</p>
-            <h1>{getViewTitle(view, detail)}</h1>
+            <p>SIMULATOR / {current.label.toUpperCase()}</p>
+            <h1>{deviceMac ? 'Bàn điều khiển thiết bị' : current.label}</h1>
           </div>
-          <CommandPalette
-            infrastructureReady={infrastructureReady}
-            items={navigation}
-            onNavigate={navigate}
-          />
         </header>
 
         <main className="main-content">
-          {detail?.type === 'user' && (
-            <UserDetail
-              accountId={detail.id}
-              onBack={() => setDetail(null)}
-              onSelectDevice={openDevice}
-            />
-          )}
-          {detail?.type === 'device' && (
-            <DeviceDetail mac={detail.id} onBack={() => setDetail(null)} />
-          )}
-
-          {!detail && view === 'devices' && (
-            <DevicesPage
-              enabled={infrastructureReady}
-              onCreate={() => navigate('create')}
-              onSelectDevice={openDevice}
-            />
-          )}
-          {!detail && view === 'users' && (
-            <UsersPage
-              enabled={infrastructureReady}
-              onCreate={() => navigate('create')}
-              onSelectUser={openUser}
-            />
-          )}
-          {!detail && view === 'create' && (
-            <ControlPanel enabled={infrastructureReady} onCreated={runCreated} />
-          )}
-          {!detail && view === 'factory' && (
-            <FactoryPage
-              enabled={infrastructureReady}
-              // Back from the device workbench returns to the factory.
-              onSelectDevice={(mac) => setDetail({ type: 'device', id: mac })}
-            />
-          )}
-          {!detail && view === 'runs' && (
-            <RunsList
-              enabled={infrastructureReady}
-              focusRunId={focusRunId}
-              onSelectDevice={openDevice}
-              onSelectUser={openUser}
-            />
-          )}
-          {!detail && view === 'system' && (
-            <div className="system-page">
-              <PreflightPanel onReadyChange={setInfrastructureReady} />
-              <StatsOverview enabled={infrastructureReady} />
-              <EventsLog enabled={infrastructureReady} />
-            </div>
+          {deviceMac ? (
+            <DeviceDetail mac={deviceMac} onBack={() => setDeviceMac(null)} />
+          ) : (
+            <>
+              {view === 'load' && (
+                <LoadTestPage enabled={infrastructureReady} focusScenario={scenarioFocus} onOpenDevices={openRunDevices} />
+              )}
+              {view === 'devices' && (
+                <DevicesPage
+                  enabled={infrastructureReady}
+                  filters={deviceFilters}
+                  onCreateRun={createRun}
+                  onFilters={setDeviceFilters}
+                  onManufacture={() => navigate('factory')}
+                  onSelectDevice={setDeviceMac}
+                />
+              )}
+              {view === 'users' && (
+                <UsersPage enabled={infrastructureReady} onCreateRun={createRun} onSelectDevice={setDeviceMac} />
+              )}
+              {view === 'factory' && <FactoryPage enabled={infrastructureReady} onSelectDevice={setDeviceMac} />}
+              {view === 'system' && (
+                <div className="system-page">
+                  <PreflightPanel onReadyChange={setInfrastructureReady} />
+                  <EventsLog enabled={infrastructureReady} />
+                </div>
+              )}
+            </>
           )}
         </main>
-
-        <footer className="app-footer">
-          <span>SmartHome XuanLam Device Simulator</span>
-          <span>Registry: DeviceSimulatorDB</span>
-          <span>Retention mặc định: 24 giờ</span>
-        </footer>
       </div>
     </div>
   )
-}
-
-const getViewTitle = (view: MainView, detail: DetailView): string => {
-  if (detail?.type === 'user') return 'Chi tiết người dùng'
-  if (detail?.type === 'device') return 'Bàn điều khiển thiết bị'
-  if (view === 'devices') return 'Thiết bị'
-  if (view === 'users') return 'Người dùng'
-  if (view === 'create') return 'Tạo dữ liệu mô phỏng'
-  if (view === 'factory') return 'Xưởng sản xuất'
-  if (view === 'runs') return 'Lần chạy mô phỏng'
-  return 'Hệ thống'
 }
 
 export default App

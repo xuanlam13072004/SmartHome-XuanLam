@@ -15,6 +15,11 @@ services:
       - "${SIMULATOR_MEDIA_HOST_DIR:-E:/smarthome_data/device-simulator/media}:/var/lib/simulator-media"
     ports:
       - "4001:4001"
+    # One MQTT connection per directly connected virtual device.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     networks:
       - smarthome_net
     restart: unless-stopped

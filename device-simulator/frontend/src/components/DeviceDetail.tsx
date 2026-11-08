@@ -6,7 +6,6 @@ import {
   performPhysicalSirenAction,
   performPhysicalPumpAction,
   pressPhysicalKeypad,
-  revealDeviceSecret,
   sendDeviceTelemetry,
   setPhysicalDoorPosition,
   setDeviceConnection,
@@ -21,7 +20,6 @@ import type {
   SimulatedDevice,
   SimulatorEvent,
 } from '../types'
-import { CopyButton } from './CopyButton'
 import { CapabilityControl } from './device/CapabilityControl'
 import { DeviceTelemetryPanel } from './device/DeviceTelemetryPanel'
 import { EntrancePhysicalWorkbench } from './device/EntrancePhysicalWorkbench'
@@ -41,7 +39,7 @@ import {
   readPropertyValue,
 } from './device/device-utils'
 
-type DeviceTab = 'controls' | 'data' | 'history' | 'pairing' | 'technical'
+type DeviceTab = 'controls' | 'data' | 'pairing' | 'technical'
 
 export function DeviceDetail({
   mac,
@@ -53,7 +51,6 @@ export function DeviceDetail({
   const [payload, setPayload] = useState<DeviceDetailPayload | null>(null)
   const [latestTelemetry, setLatestTelemetry] = useState<Record<string, unknown> | null>(null)
   const [tab, setTab] = useState<DeviceTab>('controls')
-  const [secret, setSecret] = useState('')
   const [error, setError] = useState('')
   const [acting, setActing] = useState('')
   const [loading, setLoading] = useState(true)
@@ -243,15 +240,6 @@ export function DeviceDetail({
     }
   }
 
-  const reveal = async () => {
-    try {
-      const result = await revealDeviceSecret(mac)
-      setSecret(result.device.secret_key)
-    } catch (caught) {
-      setError(readError(caught, 'Không đọc được factory secret.'))
-    }
-  }
-
   if (loading) {
     return <DeviceDetailSkeleton onBack={onBack} />
   }
@@ -318,29 +306,20 @@ export function DeviceDetail({
               ? powered ? 'Tắt nguồn' : 'Bật nguồn'
               : online ? 'Ngắt kết nối' : 'Kết nối thiết bị'}
         </button>
-        <button
-          className="button button--quiet"
-          disabled={Boolean(acting) || !online}
-          onClick={() => void sendNow()}
-          type="button"
-        >
-          {acting === 'telemetry' ? 'Đang gửi…' : 'Gửi telemetry'}
-        </button>
-        {device.runtime_state === 'paused' ? (
-          <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void act('resume')} type="button">Tiếp tục tự gửi</button>
-        ) : (
-          <button className="button button--quiet" disabled={Boolean(acting) || !online} onClick={() => void act('pause')} type="button">Dừng tự gửi</button>
-        )}
+        <span className="device-actions__hint">
+          {device.runtime_state === 'paused'
+            ? 'Đang tạm dừng gửi telemetry'
+            : online ? `Gửi telemetry mỗi chu kỳ · seq ${device.seq}` : ''}
+        </span>
       </div>
 
       <nav aria-label="Nội dung thiết bị" className="detail-tabs">
-        <DetailTab active={tab === 'controls'} label="Thiết bị vật lý" onClick={() => setTab('controls')} />
-        <DetailTab active={tab === 'data'} label="Dữ liệu đang gửi" onClick={() => setTab('data')} />
+        <DetailTab active={tab === 'controls'} label="Điều khiển" onClick={() => setTab('controls')} />
         <DetailTab
-          active={tab === 'history'}
-          label="Lịch sử"
+          active={tab === 'data'}
+          label="Dữ liệu & lịch sử"
           onClick={() => {
-            setTab('history')
+            setTab('data')
             void load()
           }}
         />
@@ -363,19 +342,18 @@ export function DeviceDetail({
       )}
 
       {tab === 'data' && (
-        <DeviceTelemetryPanel
-          backendShadow={backendShadow}
-          device={device}
-          latestTelemetry={latestTelemetry}
-        />
-      )}
-
-      {tab === 'history' && (
-        <HistoryView
-          deviceEvents={payload.device_events}
-          events={events}
-          operations={operations}
-        />
+        <>
+          <DeviceTelemetryPanel
+            backendShadow={backendShadow}
+            device={device}
+            latestTelemetry={latestTelemetry}
+          />
+          <HistoryView
+            deviceEvents={payload.device_events}
+            events={events}
+            operations={operations}
+          />
+        </>
       )}
 
       {tab === 'pairing' && (
@@ -393,9 +371,9 @@ export function DeviceDetail({
           instances={product.capability_instances}
           onAction={act}
           onPatch={applyPatch}
-          onReveal={reveal}
+          onSendNow={sendNow}
+          online={online}
           productRevision={product.catalog_revision}
-          secret={secret}
         />
       )}
     </section>
@@ -1066,18 +1044,18 @@ function TechnicalView({
   device,
   instances,
   productRevision,
-  secret,
+  online,
   acting,
-  onReveal,
+  onSendNow,
   onAction,
   onPatch,
 }: {
   device: SimulatedDevice
   instances: CapabilityInstance[]
   productRevision: number
-  secret: string
+  online: boolean
   acting: string
-  onReveal: () => Promise<void>
+  onSendNow: () => Promise<void>
   onAction: (action: 'pause' | 'resume' | 'force-offline' | 'reconnect' | 'reset-state') => Promise<void>
   onPatch: (patch: DeviceStatePatch) => Promise<void>
 }) {
@@ -1108,14 +1086,6 @@ function TechnicalView({
         </dl>
       </section>
 
-      <section className="technical-panel">
-        <header className="work-panel__heading"><div><h3>Factory identity</h3><p>Secret chỉ được giải mã khi bạn chủ động yêu cầu.</p></div></header>
-        {secret ? (
-          <div className="secret-line"><code>{secret}</code><CopyButton value={secret} /></div>
-        ) : (
-          <button className="button button--quiet" onClick={() => void onReveal()} type="button">Hiện factory secret</button>
-        )}
-      </section>
 
       {diagnostics && firmwareStatus && (
         <section className="technical-panel technical-panel--full">
@@ -1135,8 +1105,16 @@ function TechnicalView({
       )}
 
       <section className="technical-panel technical-panel--full">
-        <header className="work-panel__heading"><div><h3>Khôi phục runtime</h3><p>Các thao tác này dành cho kiểm thử lỗi kết nối và state.</p></div></header>
+        <header className="work-panel__heading"><div><h3>Runtime</h3><p>Gửi telemetry, tạm dừng và giả lập lỗi kết nối hoặc state.</p></div></header>
         <div className="technical-actions">
+          <button className="button button--quiet" disabled={Boolean(acting) || !online} onClick={() => void onSendNow()} type="button">
+            {acting === 'telemetry' ? 'Đang gửi…' : 'Gửi telemetry ngay'}
+          </button>
+          {device.runtime_state === 'paused' ? (
+            <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void onAction('resume')} type="button">Tiếp tục tự gửi</button>
+          ) : (
+            <button className="button button--quiet" disabled={Boolean(acting) || !online} onClick={() => void onAction('pause')} type="button">Dừng tự gửi</button>
+          )}
           <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void onAction('reconnect')} type="button">Kết nối lại MQTT</button>
           <button className="button button--quiet" disabled={Boolean(acting)} onClick={() => void onAction('force-offline')} type="button">Ép ngoại tuyến</button>
           <button className="button button--danger" disabled={Boolean(acting)} onClick={() => void onAction('reset-state')} type="button">Đặt lại state</button>
@@ -1187,7 +1165,7 @@ function RuntimeBadge({ status }: { status: string }) {
 }
 
 function BackButton({ onBack }: { onBack: () => void }) {
-  return <button className="back-link" onClick={onBack} type="button">← Danh sách thiết bị</button>
+  return <button className="back-link" onClick={onBack} type="button">← Quay lại</button>
 }
 
 function DeviceDetailSkeleton({ onBack }: { onBack: () => void }) {

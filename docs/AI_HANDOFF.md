@@ -253,6 +253,46 @@ và thêm vào tài khoản; Simulator "sản xuất" được thiết bị tr�
 - Env: `FACTORY_TELEMETRY_INTERVAL_SECONDS` (30), `FACTORY_MAX_BATCH_SIZE` (20).
   Test: `device-simulator/backend/test/factory.test.ts`.
 
+## Simulator làm lại cho kiểm thử tải (2026-11-08)
+
+Người dùng chọn: mục đích chính là **kiểm thử tải**, làm lại toàn bộ (giao diện +
+backend), gọn còn ít trang. Đã làm:
+
+- **Lõi runtime** (đo trên runtime không mạng: 30 000 thiết bị, chu kỳ 30 s ≈
+  1 000 msg/s, khoảng 1/3 lõi CPU; trước đó bộ lập lịch quét-và-sắp-xếp chỉ đạt
+  ~130 msg/s ở 100 % CPU):
+  `runtime/telemetry-scheduler.ts` dùng min-heap; `DeviceRuntime` thuê seq theo khối
+  (`SEQUENCE_LEASE_SIZE`, trả phần dư khi dừng sạch; crash thì backend chỉ log
+  khoảng trống seq); `runtime/registry-writer.ts` gom ghi `state_snapshot`/
+  `runtime_state` bằng `bulkWrite` (thao tác tay thì ghi ngay, kèm phần đang chờ);
+  `events/service.ts` gom sự kiện bằng `insertMany`; API chi tiết/danh sách thiết bị
+  phủ trạng thái sống từ runtime. Danh tính broker không đăng ký lại mỗi lần khởi
+  động; bị broker từ chối đăng nhập thì `repairBrokerIdentity`. Reconnect có jitter.
+  Khôi phục sau restart kiểm quyền sở hữu theo lô và chạy song song 64
+  (`runtime/restore-run.ts`). Docker: `UV_THREADPOOL_SIZE=16`, `ulimits nofile 65536`
+  cho simulator-backend và mosquitto.
+- **Sinh dữ liệu**: bỏ chờ cố định `REGISTRATION_DELAY_MS`/`CLAIM_DELAY_MS`; chạy
+  `GENERATION_CONCURRENCY` user song song, nhịp theo `generation/pacer.ts`
+  (token bucket: đăng ký/đăng nhập theo IP, claim theo tài khoản) khớp rate limit
+  của Gateway; 429 vẫn tự chờ `Retry-After`. Nút thắt còn lại là đăng ký 20/phút
+  của Gateway: chạy 7 500 user cần nâng `RATE_LIMIT_REGISTER_PER_IP_PER_MINUTE`
+  (Gateway) và `GATEWAY_REGISTER_PER_MINUTE` (Simulator) cùng giá trị — chỉ là cấu
+  hình, không có nhánh code cho Simulator.
+- **API**: `GET /api/overview` (CPU/RAM/event loop của Simulator, runtime, msg/s,
+  độ trễ ingest p50/p95 từ `device_telemetry.ingested_at - observed_at`, giới hạn);
+  `/api/devices` và `/api/users` phân trang + lọc phía server; `/api/events?severity=warning`.
+- **Dashboard 5 mục** (người dùng yêu cầu tính năng phải thấy ngay, không giấu
+  trong tab): Kiểm thử tải (`components/load/`), Thiết bị
+  (`components/registry/DevicesPage.tsx`, có nút "Tạo thiết bị trắng" và "Tạo người
+  dùng và thiết bị"), Người dùng (`UsersPage.tsx`: danh sách + bảng bên phải luôn
+  hiện email/mật khẩu đăng nhập app, thiết bị, thao tác), Xưởng sản xuất, Hệ thống.
+  Mỗi mục trên menu có dòng mô tả ngắn. Danh sách thiết bị xếp tự nhiên trong từng
+  lần chạy (Virtual Device 1-1, 1-2 … 10-1; collation `numericOrdering`, index
+  `run_natural_name`); danh sách thiết bị của người dùng hiện cả loại sản phẩm. Đã xóa
+  ControlPanel, RunsList, RunMetricsPanel, UsersPage, UserDetail, StatsOverview,
+  CommandPalette, DevicesPage và CSS không còn dùng.
+- Dữ liệu Simulator cũ vẫn tương thích (không cần xóa). Test backend: 132.
+
 ## Trạng thái camera: kế hoạch, chưa phải tính năng hoàn tất
 
 Đây là mục tiêu sắp tới đã được người dùng làm rõ:

@@ -34,6 +34,7 @@ import { cameraOperationOutcome, DeviceOperationRejection } from './camera-contr
 import { productHasSecurityCamera, VirtualSecurityCamera } from './security-camera';
 import { getMediaStore } from '../media';
 import { getTelemetryScheduler } from './telemetry-scheduler';
+import { getRegistryWriter } from './registry-writer';
 import {
     registerPresenceHeartbeat,
     unregisterPresenceHeartbeat,
@@ -100,9 +101,17 @@ export interface RuntimeTransportCoordinator {
     onBrokerUnavailable(device: DeviceRuntime): void;
     /** Factory-issued broker credentials of this device (username = MAC). */
     resolveBrokerCredentials(mac: string): Promise<BrokerCredentials>;
+    /** Registers the stored identity again after the broker refused it. */
+    repairBrokerIdentity(mac: string): Promise<BrokerCredentials>;
     /** Retained assignment received on this device's own topology topic. */
     onTopologyMessage(mac: string, payload: Buffer): Promise<void>;
 }
+
+/** CONNACK "bad user name or password" / "not authorized" (MQTT 3.1.1 and 5). */
+const isBrokerAuthRejection = (error: unknown): boolean => {
+    const code = Number((error as { code?: unknown })?.code);
+    return [4, 5, 134, 135].includes(code);
+};
 
 export interface DeviceRuntimeOptions {
     /** Factory device without an owner: stay in pairing mode until claimed. */
@@ -125,7 +134,8 @@ export class DeviceRuntime {
     private isPublishing = false;
     private pendingImmediateTelemetry = false;
     private connectPromise: Promise<void> | null = null;
-    private lastRegistrySyncAt = 0;
+    private seqLeaseEnd = 0;
+    private seqLease: Promise<void> | null = null;
     private lastTelemetryAt: Date | null = null;
     private assignment?: TopologyAssignment;
     private directFallbackOverride = false;
@@ -244,6 +254,22 @@ export class DeviceRuntime {
         return Boolean(this.mqttClient?.connected);
     }
 
+    /** Live state; the registry copy is written in batches and may lag. */
+    get stateSnapshot(): DeviceState {
+        return this.state;
+    }
+
+    get lastTelemetry(): Date | null {
+        return this.lastTelemetryAt;
+    }
+
+    /** Runtime state as the registry would record it now. */
+    get liveRuntimeState(): SimulatedDeviceRecord['runtime_state'] {
+        if (this.isPaused) return 'paused';
+        if (this.awaitingClaim) return this.brokerConnected ? 'awaiting_claim' : 'offline';
+        return this.connected ? 'online' : 'offline';
+    }
+
     get runId(): string {
         return this.simulationRunId;
     }
@@ -294,6 +320,12 @@ export class DeviceRuntime {
             await this.applyIrrigationTransition(stopIrrigation(this.state, this.irrigationSession, this.product, 'controller_restart'), false);
         }
         await this.disconnect();
+        // Nothing of this runtime may land after the caller's own registry writes.
+        await getRegistryWriter().writeNow(this.mac).catch((error) => this.logger.warn(
+            { err: error },
+            'Could not write the final registry state of a stopped device',
+        ));
+        await this.releaseSequenceLease().catch(() => undefined);
     }
 
     async disconnect(): Promise<void> {
@@ -693,7 +725,14 @@ export class DeviceRuntime {
         if (this.connectPromise) return this.connectPromise;
 
         const connecting = this.transportCoordinator.resolveBrokerCredentials(this.mac)
-            .then(credentials => this.openBrokerConnection(credentials));
+            .then(credentials => this.openBrokerConnection(credentials))
+            .catch(async (error) => {
+                if (!isBrokerAuthRejection(error)) throw error;
+                this.logger.warn('Broker refused the device identity; registering it again');
+                return this.openBrokerConnection(
+                    await this.transportCoordinator.repairBrokerIdentity(this.mac),
+                );
+            });
         this.connectPromise = connecting;
         connecting.catch(() => {
             if (this.connectPromise === connecting) this.connectPromise = null;
@@ -1715,59 +1754,77 @@ export class DeviceRuntime {
         return result;
     }
 
+    /**
+     * Registry copy of the device state, for restart recovery and the
+     * dashboard. Telemetry only marks it dirty (batched by RegistryWriter);
+     * manual actions (`force`) write it through immediately.
+     */
     private async persistRegistryState(timestamp: Date, force = false): Promise<void> {
-        const now = Date.now();
-        if (!force && now - this.lastRegistrySyncAt < env.REGISTRY_STATE_FLUSH_INTERVAL_MS) {
-            return;
-        }
-        await getMongoDb().collection<SimulatedDeviceRecord>('simulated_devices').updateOne(
-            { mac: this.mac },
-            {
-                $set: {
-                    state_snapshot: this.state,
-                    ...(this.irrigationSession ? { irrigation_session: this.irrigationSession } : {}),
-                    ...(this.lastTelemetryAt ? { last_telemetry: this.lastTelemetryAt } : {}),
-                    runtime_state: this.isPaused
-                        ? 'paused'
-                        : this.connected ? 'online' : 'offline',
-                    transport_mode: this.effectiveTransportMode === 'direct'
-                        ? undefined
-                        : this.effectiveTransportMode,
-                    updated_at: timestamp,
-                },
-            },
-        );
-        this.lastRegistrySyncAt = now;
+        const fields = {
+            state_snapshot: this.state,
+            ...(this.irrigationSession ? { irrigation_session: this.irrigationSession } : {}),
+            ...(this.lastTelemetryAt ? { last_telemetry: this.lastTelemetryAt } : {}),
+            runtime_state: this.isPaused
+                ? 'paused' as const
+                : this.awaitingClaim
+                    ? (this.brokerConnected ? 'awaiting_claim' as const : 'offline' as const)
+                    : this.connected ? 'online' as const : 'offline' as const,
+            transport_mode: this.effectiveTransportMode === 'direct'
+                ? undefined
+                : this.effectiveTransportMode,
+            updated_at: timestamp,
+        };
+        if (force) await getRegistryWriter().writeNow(this.mac, fields);
+        else getRegistryWriter().defer(this.mac, fields);
     }
 
+    /**
+     * Message sequence numbers are leased from the registry in blocks, like
+     * firmware that checkpoints its counter to flash: one MongoDB write per
+     * SEQUENCE_LEASE_SIZE messages instead of one per message. A crash skips
+     * the rest of the lease (a gap the backend only logs); a clean stop
+     * returns it.
+     */
     private async reserveNextSequence(): Promise<number> {
+        if (this.seq >= this.seqLeaseEnd) {
+            this.seqLease ||= this.extendSequenceLease().finally(() => {
+                this.seqLease = null;
+            });
+            await this.seqLease;
+        }
+        this.seq += 1;
+        return this.seq;
+    }
+
+    private async extendSequenceLease(): Promise<void> {
         const updated = await getMongoDb()
             .collection<SimulatedDeviceRecord>('simulated_devices')
             .findOneAndUpdate(
                 { mac: this.mac },
-                {
-                    $inc: { seq: 1 },
-                    $set: { updated_at: new Date() },
-                },
-                {
-                    returnDocument: 'after',
-                    projection: { seq: 1 },
-                },
+                { $inc: { seq: env.SEQUENCE_LEASE_SIZE } },
+                { returnDocument: 'after', projection: { seq: 1 } },
             );
         if (!updated || !Number.isSafeInteger(updated.seq)) {
             throw new Error(`Could not reserve telemetry sequence for ${this.mac}`);
         }
-        this.seq = updated.seq;
-        return this.seq;
+        this.seqLeaseEnd = updated.seq;
+        this.seq = Math.max(this.seq, updated.seq - env.SEQUENCE_LEASE_SIZE);
+    }
+
+    /** Gives the unused part of the lease back so a clean restart has no gap. */
+    private async releaseSequenceLease(): Promise<void> {
+        if (this.seqLeaseEnd === 0 || this.seq >= this.seqLeaseEnd) return;
+        await getMongoDb().collection<SimulatedDeviceRecord>('simulated_devices').updateOne(
+            { mac: this.mac, seq: this.seqLeaseEnd },
+            { $set: { seq: this.seq } },
+        );
+        this.seqLeaseEnd = this.seq;
     }
 
     private async updateRuntimeState(
         state: SimulatedDeviceRecord['runtime_state'],
     ): Promise<void> {
-        await getMongoDb().collection<SimulatedDeviceRecord>('simulated_devices').updateOne(
-            { mac: this.mac },
-            { $set: { runtime_state: state, updated_at: new Date() } },
-        );
+        getRegistryWriter().defer(this.mac, { runtime_state: state, updated_at: new Date() });
     }
 
     /** Publishes firmware-owned camera properties after a camera state change. */

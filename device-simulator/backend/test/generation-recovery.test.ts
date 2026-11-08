@@ -3,7 +3,6 @@ import test from 'node:test';
 import { GenerationQueue } from '../src/generation/queue';
 import { apiGateway } from '../src/infrastructure/api-gateway/client';
 import { encrypt } from '../src/security/crypto';
-import { env } from '../src/config/env';
 
 const logger = { child: () => logger, info() {}, warn() {}, error() {} } as any;
 const matches = (row: any, filter: any): boolean => Object.entries(filter).every(([key, value]: [string, any]) => {
@@ -26,10 +25,6 @@ const update = (row: any, change: any) => {
 };
 
 test('retry fills the missing 11 of 19 devices, skips completed users and clears partial despite historical errors', async t => {
-    const previousDelays = [env.REGISTRATION_DELAY_MS, env.CLAIM_DELAY_MS];
-    env.REGISTRATION_DELAY_MS = 0;
-    env.CLAIM_DELAY_MS = 0;
-    t.after(() => { [env.REGISTRATION_DELAY_MS, env.CLAIM_DELAY_MS] = previousDelays; });
     const run: any = { id: 'run', status: 'queued', config: { user_count: 6, cleanup_policy: 'manual' }, total_errors: 3, last_error: '429' };
     const users = [3, 5, 3, 3, 2, 3].map((target, index) => ({
         run_id: 'run', generation_index: index, account_id: `user${index}`,
@@ -67,7 +62,8 @@ test('retry fills the missing 11 of 19 devices, skips completed users and clears
         }
     };
     await queue.startRun(run);
-    assert.deepEqual(logins, ['user0@example.test', 'user1@example.test', 'user2@example.test']);
+    // Users are generated in parallel lanes; only the set of logins matters.
+    assert.deepEqual([...logins].sort(), ['user0@example.test', 'user1@example.test', 'user2@example.test']);
     assert.equal(devices.length, 19);
     assert.ok(originalDevices.every(device => devices.includes(device)));
     assert.equal(run.status, 'completed');

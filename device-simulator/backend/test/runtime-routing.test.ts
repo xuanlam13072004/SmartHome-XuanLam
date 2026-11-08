@@ -238,7 +238,7 @@ test('a relay Node missing from a newer Hub epoch is treated as unpaired', async
     )));
 });
 
-test('broker credentials are generated once, stored encrypted and registered with the broker', async () => {
+test('broker credentials are generated once, stored encrypted and re-registered only when refused', async () => {
     const records = new Map<string, any>([['AA:00:00:00:00:05', { mac: 'AA:00:00:00:00:05' }]]);
     const db = { collection: () => ({
         findOne: async ({ mac }: any) => records.get(mac) || null,
@@ -262,9 +262,13 @@ test('broker credentials are generated once, stored encrypted and registered wit
     assert.ok(stored.encrypted && stored.iv && stored.authTag);
     assert.ok(!JSON.stringify(stored).includes(first.password));
 
-    // After a restart the stored password is reused and re-registered.
+    // After a restart the stored password is reused without rewriting the broker.
     const restarted = new RuntimeManager(logger, () => db as any, identities);
     assert.deepEqual(await restarted.resolveBrokerCredentials('AA:00:00:00:00:05'), first);
+    assert.equal(ensured.length, 1);
+
+    // A broker that lost its database refuses the login; the identity is registered again.
+    assert.deepEqual(await restarted.repairBrokerIdentity('AA:00:00:00:00:05'), first);
     assert.equal(ensured.length, 2);
     assert.equal(ensured[1][1], first.password);
 

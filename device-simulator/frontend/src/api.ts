@@ -9,8 +9,9 @@ import type {
   DeviceStatePatch,
   FactoryBatch,
   FactoryDevice,
+  Overview,
+  Page,
   Preflight,
-  RunMetrics,
   RunConfig,
   SimulatedDevice,
   SimulatedUser,
@@ -91,15 +92,23 @@ export const fetchRuns = async (): Promise<SimulationRun[]> =>
 export const fetchRun = async (id: string): Promise<SimulationRun> =>
   (await request<{ run: SimulationRun }>(`/simulation-runs/${encodeURIComponent(id)}`)).run
 
-export const fetchRunMetrics = async (id: string): Promise<RunMetrics> =>
-  (await request<{ metrics: RunMetrics }>(
-    `/simulation-runs/${encodeURIComponent(id)}/metrics`,
-  )).metrics
+export const fetchOverview = () => request<Overview>('/overview')
 
-export const fetchUsers = async (runId?: string): Promise<SimulatedUser[]> => {
+export interface UserQuery {
+  runId?: string
+  q?: string
+  page?: number
+  pageSize?: number
+}
+
+export const fetchUsersPage = async (query: UserQuery = {}): Promise<Page<SimulatedUser>> => {
   const params = new URLSearchParams()
-  if (runId) params.set('run_id', runId)
-  return (await request<{ users: SimulatedUser[] }>(`/users?${params}`)).users
+  if (query.runId) params.set('run_id', query.runId)
+  if (query.q) params.set('q', query.q)
+  params.set('page', String(query.page || 1))
+  params.set('page_size', String(query.pageSize || 50))
+  const result = await request<Omit<Page<SimulatedUser>, 'items'> & { users: SimulatedUser[] }>(`/users?${params}`)
+  return { page: result.page, page_size: result.page_size, total: result.total, items: result.users }
 }
 
 export const fetchUser = async (accountId: string) =>
@@ -123,20 +132,30 @@ export const userAction = (
   action: 'relogin' | 'refresh-session' | 'make-permanent' | 'cleanup',
 ) => request(`/users/${encodeURIComponent(accountId)}/${action}`, { method: 'POST' })
 
-export const extendUser = (accountId: string, hours: number) =>
-  request(`/users/${encodeURIComponent(accountId)}/extend`, {
-    method: 'POST',
-    body: JSON.stringify({ hours }),
-  })
+export interface DeviceQuery {
+  runId?: string
+  userId?: string
+  productId?: string
+  status?: string
+  origin?: 'run' | 'factory'
+  q?: string
+  page?: number
+  pageSize?: number
+}
 
-export const fetchDevices = async (
-  runId?: string,
-  userId?: string,
-): Promise<SimulatedDevice[]> => {
+/** Paged registry; filtering and counting happen on the server. */
+export const fetchDevicesPage = async (query: DeviceQuery = {}): Promise<Page<SimulatedDevice>> => {
   const params = new URLSearchParams()
-  if (runId) params.set('run_id', runId)
-  if (userId) params.set('user_id', userId)
-  return (await request<{ devices: SimulatedDevice[] }>(`/devices?${params}`)).devices
+  if (query.runId) params.set('run_id', query.runId)
+  if (query.userId) params.set('user_id', query.userId)
+  if (query.productId) params.set('product_id', query.productId)
+  if (query.status) params.set('status', query.status)
+  if (query.origin) params.set('origin', query.origin)
+  if (query.q) params.set('q', query.q)
+  params.set('page', String(query.page || 1))
+  params.set('page_size', String(query.pageSize || 50))
+  const result = await request<Omit<Page<SimulatedDevice>, 'items'> & { devices: SimulatedDevice[] }>(`/devices?${params}`)
+  return { page: result.page, page_size: result.page_size, total: result.total, items: result.devices }
 }
 
 export const fetchDevice = async (mac: string) =>
@@ -252,12 +271,6 @@ export const fetchCameraSegment = async (mac: string, segmentId: string): Promis
   return response.blob()
 }
 
-export const revealDeviceSecret = (mac: string) =>
-  request<{ device: { mac: string; secret_key: string; product_id: string } }>(
-    `/devices/${encodeURIComponent(mac)}/reveal-secret`,
-    { method: 'POST' },
-  )
-
 /** QR label content of any simulated device (decrypts the factory secret). */
 export const fetchDevicePairing = async (mac: string): Promise<DevicePairing> =>
   (await request<{ pairing: DevicePairing }>(`/devices/${encodeURIComponent(mac)}/pairing`)).pairing
@@ -308,21 +321,16 @@ export const runAction = (
   action: 'pause' | 'resume' | 'cancel' | 'cleanup' | 'stop-runtime' | 'restart-runtime',
 ) => request(`/simulation-runs/${encodeURIComponent(id)}/${action}`, { method: 'POST' })
 
-export const extendRun = (id: string, hours: number) =>
-  request(`/simulation-runs/${encodeURIComponent(id)}/extend`, {
-    method: 'POST',
-    body: JSON.stringify({ hours }),
-  })
-
 export const setRunPermanent = (id: string, permanent: boolean) =>
   request(`/simulation-runs/${encodeURIComponent(id)}/retention`, {
     method: 'POST',
     body: JSON.stringify({ policy: permanent ? 'permanent' : 'auto_24h' }),
   })
 
-export const fetchEvents = async (runId?: string): Promise<SimulatorEvent[]> => {
+export const fetchEvents = async (options: { runId?: string; problemsOnly?: boolean } = {}): Promise<SimulatorEvent[]> => {
   const params = new URLSearchParams()
-  if (runId) params.set('run_id', runId)
+  if (options.runId) params.set('run_id', options.runId)
+  if (options.problemsOnly) params.set('severity', 'warning')
   return (await request<{ events: SimulatorEvent[] }>(`/events?${params}`)).events
 }
 

@@ -29,12 +29,54 @@ docker compose up -d api-gateway real-time-service mqtt-worker-service
 docker compose -f device-simulator/docker-compose.yml up -d --build simulator-backend simulator-dashboard
 ```
 
-Open `http://localhost:4000`. Configure the number of users, the min/max device
-count, Product distribution and network count, then create a run. Generated
-accounts and their initial passwords are shown in the simulator dashboard.
-Automatic runs expire after 24 hours; manually retained runs remain until
-explicit cleanup. Persistent PostgreSQL and MongoDB data live under
-`E:\smarthome_data` as configured by the root Compose file.
+Open `http://localhost:4000`. The dashboard has five pages:
+
+- **Kiểm thử tải**: pick a preset (5×2 devices up to 7 500 users × 3–5 devices ≈
+  30 000) or set users, devices per user, telemetry period and products, then
+  start a run. The live board shows connected devices, telemetry msg/s,
+  bandwidth, publish failures, ingest latency (device clock → backend database,
+  p50/p95 over the last 30 s), and the simulator's own CPU, memory and
+  event-loop delay, so you can tell whether the backend or the simulator is the
+  bottleneck. Runs are listed with their actions (pause, resume, stop devices,
+  keep data, clean up).
+- **Thiết bị**: server-paged registry of devices (filter by run, product,
+  status; search name, MAC, serial or owner email).
+- **Người dùng**: simulated accounts; the selected account's app login (email,
+  password on request), devices and actions stay visible beside the list.
+- **Xưởng sản xuất**: manufacture blank devices with QR labels (see below).
+- **Hệ thống**: admin token, dependency checks and the operations log.
+
+Automatic runs expire after 24 hours; kept runs remain until explicit cleanup.
+Persistent PostgreSQL and MongoDB data live under `E:\smarthome_data` as
+configured by the root Compose file.
+
+## Load testing at scale
+
+The simulator is sized for about 30 000 devices in one process (measured on the
+runtime without network: 30 000 devices at 30 s telemetry = ~1 000 msg/s at
+about a third of one CPU core; one MQTT connection costs ~30 KB of memory):
+
+- Telemetry is scheduled with a binary heap (O(log n) per message).
+- Message sequence numbers are leased from the registry in blocks
+  (`SEQUENCE_LEASE_SIZE`); a clean stop returns the unused part.
+- Registry state and runtime state are written in batches
+  (`REGISTRY_STATE_FLUSH_INTERVAL_MS`); manual actions write through at once.
+  The dashboard overlays live runtime state, so it never shows stale values.
+- Simulator events are inserted in batches.
+- Broker identities are registered once; after a broker reset a refused login
+  re-registers the device's stored identity. Reconnects are jittered.
+- After a restart, ownership is checked in batches and devices are restored 64
+  at a time.
+
+Generation runs `GENERATION_CONCURRENCY` users in parallel and paces itself on
+the API Gateway's rate limits instead of fixed sleeps:
+`GATEWAY_REGISTER_PER_MINUTE` and `GATEWAY_LOGIN_PER_MINUTE` (per client IP) and
+`GATEWAY_CLAIM_PER_ACCOUNT_PER_MINUTE`. Registration is the real bottleneck: the
+Gateway default of 20 registrations per minute needs about 6 hours for 7 500
+users. For a large test raise `RATE_LIMIT_REGISTER_PER_IP_PER_MINUTE` in the
+API Gateway env and `GATEWAY_REGISTER_PER_MINUTE` in the simulator env to the
+same value (for example 1200), and `MAX_DEVICES_PER_RUN`, `MAX_ACTIVE_DEVICES`
+and `MAX_TELEMETRY_MESSAGES_PER_SECOND` to cover the run.
 
 ## Factory: blank devices and QR labels
 

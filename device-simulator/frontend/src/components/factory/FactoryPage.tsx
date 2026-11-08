@@ -12,7 +12,7 @@ import {
 import { downloadBlob, labelFilename, renderLabelPng, type PairingLabelContent } from '../../factory/qr'
 import type { CatalogProduct, FactoryBatch, FactoryDevice } from '../../types'
 import { CopyButton } from '../CopyButton'
-import { EmptyState } from '../DevicesPage'
+import { EmptyState } from '../EmptyState'
 import { Icon } from '../Icon'
 import { PairingLabel, PrintLabelSheet } from './PairingLabel'
 
@@ -224,8 +224,8 @@ export function FactoryPage({
     <section aria-labelledby="factory-title" className="factory-page">
       <header className="page-heading">
         <div>
-          <h2 id="factory-title">Thiết bị xuất xưởng</h2>
-          <p>Thiết bị xuất xưởng chưa thuộc về ai: có danh tính nhà máy, tài khoản broker và tem QR. Người dùng quét tem trong app SmartHome để thêm thiết bị vào nhà mình.</p>
+          <h2 id="factory-title">Tạo thiết bị trắng</h2>
+          <p>Thiết bị trắng chưa thuộc về ai: có danh tính nhà máy, tài khoản MQTT và tem QR. Người dùng thật quét tem (hoặc dán mã) trong app SmartHome để thêm thiết bị vào tài khoản của mình.</p>
         </div>
       </header>
 

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { getProduct } from '../../catalog/loader';
 import { resolveDeviceProduct } from '../../catalog/device-contract';
 import { env } from '../../config/env';
-import type { SimulatedDeviceRecord } from '../../domain/registry';
+import type { SimulatedDeviceRecord, SimulatedUserRecord } from '../../domain/registry';
 import type { SimulationRun } from '../../domain/simulation-run';
 import { recordSimulatorEvent } from '../../events/service';
 import {
@@ -91,22 +91,86 @@ const physicalDoorSchema = z.object({
 const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
     const runtimeManager = getRuntimeManager(app.log);
 
+    /**
+     * Paged device registry for the dashboard. Filtering, counting and paging
+     * happen in MongoDB; runtime state is overlaid from live runtimes because
+     * the registry copy is written in batches.
+     */
     app.get('/api/devices', async (request) => {
         const query = request.query as {
             run_id?: string;
             user_id?: string;
+            product_id?: string;
+            status?: string;
+            origin?: string;
+            q?: string;
+            page?: string;
+            page_size?: string;
             limit?: string;
         };
+        const db = getMongoDb();
         const filter: Record<string, unknown> = {};
         if (query.run_id) filter.run_id = query.run_id;
         if (query.user_id) filter.simulator_user_id = query.user_id;
-        const limit = parseLimit(query.limit);
-        const devices = await getMongoDb().collection<SimulatedDeviceRecord>('simulated_devices')
-            .find(filter, { projection: deviceProjection })
-            .sort({ created_at: -1 })
-            .limit(limit)
+        if (query.product_id) filter.product_id = query.product_id;
+        if (query.origin === 'factory') filter.origin = 'factory';
+        if (query.origin === 'run') filter.origin = { $ne: 'factory' };
+        if (query.status === 'error') filter.runtime_state = { $in: ['mqtt_error', 'contract_error'] };
+        else if (query.status === 'offline') filter.runtime_state = { $in: ['offline', 'stopped', 'claimed', 'connecting'] };
+        else if (query.status) filter.runtime_state = query.status;
+        const search = query.q?.trim();
+        if (search) {
+            const pattern = new RegExp(escapeRegex(search), 'i');
+            const or: Record<string, unknown>[] = [
+                { mac: new RegExp(`^${escapeRegex(search.toUpperCase())}`) },
+                { name: pattern },
+                { serial_number: pattern },
+            ];
+            if (search.includes('@') || search.length >= 3) {
+                const owners = await db.collection<SimulatedUserRecord>('simulated_users')
+                    .find({ email: pattern, account_id: { $type: 'string' } }, { projection: { account_id: 1 } })
+                    .limit(500)
+                    .toArray();
+                if (owners.length > 0) or.push({ simulator_user_id: { $in: owners.map((owner) => owner.account_id) } });
+            }
+            filter.$or = or;
+        }
+        const pageSize = Math.min(Math.max(Number(query.page_size || query.limit) || 50, 1), env.MAX_PAGE_SIZE);
+        const page = Math.max(Number(query.page) || 1, 1);
+        const collection = db.collection<SimulatedDeviceRecord>('simulated_devices');
+        const [devices, total] = await Promise.all([
+            collection
+                .find(filter, { projection: { ...deviceProjection, state_snapshot: 0, irrigation_session: 0, mqtt_secret: 0 } })
+                // Natural order within each run: Virtual Device 1-1, 1-2 … 2-1 … 10-1.
+                .collation(NATURAL_NAME_ORDER)
+                .sort({ run_id: 1, name: 1, mac: 1 })
+                .skip((page - 1) * pageSize)
+                .limit(pageSize)
+                .toArray(),
+            collection.countDocuments(filter),
+        ]);
+        const ownerIds = [...new Set(devices.map((device) => device.simulator_user_id).filter(Boolean))];
+        const owners = ownerIds.length === 0 ? [] : await db.collection<SimulatedUserRecord>('simulated_users')
+            .find({ account_id: { $in: ownerIds } }, { projection: { account_id: 1, email: 1 } })
             .toArray();
-        return { success: true, devices };
+        const emailOf = new Map(owners.map((owner) => [owner.account_id, owner.email]));
+        return {
+            success: true,
+            page,
+            page_size: pageSize,
+            total,
+            devices: devices.map((device) => {
+                const runtime = runtimeManager.getDevice(device.mac);
+                return {
+                    ...device,
+                    owner_email: emailOf.get(device.simulator_user_id) || null,
+                    ...(runtime ? {
+                        runtime_state: runtime.liveRuntimeState,
+                        last_telemetry: runtime.lastTelemetry || device.last_telemetry,
+                    } : {}),
+                };
+            }),
+        };
     });
 
     app.get('/api/devices/:mac', async (request, reply) => {
@@ -135,7 +199,7 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         reply.header('Cache-Control', 'no-store');
         return {
             success: true,
-            device,
+            device: withLiveState(device, runtime),
             product,
             product_contract_compatible: productContractCompatible,
             backend_shadow: backendShadow,
@@ -162,12 +226,14 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
             loadBackendShadow(mac),
             loadTelemetry(mac, 1),
         ]);
+        const runtime = runtimeManager.getDevice(mac);
+        reply.header('Cache-Control', 'no-store');
         return {
             success: true,
-            device,
+            device: withLiveState(device, runtime),
             backend_shadow: backendShadow,
             latest_telemetry: latestTelemetry[0] || null,
-            entrance: runtimeManager.getDevice(mac)?.entranceStatus || null,
+            entrance: runtime?.entranceStatus || null,
         };
     });
 
@@ -524,6 +590,22 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         };
     });
 };
+
+/** Digits compare as numbers ("2-1" before "10-1"); matches the registry index. */
+export const NATURAL_NAME_ORDER = { locale: 'en', numericOrdering: true } as const;
+
+const escapeRegex = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** The registry copy lags by up to REGISTRY_STATE_FLUSH_INTERVAL_MS; a live runtime is authoritative. */
+const withLiveState = <T extends SimulatedDeviceRecord>(
+    device: T,
+    runtime: ReturnType<RuntimeManager['getDevice']>,
+): T => (runtime ? {
+    ...device,
+    state_snapshot: runtime.stateSnapshot,
+    runtime_state: runtime.liveRuntimeState,
+    last_telemetry: runtime.lastTelemetry || device.last_telemetry,
+} : device);
 
 const normalizeMac = (value: string): string =>
     decodeURIComponent(value).trim().toUpperCase();

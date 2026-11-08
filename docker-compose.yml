@@ -60,6 +60,11 @@ services:
       MOSQUITTO_DYNSEC_PASSWORD: ${MQTT_ADMIN_PASSWORD:?Set MQTT_ADMIN_PASSWORD in the root .env (see .env.example)}
     ports:
       - "1883:1883"
+    # Each device holds its own MQTT session; tens of thousands of sockets.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     volumes:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - "E:/smarthome_data/mosquitto:/mosquitto/data"

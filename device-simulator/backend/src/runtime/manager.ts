@@ -88,10 +88,11 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
     }
 
     /**
-     * Returns the device's factory-issued broker credentials, creating them on
-     * first use (devices provisioned before broker authentication existed are
-     * "re-flashed" here). The identity is (re)registered once per process so a
-     * reset broker database heals itself.
+     * Returns the device's factory-issued broker credentials. A device without
+     * credentials is "flashed" here and registered on the broker. Existing
+     * identities are not re-registered on every start (30 000 Dynamic Security
+     * rewrites at each restart); a device whose login is refused calls
+     * `repairBrokerIdentity`, which heals a reset broker database.
      */
     resolveBrokerCredentials(macInput: string): Promise<BrokerCredentials> {
         const mac = normalizeMac(macInput);
@@ -100,13 +101,9 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
         const resolved = (async () => {
             const devices = this.registryDb().collection<SimulatedDeviceRecord>('simulated_devices');
             const record = await devices.findOne({ mac }, { projection: { mqtt_secret: 1 } });
-            let password: string;
-            if (record?.mqtt_secret) {
-                password = decryptSecret(record.mqtt_secret);
-            } else {
-                password = generateDeviceMqttPassword();
-                await devices.updateOne({ mac }, { $set: { mqtt_secret: encrypt(password) } });
-            }
+            if (record?.mqtt_secret) return { username: mac, password: decryptSecret(record.mqtt_secret) };
+            const password = generateDeviceMqttPassword();
+            await devices.updateOne({ mac }, { $set: { mqtt_secret: encrypt(password) } });
             await this.brokerIdentities().ensureDeviceIdentity(mac, password);
             return { username: mac, password };
         })();
@@ -119,6 +116,15 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
 
     setFactoryLifecycleListener(listener: FactoryLifecycleListener | null): void {
         this.factoryListener = listener;
+    }
+
+    /** Re-registers the stored identity after the broker refused the device's login. */
+    async repairBrokerIdentity(macInput: string): Promise<BrokerCredentials> {
+        const mac = normalizeMac(macInput);
+        this.brokerCredentials.delete(mac);
+        const credentials = await this.resolveBrokerCredentials(mac);
+        await this.brokerIdentities().ensureDeviceIdentity(mac, credentials.password);
+        return credentials;
     }
 
     /** Factory retirement: the broker deletes the identity and drops its session. */
@@ -347,6 +353,33 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
             paused: devices.filter((device) => device.paused).length,
             scheduler_active: scheduler.active,
             scheduler_due: scheduler.due,
+        };
+    }
+
+    /** All running devices, in one pass (dashboard overview). */
+    getGlobalStats(): {
+        registered: number;
+        connected: number;
+        broker_connected: number;
+        paused: number;
+        awaiting_claim: number;
+    } {
+        let connected = 0;
+        let brokerConnected = 0;
+        let paused = 0;
+        let awaitingClaim = 0;
+        for (const device of this.devices.values()) {
+            if (device.connected) connected += 1;
+            if (device.brokerConnected) brokerConnected += 1;
+            if (device.paused) paused += 1;
+            if (device.awaitingClaim) awaitingClaim += 1;
+        }
+        return {
+            registered: this.devices.size,
+            connected,
+            broker_connected: brokerConnected,
+            paused,
+            awaiting_claim: awaitingClaim,
         };
     }
 

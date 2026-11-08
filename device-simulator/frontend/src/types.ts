@@ -54,47 +54,6 @@ export interface SimulationRun {
   cleanup_after?: string
 }
 
-export interface RunMetrics {
-  run_id: string
-  sampled_at: string
-  totals: {
-    telemetry_published: number
-    telemetry_failed: number
-    telemetry_bytes: number
-    operations_received: number
-    operations_applied: number
-    operations_rejected: number
-    acks_published: number
-    acks_failed: number
-    mqtt_connects: number
-    mqtt_disconnects: number
-    mqtt_errors: number
-  }
-  rates: {
-    window_seconds: number
-    telemetry_per_second: number
-    telemetry_failures_per_minute: number
-    bytes_per_second: number
-    operations_per_second: number
-  }
-  runtime: {
-    registered: number
-    connected: number
-    broker_connected: number
-    relay_connected: number
-    direct_fallback_connected: number
-    paused: number
-    scheduler_active: number
-    scheduler_due: number
-  }
-  process: {
-    rss_bytes: number
-    heap_used_bytes: number
-    uptime_seconds: number
-  }
-  last_activity_at?: string
-}
-
 export interface SimulatedUser {
   run_id: string
   generation_index: number
@@ -143,6 +102,8 @@ export interface SimulatedDevice {
   factory_batch_id?: string
   serial_number?: string
   claimed_at?: string
+  /** Email of the simulated owner (paged registry list only). */
+  owner_email?: string | null
   generation_index: number
   mac: string
   device_id?: string
@@ -422,4 +383,60 @@ export interface DevicePairing {
   payload: string
   claimable: boolean
   owner: DeviceOwner | null
+}
+
+export interface Page<T> {
+  page: number
+  page_size: number
+  total: number
+  items: T[]
+}
+
+export interface Overview {
+  sampled_at: string
+  process: {
+    cpu_percent: number
+    rss_bytes: number
+    heap_used_bytes: number
+    event_loop_delay_p99_ms: number
+    uptime_seconds: number
+  }
+  runtime: {
+    registered: number
+    connected: number
+    broker_connected: number
+    paused: number
+    awaiting_claim: number
+    scheduler_due: number
+    registry_pending_writes: number
+  }
+  rates: {
+    window_seconds: number
+    telemetry_per_second: number
+    telemetry_failures_per_minute: number
+    bytes_per_second: number
+    operations_per_second: number
+  }
+  registry: {
+    devices_total: number
+    devices_by_state: Record<string, number>
+    users_total: number
+    active_runs: number
+  }
+  ingest_latency: {
+    samples: number
+    p50_ms: number
+    p95_ms: number
+    max_ms: number
+  } | null
+  limits: {
+    gateway_register_per_minute: number
+    gateway_login_per_minute: number
+    gateway_claim_per_account_per_minute: number
+    generation_concurrency: number
+    max_users_per_run: number
+    max_devices_per_run: number
+    max_active_devices: number
+    max_telemetry_messages_per_second: number
+  }
 }
