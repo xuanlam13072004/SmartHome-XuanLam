@@ -73,6 +73,17 @@ class AppErrorMapper {
   }
 
   /// Vietnamese message for a backend or device reason code.
+  /// The backend error code of a failed request (`error.code`), if any.
+  static String? codeOf(Object? error) {
+    if (error is! DioException) return null;
+    final data = error.response?.data;
+    if (data is! Map) return null;
+    final backendError = data['error'];
+    if (backendError is Map) return backendError['code']?.toString();
+    if (backendError is String) return backendError;
+    return null;
+  }
+
   static String messageForCode(String errorCode) =>
       _mapBackendErrorCode(errorCode);
 
@@ -137,6 +148,55 @@ class AppErrorMapper {
       'MEDIA_INGEST_FORBIDDEN': 'Máy chủ video từ chối camera',
       'DEVICE_OPERATION_REJECTED': 'Thiết bị từ chối thao tác',
       'INVALID_INPUT': 'Dữ liệu thao tác không hợp lệ',
+      // Account center
+      'RATE_LIMITED': 'Bạn thao tác quá nhanh. Vui lòng thử lại sau',
+      'ACCOUNT_NOT_FOUND': 'Không tìm thấy tài khoản',
+      'ACCESS_TOKEN_REVOKED': 'Phiên đăng nhập đã kết thúc. Vui lòng đăng nhập lại',
+      'INVALID_ACCESS_TOKEN': 'Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại',
+      'INVALID_PASSWORD': 'Mật khẩu không đúng',
+      'PASSWORD_UNCHANGED': 'Mật khẩu mới phải khác mật khẩu hiện tại',
+      'PASSWORD_CHANGED_CONCURRENTLY':
+          'Mật khẩu vừa được đổi ở nơi khác. Vui lòng thử lại',
+      'ACCOUNT_OWNS_DEVICES':
+          'Bạn cần gỡ hết thiết bị mình sở hữu trước khi xóa tài khoản',
+      // Rooms
+      'ROOM_NAME_TAKEN': 'Bạn đã có phòng với tên này',
+      'ROOM_LIMIT_REACHED': 'Bạn đã tạo đủ số phòng tối đa',
+      'ROOM_NOT_FOUND': 'Phòng không còn tồn tại',
+      'ROOM_ORDER_MISMATCH': 'Danh sách phòng vừa thay đổi. Vui lòng tải lại',
+      // Scenes
+      'SCENE_NOT_FOUND': 'Kịch bản không còn tồn tại',
+      'SCENE_NAME_TAKEN': 'Bạn đã có kịch bản với tên này',
+      'SCENE_LIMIT_REACHED': 'Bạn đã tạo đủ số kịch bản tối đa',
+      'SCENE_TOO_MANY_STEPS': 'Kịch bản có quá nhiều bước',
+      'SCENE_EMPTY': 'Kịch bản chưa có bước nào',
+      'SCENE_ALREADY_RUNNING': 'Kịch bản này đang chạy',
+      'SCENE_ACTION_NOT_ALLOWED': 'Thao tác này không dùng được trong kịch bản',
+      'SCENE_ORDER_MISMATCH': 'Danh sách kịch bản vừa thay đổi. Vui lòng tải lại',
+      'SCENE_RUN_NOT_FOUND': 'Không tìm thấy lần chạy này',
+      'SCENE_STEP_FAILED': 'Không gửi được lệnh tới thiết bị',
+      'SCENE_SCHEDULE_DUPLICATE': 'Kịch bản đã có lịch vào giờ và ngày này',
+      'SCENE_SCHEDULE_LIMIT': 'Kịch bản đã có đủ số lịch tối đa',
+      'SCENE_SCHEDULE_NOT_FOUND': 'Lịch hẹn giờ không còn tồn tại',
+      'SCENE_PROTECTED_STEPS': 'Kịch bản có thao tác cần mật khẩu nên không thể chạy tự động',
+      'SCENE_HAS_SCHEDULES': 'Hãy tắt hẹn giờ của kịch bản trước khi thêm thao tác cần mật khẩu',
+      'SCENE_USED_BY_AUTOMATION': 'Kịch bản đang được tự động hóa dùng nên không thể thêm thao tác cần mật khẩu',
+      'AUTOMATION_NAME_TAKEN': 'Đã có tự động hóa trùng tên',
+      'AUTOMATION_LIMIT': 'Bạn đã tạo đủ số tự động hóa tối đa',
+      'AUTOMATION_NOT_FOUND': 'Tự động hóa không còn tồn tại',
+      'AUTOMATION_TRIGGER_INVALID': 'Điều kiện kích hoạt không còn dùng được, hãy chọn lại',
+      'AUTOMATION_CONDITION_INVALID': 'Có điều kiện không còn dùng được, hãy chọn lại',
+      'SUGGESTION_ALREADY_ADDED': 'Gợi ý này đã được thêm',
+      'SUGGESTION_NOT_FOUND': 'Gợi ý không còn phù hợp với thiết bị của bạn',
+      'INVALID_TIMEZONE': 'Múi giờ không hợp lệ',
+      'INVALID_CURSOR': 'Danh sách đã thay đổi. Vui lòng tải lại',
+      // Reasons a device operation ended without success
+      'DEVICE_REMOVED': 'Thiết bị đã bị gỡ',
+      'OPERATION_TIMEOUT': 'Thiết bị không phản hồi kịp',
+      'OPERATION_TIMED_OUT': 'Thiết bị không phản hồi kịp',
+      'OPERATION_REJECTED': 'Thiết bị từ chối thao tác',
+      'OPERATION_FAILED': 'Thiết bị báo lỗi khi thực hiện',
+      'OPERATION_CANCELLED': 'Thao tác đã bị hủy',
     };
 
     return errorMessages[errorCode] ?? 'Lỗi: $errorCode';

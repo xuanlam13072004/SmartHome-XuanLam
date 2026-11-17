@@ -1,6 +1,7 @@
 'use strict';
 
 const { REDIS_CHANNELS } = require('../../../shared/constants');
+const { notificationCategory } = require('../../../shared/notification-categories');
 
 class RealtimePublisher {
     constructor(redisClient, logger) {
@@ -47,6 +48,8 @@ class RealtimePublisher {
                 event_id: eventDocument.event_id,
                 instance_id: eventDocument.instance_id,
                 capability_id: eventDocument.capability_id,
+                // Notification group, so clients can honour muted categories.
+                category: notificationCategory(eventDocument.capability_id),
                 event_name: eventDocument.event_name,
                 severity: eventDocument.severity,
                 data: eventDocument.data,

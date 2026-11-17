@@ -1,6 +1,9 @@
+import 'package:dio/dio.dart';
+
+import '../../../core/network/session_events.dart';
+import '../../../core/network/token_refresh_mutex.dart';
 import '../../../core/storage/token_storage.dart';
 import '../../../data/datasources/remote/auth_remote_data_source.dart';
-import '../../../core/network/token_refresh_mutex.dart';
 
 abstract class IAuthRepository {
   Future<void> login(String email, String password);
@@ -12,6 +15,12 @@ abstract class IAuthRepository {
   /// Attempts to get a valid access token, refreshing if needed.
   /// Returns null if refresh also fails (user must re-login).
   Future<String?> getValidToken();
+
+  /// Forgets the local session after the server ended it and tells the app.
+  Future<void> expireSession();
+
+  /// Clears local tokens without calling the server (the session no longer exists).
+  Future<void> clearLocalSession();
 }
 
 class ApiAuthRepository implements IAuthRepository {
@@ -37,17 +46,9 @@ class ApiAuthRepository implements IAuthRepository {
         refreshToken: refreshToken,
         sessionId: sessionId,
       );
-      if (user != null) {
-        if (user['id'] != null) {
-          await tokenStorage.saveUserId(user['id'] as String);
-        }
-        // Store user profile info for display in Profile screen
-        final fullName = user['full_name'] as String? ?? '';
-        final email = user['email'] as String? ?? '';
-        await tokenStorage.saveUserProfile(
-          fullName: fullName,
-          email: email,
-        );
+      // The profile itself is always read from the server (GET /me).
+      if (user != null && user['id'] != null) {
+        await tokenStorage.saveUserId(user['id'] as String);
       }
     } else {
       throw Exception('Invalid login response');
@@ -77,6 +78,15 @@ class ApiAuthRepository implements IAuthRepository {
   }
 
   @override
+  Future<void> expireSession() async {
+    await tokenStorage.clearTokens();
+    SessionEvents.notifyExpired();
+  }
+
+  @override
+  Future<void> clearLocalSession() => tokenStorage.clearTokens();
+
+  @override
   Future<String?> getToken() async {
     return await tokenStorage.getAccessToken();
   }
@@ -103,6 +113,7 @@ class ApiAuthRepository implements IAuthRepository {
 
     if (refreshToken == null || sessionId == null) return null;
 
+    var expired = false;
     final success = await TokenRefreshMutex.run(() async {
       try {
         final response =
@@ -121,12 +132,14 @@ class ApiAuthRepository implements IAuthRepository {
           );
           return true;
         }
-      } catch (_) {
-        await tokenStorage.clearTokens();
-      }
+      } on DioException catch (e) {
+        // Only a rejected session ends it; a network error is temporary.
+        expired = e.response?.statusCode == 401;
+      } catch (_) {}
       return false;
     });
 
+    if (expired) await expireSession();
     return success ? tokenStorage.getAccessToken() : null;
   }
 

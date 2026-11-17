@@ -112,6 +112,12 @@ class WebSocketClient {
         if (event == 'pong') {
           _handlePong();
           return;
+        } else if (event == 'session_revoked') {
+          // This login session was signed out (from another device, a
+          // password change or account deletion): stop and return to sign-in.
+          _shouldReconnect = false;
+          authRepository.expireSession();
+          return;
         } else if (event == 'auth_success') {
           _handleAuthSuccess();
           // forward to parser anyway if needed

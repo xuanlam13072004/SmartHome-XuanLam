@@ -103,6 +103,9 @@ class ProductUiRegistry {
         ProductUiProfile.irrigationManager,
       }.contains(_supportedProfile(device));
 
+  /// The UI profile [device] is shown with (generic when unsupported).
+  String profileOf(DeviceModel device) => _supportedProfile(device);
+
   String _supportedProfile(DeviceModel device) {
     if (!ProductUiProfile.supportsVersion(device.uiProfileVersion)) {
       return ProductUiProfile.generic;

@@ -136,6 +136,31 @@ const seedValue = (property: CapabilityProperty): unknown => {
     return null;
 };
 
+/** Sensor status properties that a powered-on sensor leaves once warmed up. */
+const SENSOR_STATUS_PROPERTIES = new Set(['calibration_state', 'sensor_state']);
+const WARM_UP_STATES = new Set(['unknown', 'warming_up']);
+
+/**
+ * The firmware boots its gas/smoke and moisture/water sensors in `unknown`
+ * (or `warming_up`) and reports `ready` once readings are valid. A virtual
+ * sensor has nothing to warm up, so it reaches `ready` at once. Deliberate
+ * states (`fault`, a door sensor's `calibrating`) are left untouched.
+ */
+export const completeSensorWarmUp = (state: DeviceState, product: ProductCatalog): boolean => {
+    let changed = false;
+    for (const instance of product.capability_instances) {
+        for (const property of instance.properties) {
+            if (!SENSOR_STATUS_PROPERTIES.has(property.id) || !property.enum?.includes('ready')) continue;
+            const reported = state.instances[instance.instance_id]?.reported;
+            if (reported && WARM_UP_STATES.has(String(reported[property.id]))) {
+                reported[property.id] = 'ready';
+                changed = true;
+            }
+        }
+    }
+    return changed;
+};
+
 export const generateInitialState = (product: ProductCatalog): DeviceState => {
     const source = clone(product.firmware_default_state);
     const state = removeCatalogConstants({
@@ -157,6 +182,7 @@ export const generateInitialState = (product: ProductCatalog): DeviceState => {
             }
         }
     }
+    completeSensorWarmUp(state, product);
     return state;
 };
 
@@ -181,7 +207,8 @@ const controlledPaths = (product: ProductCatalog): Set<string> => {
 export const evolveState = (current: DeviceState, product: ProductCatalog): DeviceState => {
     const next = removeCatalogConstants(current, product);
     const controlled = controlledPaths(product);
-    let changed = false;
+    // Devices saved before warm-up was simulated still report `unknown`.
+    let changed = completeSensorWarmUp(next, product);
     for (const instance of product.capability_instances) {
         for (const property of instance.properties) {
             if (isCatalogConstant(property)) continue;

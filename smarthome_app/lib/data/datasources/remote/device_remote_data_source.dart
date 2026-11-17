@@ -36,6 +36,7 @@ abstract class IDeviceRemoteDataSource {
   });
   Future<DeviceDto> updateDeviceName(String mac, String name);
   Future<void> unpairDevice(String mac);
+  Future<void> setDeviceRoom(String mac, String? roomId);
 }
 
 @riverpod
@@ -194,5 +195,13 @@ class DeviceRemoteDataSourceImpl implements IDeviceRemoteDataSource {
   @override
   Future<void> unpairDevice(String mac) async {
     await _dio.delete<dynamic>('/devices/${_macPath(mac)}');
+  }
+
+  @override
+  Future<void> setDeviceRoom(String mac, String? roomId) async {
+    await _dio.put<dynamic>(
+      '/devices/${_macPath(mac)}/room',
+      data: {'room_id': roomId},
+    );
   }
 }

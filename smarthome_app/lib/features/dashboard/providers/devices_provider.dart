@@ -42,6 +42,10 @@ class Devices extends _$Devices {
         _handleDeviceStatus(event);
       } else if (event is TopologyUpdatedEvent) {
         _handleTopologyUpdated(event);
+      } else if (event is DeviceAccessEvent) {
+        // A device was shared with or withdrawn from this account: reload the
+        // list (and with it roles and permissions) from the server.
+        ref.invalidateSelf();
       }
       // Operation status events can be surfaced by a dedicated activity UI.
     });
@@ -251,11 +255,23 @@ class Devices extends _$Devices {
     }
   }
 
-  Future<void> claimDevice(String mac, String secretKey, {String? name}) async {
+  /// Adds a device and, when [roomId] is given, puts it in that room.
+  /// Returns false when the device was added but could not be placed.
+  Future<bool> claimDevice(String mac, String secretKey,
+      {String? name, String? roomId}) async {
     final repo = ref.read(deviceRepositoryProvider);
     await repo.claimDevice(mac, secretKey, name: name);
+    var placed = true;
+    if (roomId != null) {
+      try {
+        await repo.setDeviceRoom(mac, roomId);
+      } catch (_) {
+        placed = false;
+      }
+    }
     // Refresh danh sách sau khi claim thành công
     ref.invalidateSelf();
+    return placed;
   }
 
   Future<Map<String, dynamic>> createResourceSession(
@@ -294,5 +310,57 @@ class Devices extends _$Devices {
     await repo.unpairDevice(mac);
     // Xóa khỏi danh sách hiện tại hoặc Invalidate
     ref.invalidateSelf();
+  }
+
+  /// Moves a device into one of this account's rooms (null = no room).
+  /// Applied locally first; restored if the server refuses.
+  Future<void> moveToRoom(String mac, String? roomId) async {
+    final previous = state.value;
+    if (previous != null) {
+      state = AsyncData([
+        for (final device in previous)
+          device.mac == mac
+              ? device.copyWith(roomId: roomId, clearRoom: roomId == null)
+              : device,
+      ]);
+    }
+    try {
+      await ref.read(deviceRepositoryProvider).setDeviceRoom(mac, roomId);
+    } catch (_) {
+      final current = state.value;
+      if (previous != null && current != null) {
+        final before = {for (final device in previous) device.mac: device.roomId};
+        state = AsyncData([
+          for (final device in current)
+            device.mac == mac
+                ? device.copyWith(roomId: before[mac], clearRoom: before[mac] == null)
+                : device,
+        ]);
+      }
+      rethrow;
+    }
+  }
+
+  /// Clears the room of every device that was in [roomId] (after the room is
+  /// deleted on the server, which already did the same there).
+  void forgetRoom(String roomId) {
+    final current = state.value;
+    if (current == null) return;
+    state = AsyncData([
+      for (final device in current)
+        device.roomId == roomId ? device.copyWith(clearRoom: true) : device,
+    ]);
+  }
+
+  /// Applies a room layout already saved on the server (mac → room id).
+  void applyRooms(Map<String, String> roomByMac) {
+    final current = state.value;
+    if (current == null || roomByMac.isEmpty) return;
+    state = AsyncData([
+      for (final device in current)
+        roomByMac.containsKey(device.mac)
+            ? device.copyWith(roomId: roomByMac[device.mac])
+            : device,
+    ]);
   }
 }

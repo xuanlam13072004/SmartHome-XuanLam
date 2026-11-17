@@ -6,6 +6,9 @@ import '../../../core/core.dart';
 import '../../../core/utils/app_error_mapper.dart';
 import '../../../core/widgets/widgets.dart';
 import '../providers/devices_provider.dart';
+import '../../rooms/presentation/room_picker_sheet.dart';
+import '../../rooms/providers/rooms_providers.dart';
+import '../../rooms/room_icons.dart';
 
 class AddDeviceSheet extends ConsumerStatefulWidget {
   const AddDeviceSheet({
@@ -28,6 +31,8 @@ class _AddDeviceSheetState extends ConsumerState<AddDeviceSheet> {
 
   bool _isLoading = false;
   String? _errorMsg;
+  /// Room to put the new device in; null = decide later.
+  String? _roomId;
 
   @override
   void initState() {
@@ -70,14 +75,21 @@ class _AddDeviceSheetState extends ConsumerState<AddDeviceSheet> {
     });
 
     try {
-      await ref.read(devicesProvider.notifier).claimDevice(
+      final placed = await ref.read(devicesProvider.notifier).claimDevice(
             mac,
             secret,
             name: name.isNotEmpty ? name : null,
+            roomId: _roomId,
           );
 
       if (!mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
       context.pop(true);
+      if (!placed) {
+        messenger.showSnackBar(const SnackBar(
+          content: Text('Đã thêm thiết bị nhưng chưa xếp được vào phòng. Bạn có thể chọn phòng trong trang thiết bị.'),
+        ));
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -160,9 +172,11 @@ class _AddDeviceSheetState extends ConsumerState<AddDeviceSheet> {
               context: context,
               controller: _nameController,
               label: 'Tên thiết bị (Tùy chọn)',
-              hintText: 'VD: Đèn phòng khách',
+              hintText: 'VD: Cửa cổng chính',
               prefixIcon: LucideIcons.type,
             ),
+            const SizedBox(height: AppSpacing.md),
+            _buildRoomField(context),
             if (_errorMsg != null) ...[
               const SizedBox(height: AppSpacing.md),
               Text(
@@ -190,6 +204,49 @@ class _AddDeviceSheetState extends ConsumerState<AddDeviceSheet> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildRoomField(BuildContext context) {
+    final room = ref.watch(roomsProvider).valueOrNull?.byId(_roomId);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Phòng (Tùy chọn)',
+          style: context.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        InkWell(
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          onTap: _isLoading
+              ? null
+              : () async {
+                  final choice = await pickRoom(
+                    context,
+                    currentRoomId: room?.id,
+                    title: 'Đặt thiết bị vào phòng',
+                  );
+                  if (choice != null && mounted) setState(() => _roomId = choice.roomId);
+                },
+          child: InputDecorator(
+            decoration: InputDecoration(
+              prefixIcon: Icon(
+                room == null ? unassignedRoomIcon : roomIcon(room.icon),
+                color: context.colorScheme.primary,
+              ),
+              suffixIcon: const Icon(Icons.chevron_right_rounded),
+              filled: true,
+              fillColor: context.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                borderSide: BorderSide.none,
+              ),
+            ),
+            child: Text(room?.name ?? 'Chưa xếp phòng'),
+          ),
+        ),
+      ],
     );
   }
 

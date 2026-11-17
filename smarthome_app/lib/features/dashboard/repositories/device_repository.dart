@@ -16,6 +16,8 @@ abstract class IDeviceRepository {
   Future<DeviceModel> claimDevice(String mac, String secretKey, {String? name});
   Future<DeviceModel> updateDeviceName(String mac, String name);
   Future<void> unpairDevice(String mac);
+  /// Puts the device in one of this account's rooms; null = no room.
+  Future<void> setDeviceRoom(String mac, String? roomId);
   Future<ProductModel?> getProduct(String productId);
   Future<Map<String, dynamic>> createResourceSession(
       String mac, DeviceResourceDefinition resource,
@@ -118,6 +120,7 @@ class ApiDeviceRepository implements IDeviceRepository {
         ..['product_id'] = device.productId
         ..['permissions'] = device.permissions
         ..['role'] = device.membershipRole
+        ..['room_id'] = device.roomId
         ..['is_active'] = true
         ..['network_id'] = device.topology?.networkId
         ..['join_rank'] = device.topology?.joinRank
@@ -162,6 +165,7 @@ class ApiDeviceRepository implements IDeviceRepository {
       diagnostics: newDiagnostics,
       permissions: device.permissions,
       membershipRole: device.membershipRole,
+      roomId: device.roomId,
       lastSeen: device.lastSeen,
       networkId: device.topology?.networkId,
       joinRank: device.topology?.joinRank,
@@ -308,4 +312,8 @@ class ApiDeviceRepository implements IDeviceRepository {
   Future<void> unpairDevice(String mac) async {
     await remoteDataSource.unpairDevice(mac);
   }
+
+  @override
+  Future<void> setDeviceRoom(String mac, String? roomId) =>
+      remoteDataSource.setDeviceRoom(mac, roomId);
 }

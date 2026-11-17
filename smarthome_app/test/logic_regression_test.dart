@@ -77,6 +77,9 @@ class _RecordingRemoteDataSource implements IDeviceRemoteDataSource {
 
   @override
   Future<void> unpairDevice(String mac) async {}
+
+  @override
+  Future<void> setDeviceRoom(String mac, String? roomId) async {}
 }
 
 Map<String, dynamic> _productJson() => {

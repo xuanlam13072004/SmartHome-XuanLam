@@ -30,18 +30,7 @@ import {
     unpairDevice,
     updateDeviceName,
 } from './service';
-
-function hasRecentReauthentication(app: FastifyInstance, request: any) {
-    const token = request.headers['x-reauth-token'];
-    if (typeof token !== 'string') return false;
-    try {
-        const confirmation = app.jwt.verify(token) as any;
-        return confirmation.purpose === 'reauth'
-            && confirmation.userId === request.user.userId;
-    } catch {
-        return false;
-    }
-}
+import { hasRecentReauthentication } from '../auth/reauth';
 
 /**
  * Device routes

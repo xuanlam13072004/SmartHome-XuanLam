@@ -10,8 +10,11 @@ class NeuBottomItem extends StatelessWidget {
     required this.label,
     required this.isSelected,
     required this.onTap,
+    this.badgeCount = 0,
   });
 
+  /// Red counter on the icon (unread notifications, pending invitations).
+  final int badgeCount;
   final IconData icon;
   final String label;
   final bool isSelected;
@@ -38,11 +41,15 @@ class NeuBottomItem extends StatelessWidget {
             // Icon
             AnimatedSwitcher(
               duration: const Duration(milliseconds: 200),
-              child: Icon(
-                icon,
+              child: Badge(
                 key: ValueKey<bool>(isSelected),
-                color: isSelected ? activeColor : inactiveColor,
-                size: 24,
+                isLabelVisible: badgeCount > 0,
+                label: Text(badgeCount > 99 ? '99+' : '$badgeCount'),
+                child: Icon(
+                  icon,
+                  color: isSelected ? activeColor : inactiveColor,
+                  size: 24,
+                ),
               ),
             ),
             const SizedBox(height: 4),

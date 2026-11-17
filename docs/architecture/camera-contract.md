@@ -349,8 +349,9 @@ File được đặt tên theo giờ UTC.
   - màn hình chi tiết (live, dòng thời gian, chọn ngày, play/pause/tua, thanh
     dung lượng);
   - nút xóa, chỉ hiện với chủ thiết bị.
-- Trình phát: bản web dùng `<video>` + hls.js (mục 14.4). Bản di động/desktop
-  thay file `hls_video_view_stub.dart` bằng trình phát nền tảng khi cần.
+- Trình phát: bản web dùng `<video>` + hls.js (mục 14.4); Android/iOS dùng
+  `video_player` (`hls_video_view_native.dart`), giờ của khung hình lấy từ
+  `EXT-X-PROGRAM-DATE-TIME` (`hls_playlist.dart`).
 - Trạng thái trung lập: `Camera ngoại tuyến`, `Không có bản ghi`,
   `Bản ghi không còn khả dụng`, `Đã đủ người xem`. Không bao giờ nhắc tới Simulator.
 

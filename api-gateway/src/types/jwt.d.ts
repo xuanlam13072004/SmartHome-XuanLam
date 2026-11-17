@@ -9,6 +9,8 @@ declare module 'fastify' {
         user: {
             userId: string;
             email?: string;
+            /** Login session of the access token (user_sessions.id). */
+            sid?: string;
         };
     }
 }

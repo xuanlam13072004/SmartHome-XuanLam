@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import '../storage/token_storage.dart';
+import 'session_events.dart';
 import 'token_refresh_mutex.dart';
 
 class AuthInterceptor extends Interceptor {
@@ -49,7 +50,8 @@ class AuthInterceptor extends Interceptor {
           final refreshToken = await tokenStorage.getRefreshToken();
           final sessionId = await tokenStorage.getSessionId();
           if (refreshToken == null || sessionId == null) {
-            throw Exception('No refresh token or session id');
+            await _expireSession();
+            return false;
           }
 
           final res = await dio.post<Map<String, dynamic>>(
@@ -76,8 +78,12 @@ class AuthInterceptor extends Interceptor {
           } else {
             throw Exception('Invalid token response');
           }
-        } catch (e) {
-          await tokenStorage.clearTokens();
+        } on DioException catch (e) {
+          // 401: the session was signed out or expired. Anything else (no
+          // network, server down) is temporary: keep the session.
+          if (e.response?.statusCode == 401) await _expireSession();
+          return false;
+        } catch (_) {
           return false;
         }
       });
@@ -87,6 +93,11 @@ class AuthInterceptor extends Interceptor {
     }
 
     handler.next(err);
+  }
+
+  Future<void> _expireSession() async {
+    await tokenStorage.clearTokens();
+    SessionEvents.notifyExpired();
   }
 
   Future<void> _retryRequest(

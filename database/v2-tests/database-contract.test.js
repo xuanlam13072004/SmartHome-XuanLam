@@ -31,6 +31,7 @@ test('PostgreSQL V2 contains all ownership, sharing, operation, credential and t
     for (const required of [
         'accounts',
         'user_sessions',
+        'account_preferences',
         'factory_devices',
         'device_networks',
         'device_metadata',
@@ -174,10 +175,43 @@ test('coordinated initializer enforces the target contract and is wired into Doc
     const initializer = fs.readFileSync(path.resolve(__dirname, '../initialize_v2.js'), 'utf8');
     const compose = fs.readFileSync(path.resolve(__dirname, '../../docker-compose.yml'), 'utf8');
 
-    assert.match(initializer, /POSTGRES_SCHEMA_VERSION = 202/);
+    assert.match(initializer, /POSTGRES_SCHEMA_VERSION = LATEST_SCHEMA_VERSION/);
+    assert.match(initializer, /applyPostgresSchema\(client, \{ fresh \}\)/);
     assert.match(initializer, /PostgreSQL contains an incompatible schema/);
     assert.match(initializer, /MongoDB contains incompatible collections/);
     assert.match(initializer, /name\.startsWith\('system\.'\)/);
     assert.equal(compose.includes('initialize_v2.js'), true);
     assert.equal(compose.includes('db-initialize'), true);
+});
+
+test('PostgreSQL upgrade steps are numbered after the baseline, additive and transaction-free', () => {
+    const { BASELINE_VERSION, LATEST_SCHEMA_VERSION, listMigrations } = require('../postgres/migrate');
+    assert.equal(BASELINE_VERSION, 203);
+    assert.match(sql, /VALUES \(203, 'schema_v2_account_center'\)/);
+    const migrations = listMigrations();
+    assert.ok(migrations.length >= 1);
+    assert.equal(LATEST_SCHEMA_VERSION, migrations.at(-1).version);
+    for (const migration of migrations) {
+        const source = fs.readFileSync(migration.file, 'utf8');
+        assert.equal(/\b(DROP|TRUNCATE)\b/i.test(source), false, `${migration.name} must be additive`);
+        assert.equal(/^\s*(BEGIN|COMMIT)\s*;/im.test(source), false, `${migration.name} runs inside the runner's transaction`);
+    }
+    const rooms = fs.readFileSync(migrations.find(item => item.name === 'rooms').file, 'utf8');
+    assert.match(rooms, /CREATE TABLE public\.rooms/);
+    assert.match(rooms, /ON DELETE SET NULL \(room_id\)/);
+    const scenes = fs.readFileSync(migrations.find(item => item.name === 'scenes').file, 'utf8');
+    assert.match(scenes, /CREATE TABLE public\.scene_runs/);
+    // One run in progress per scene, and steps never carry secrets.
+    assert.match(scenes, /CREATE UNIQUE INDEX uq_scene_runs_one_running/);
+    assert.match(scenes, /operation_input_has_sensitive_key\(input\)/);
+    const schedules = fs.readFileSync(migrations.find(item => item.name === 'scene_schedules').file, 'utf8');
+    // Next occurrence is computed by PostgreSQL in the schedule's own time zone.
+    assert.match(schedules, /CREATE FUNCTION public\.scene_schedule_next_run/);
+    assert.match(schedules, /REFERENCES public\.scenes \(id, account_id\) ON DELETE CASCADE/);
+    const automations = fs.readFileSync(migrations.find(item => item.name === 'automations').file, 'utf8');
+    assert.match(automations, /CREATE TABLE public\.automations/);
+    assert.match(automations, /CREATE TABLE public\.account_notifications/);
+    // Deleting a scene leaves its automations without one; a removed device takes them.
+    assert.match(automations, /ON DELETE SET NULL \(scene_id\)/);
+    assert.match(automations, /trigger_device_id uuid REFERENCES public\.device_metadata\(id\) ON DELETE CASCADE/);
 });

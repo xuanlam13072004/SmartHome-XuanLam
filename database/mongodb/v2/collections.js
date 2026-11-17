@@ -181,6 +181,8 @@ const COLLECTIONS = [
         indexes: [
             { key: { device_id: 1, event_id: 1 }, options: { unique: true, name: 'device_event_identity_unique' } },
             { key: { device_id: 1, received_at: -1, _id: -1 }, options: { name: 'device_event_device_timeline' } },
+            // Notification center: warning/critical events of the user's devices, newest first.
+            { key: { device_id: 1, severity: 1, received_at: -1, _id: -1 }, options: { name: 'device_event_alert_timeline' } },
             { key: { owner_id: 1, received_at: -1 }, options: { name: 'device_event_owner_timeline' } },
             { key: { event_name: 1, received_at: -1 }, options: { name: 'device_event_type_timeline' } },
             { key: { incident_id: 1, occurred_at: 1 }, options: { name: 'idx_device_events_incident', partialFilterExpression: { incident_id: { $type: 'string' } } } },

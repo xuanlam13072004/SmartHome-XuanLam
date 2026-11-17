@@ -29,6 +29,12 @@ class _AuthenticatedAuthRepository implements IAuthRepository {
 
   @override
   Future<String> reauthenticate(String password) async => 'reauth-token';
+
+  @override
+  Future<void> expireSession() async {}
+
+  @override
+  Future<void> clearLocalSession() async {}
 }
 
 class _EmptyDeviceRemoteDataSource implements IDeviceRemoteDataSource {
@@ -89,6 +95,9 @@ class _EmptyDeviceRemoteDataSource implements IDeviceRemoteDataSource {
 
   @override
   Future<void> unpairDevice(String mac) async {}
+
+  @override
+  Future<void> setDeviceRoom(String mac, String? roomId) async {}
 
   @override
   Future<DeviceDto> updateDeviceName(String mac, String name) async {

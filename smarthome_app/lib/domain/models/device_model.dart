@@ -20,6 +20,8 @@ class DeviceModel {
   final Map<String, dynamic> diagnostics;
   final List<String> permissions;
   final String? membershipRole;
+  /// This account's own room for the device; null = "Chưa xếp phòng".
+  final String? roomId;
   final String? lastSeen;
   final DeviceTopology? topology;
   final List<DeviceResourceDefinition> resources;
@@ -44,6 +46,7 @@ class DeviceModel {
     required this.diagnostics,
     this.permissions = const [],
     this.membershipRole,
+    this.roomId,
     required this.capabilities,
     this.lastSeen,
     this.topology,
@@ -67,6 +70,8 @@ class DeviceModel {
     Map<String, dynamic>? diagnostics,
     List<String>? permissions,
     String? membershipRole,
+    String? roomId,
+    bool clearRoom = false,
     List<CapabilityModel>? capabilities,
     String? lastSeen,
     DeviceTopology? topology,
@@ -90,6 +95,7 @@ class DeviceModel {
       diagnostics: diagnostics ?? this.diagnostics,
       permissions: permissions ?? this.permissions,
       membershipRole: membershipRole ?? this.membershipRole,
+      roomId: clearRoom ? null : roomId ?? this.roomId,
       capabilities: capabilities ?? this.capabilities,
       lastSeen: lastSeen ?? this.lastSeen,
       topology: clearTopology ? null : topology ?? this.topology,

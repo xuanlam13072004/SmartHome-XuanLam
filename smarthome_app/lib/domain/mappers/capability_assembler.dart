@@ -122,6 +122,7 @@ class CapabilityAssembler {
       diagnostics: deviceDto.diagnostics,
       permissions: deviceDto.permissions,
       membershipRole: deviceDto.membershipRole,
+      roomId: deviceDto.roomId,
       capabilities: capabilities,
       lastSeen: deviceDto.lastSeen,
       topology: deviceDto.networkId == null || deviceDto.topologyEpoch == null

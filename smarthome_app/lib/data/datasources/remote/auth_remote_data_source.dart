@@ -1,5 +1,7 @@
 import 'package:dio/dio.dart';
 
+import '../../../core/platform/client_info.dart';
+
 abstract class IAuthRemoteDataSource {
   Future<Map<String, dynamic>> login(String email, String password);
   Future<Map<String, dynamic>> register(
@@ -21,6 +23,7 @@ class AuthRemoteDataSourceImpl implements IAuthRemoteDataSource {
       data: {
         'email': email,
         'password': password,
+        'client': ClientInfo.current(),
       },
       options: Options(extra: {'skipAuth': true}),
     );

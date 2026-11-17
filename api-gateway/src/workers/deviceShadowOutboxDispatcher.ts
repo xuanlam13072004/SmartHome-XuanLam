@@ -12,7 +12,7 @@ type ShadowEvent = {
     id: number;
     device_id: string | null;
     mac: string;
-    operation: 'claim' | 'upsert' | 'rename' | 'unpair';
+    operation: 'claim' | 'upsert' | 'rename' | 'access' | 'unpair';
     payload: Record<string, any>;
 };
 
@@ -95,6 +95,15 @@ async function applyEvent(mongoDb: Db, event: ShadowEvent) {
     }
     if (event.operation === 'rename') {
         await applyGuardedUpdate(mongoDb, event, { name: payload.name });
+        return;
+    }
+    if (event.operation === 'access') {
+        // Device sharing changed: PostgreSQL computed the full audience.
+        const grants: ShadowAccessGrant[] = Array.isArray(payload.access_grants) ? payload.access_grants : [];
+        await applyGuardedUpdate(mongoDb, event, {
+            access_grants: grants,
+            access_account_ids: grants.map(grant => grant.account_id),
+        });
         return;
     }
 

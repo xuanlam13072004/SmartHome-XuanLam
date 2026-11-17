@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/config/app_config.dart';
 import '../../../core/network/dio_provider.dart';
 
 /// Error with a backend or camera reason code (for example `CAMERA_UNAVAILABLE`).
@@ -120,7 +121,7 @@ class CameraApi {
             return CameraMediaSession(
               mac: mac,
               sessionId: sessionId,
-              playlistUrl: '$locator$accessToken/index.m3u8',
+              playlistUrl: AppConfig.reachableUrl('$locator$accessToken/index.m3u8'),
               expiresAt: DateTime.tryParse(session['expires_at']?.toString() ?? '') ??
                   DateTime.now().add(const Duration(minutes: 4)),
             );

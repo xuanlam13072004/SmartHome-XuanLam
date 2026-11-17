@@ -4,14 +4,13 @@ import '../constants/storage_keys.dart';
 abstract class ITokenStorage {
   Future<void> saveTokens({required String accessToken, required String refreshToken, required String sessionId});
   Future<String?> getAccessToken();
+  /// Replaces only the access token (after a password change keeps this session).
+  Future<void> saveAccessToken(String accessToken);
   Future<String?> getRefreshToken();
   Future<String?> getSessionId();
   Future<void> clearTokens();
   Future<void> saveUserId(String userId);
   Future<String?> getUserId();
-  Future<void> saveUserProfile({required String fullName, required String email});
-  Future<String?> getUserFullName();
-  Future<String?> getUserEmail();
 }
 
 class SecureTokenStorageImpl implements ITokenStorage {
@@ -34,6 +33,10 @@ class SecureTokenStorageImpl implements ITokenStorage {
   }
 
   @override
+  Future<void> saveAccessToken(String accessToken) =>
+      _storage.write(key: StorageKeys.accessToken, value: accessToken);
+
+  @override
   Future<String?> getRefreshToken() async {
     return await _storage.read(key: StorageKeys.refreshToken);
   }
@@ -49,8 +52,6 @@ class SecureTokenStorageImpl implements ITokenStorage {
     await _storage.delete(key: StorageKeys.refreshToken);
     await _storage.delete(key: StorageKeys.sessionId);
     await _storage.delete(key: StorageKeys.userId);
-    await _storage.delete(key: StorageKeys.userFullName);
-    await _storage.delete(key: StorageKeys.userEmail);
   }
 
   @override
@@ -62,22 +63,4 @@ class SecureTokenStorageImpl implements ITokenStorage {
   Future<String?> getUserId() async {
     return await _storage.read(key: StorageKeys.userId);
   }
-
-  @override
-  Future<void> saveUserProfile(
-      {required String fullName, required String email}) async {
-    await _storage.write(key: StorageKeys.userFullName, value: fullName);
-    await _storage.write(key: StorageKeys.userEmail, value: email);
-  }
-
-  @override
-  Future<String?> getUserFullName() async {
-    return await _storage.read(key: StorageKeys.userFullName);
-  }
-
-  @override
-  Future<String?> getUserEmail() async {
-    return await _storage.read(key: StorageKeys.userEmail);
-  }
-
 }

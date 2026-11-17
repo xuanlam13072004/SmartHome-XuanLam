@@ -204,12 +204,14 @@ thuẫn:
   hoạt động chung `product_activity_panel.dart` (chỉ chủ thiết bị, Gateway chỉ cho
   chủ đọc). Camera: trang là khung video tự phát trực tiếp, không Hub–Node. Đã kiểm
   cú pháp toàn bộ Dart bằng tree-sitter-dart; chưa chạy `flutter analyze/test`.
-- **Android chưa có trình phát (người dùng chọn làm sau, 2026-11-06).** Khi người
-  dùng yêu cầu: thay `hls_video_view_stub.dart` bằng bản dùng `video_player`
-  (ExoPlayer phát HLS fMP4); tự đọc `EXT-X-PROGRAM-DATE-TIME` từ playlist để tua
-  theo giờ; thêm quyền `INTERNET` và cho phép cleartext (dev) trong
-  `android/app/src/main/AndroidManifest.xml`; `API_BASE_URL` và `MEDIA_PUBLIC_URL`
-  phải là IP LAN/`10.0.2.2`/tên miền, không phải `localhost`.
+- **Trình phát Android (làm 2026-11-11).** `hls_video_view_native.dart` dùng
+  `video_player` (ExoPlayer phát HLS fMP4); `hls_playlist.dart` tự đọc
+  `EXT-X-PROGRAM-DATE-TIME` để tua theo giờ và hiện giờ khung hình; toàn màn hình
+  là trang ngang riêng. Manifest có quyền `INTERNET` và cleartext (dev).
+  `AppConfig.baseUrl` mặc định `10.0.2.2:3000` trên emulator, điện thoại thật
+  dùng `--dart-define=API_BASE_URL=http://<IP máy tính>:3000`; URL video mà
+  server công bố là `localhost` được đổi sang host của API
+  (`AppConfig.reachableUrl`), nên không phải sửa `MEDIA_PUBLIC_URL` khi dev.
 
 ## Xưởng sản xuất và tem QR của Simulator (2026-11-07)
 
@@ -320,6 +322,15 @@ backend), gọn còn ít trang. Đã làm:
 10. Camera thật/microSD là phase phần cứng riêng: xác định chính xác board, PSRAM, SD bus, pin map, khả năng ghi đồng thời với stream và định dạng. README firmware hiện nói camera còn planned và firmware cửa không tích hợp camera/SD.
 
 **Chưa chốt:** codec/container, segment duration, media transport cuối, chính sách retention theo tuổi ngoài quota, hành vi khi hết dung lượng mà vẫn live, và quy tắc giữ/xóa video khi unpair. AI tiếp theo phải trình bày tradeoff hoặc thử prototype nhỏ trước; không tự coi giả định là quyết định của người dùng.
+
+## Cá nhân, Phòng, Kịch bản (2026-11-09 → 11-13)
+
+- Schema PostgreSQL = baseline 203 (`schema_v2.sql`) + bước nâng cấp trong `database/postgres/migrations` (`migrate.js`, giữ dữ liệu). Hiện là **207**.
+- Trang Cá nhân: `docs/architecture/account-center.md`. Phòng (204): `docs/architecture/rooms.md`. Kịch bản (205 + hẹn giờ 206 + tự động hóa 207): `docs/architecture/scenes.md`.
+- Kịch bản: đã xong cả 3 đợt — chạy tay + lịch sử, hẹn giờ, tự động hóa (Khi trạng thái/sự kiện/giờ → Nếu → Thì chạy kịch bản/gửi thông báo) + gợi ý. Bộ máy: `workers/automationEngine.ts` (nghe Redis `device.telemetry/event/status`, chỉ mục MAC trong bộ nhớ), `modules/automations/firing.ts` (khóa dòng → đúng 1 lần dù nhiều Gateway). Thông báo của tự động hóa nằm ở bảng `account_notifications`, gộp vào `GET /me/notifications`.
+  Đã chốt: bước "được bảo vệ" (catalog `confirmation` khác `none`, vd mở khóa cửa) chỉ cho chạy tay và phải nhập mật khẩu mỗi lần; không cho trong hẹn giờ/tự động hóa.
+  Người được chia sẻ tạo kịch bản riêng với thao tác họ có quyền.
+- Cloudflare Tunnel (phương án A, người dùng tạm hoãn): cần Gateway đọc IP thật từ `CF-Connecting-IP`, dịch vụ `cloudflared` trong compose, file `--dart-define-from-file` cho app; `MEDIA_PUBLIC_URL` đặt trong `.env` gốc.
 
 ## Mục tiêu và lộ trình tiếp theo
 

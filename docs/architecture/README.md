@@ -1,7 +1,8 @@
 # Current SmartHome architecture
 
 This repository has one active contract: Product Catalog V2 and database schema
-version 202. There is no V1 compatibility layer.
+version 207 (baseline 203 + incremental migrations in
+`database/postgres/migrations`). There is no V1 compatibility layer.
 
 ## Authority boundaries
 
@@ -22,6 +23,23 @@ Every MQTT client authenticates; anonymous access is disabled. Devices (real or
 virtual) log in with username = MAC and a per-device factory password, and the
 broker ACL limits each device to `smarthome/<its MAC>/...`. Details, roles and
 provisioning: [mqtt-security.md](mqtt-security.md).
+
+## Account center
+
+Profile, login sessions, device sharing, notifications and activity history:
+[account-center.md](account-center.md).
+
+## Rooms
+
+Personal rooms per account, device placement, live room summaries and quick
+controls: [rooms.md](rooms.md).
+
+## Scenes
+
+Personal scenes ("Kịch bản"): ordered device operations run by the Gateway's
+scene runner, with history and schedules; automations ("Tự động": device
+state, event or time → scene and/or notification) and suggestions:
+[scenes.md](scenes.md).
 
 ## Security camera (proposal)
 

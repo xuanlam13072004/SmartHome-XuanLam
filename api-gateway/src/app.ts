@@ -4,12 +4,19 @@ import redisPlugin from './plugins/redis';
 import mongoPlugin from './plugins/mongo';
 import authRoutes from './modules/auth/routes';
 import deviceRoutes from './modules/device/routes';
+import accountRoutes from './modules/account/routes';
+import sharingRoutes from './modules/sharing/routes';
+import notificationRoutes from './modules/notifications/routes';
+import roomRoutes from './modules/rooms/routes';
+import sceneRoutes from './modules/scenes/routes';
+import automationRoutes from './modules/automations/routes';
 import jwtPlugin from './plugins/jwt';
 import errorHandlerPlugin from './plugins/errorHandler';
 import validationPlugin from './plugins/validation';
 import rateLimitPlugin from './plugins/rateLimit';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
+import { corsOptions } from './config/cors';
 
 /**
  * buildApp
@@ -24,7 +31,7 @@ export function buildApp(): FastifyInstance {
 
     // Security plugins
     app.register(helmet);
-    app.register(cors, { origin: true }); // Allow all origins in dev
+    app.register(cors, corsOptions);
 
     // Register global error handler
     app.register(errorHandlerPlugin);
@@ -52,6 +59,14 @@ export function buildApp(): FastifyInstance {
 
     // Register Device module routes
     app.register(deviceRoutes);
+
+    // Account center ("Cá nhân") and device sharing
+    app.register(accountRoutes);
+    app.register(sharingRoutes);
+    app.register(notificationRoutes);
+    app.register(roomRoutes);
+    app.register(sceneRoutes);
+    app.register(automationRoutes);
 
     // Health check cho load balancer / k8s
     app.get('/health', async () => {

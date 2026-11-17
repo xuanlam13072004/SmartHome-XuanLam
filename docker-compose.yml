@@ -18,10 +18,14 @@ services:
     networks:
       - smarthome_net
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      # Check over TCP: on a fresh data folder the image first runs a temporary,
+      # socket-only server to create the database, which a plain pg_isready
+      # reports as ready before the real server listens.
+      test: [ "CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d smarthome" ]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 10s
 
   redis:
     image: redis:7-alpine

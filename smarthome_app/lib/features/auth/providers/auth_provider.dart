@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import '../../../core/network/session_events.dart';
 import '../../../core/storage/token_storage_provider.dart';
 import '../../../data/datasources/remote/auth_remote_data_source_provider.dart';
 import '../repositories/auth_repository.dart';
@@ -31,7 +32,31 @@ IAuthRepository authRepository(Ref ref) {
 class AuthController extends _$AuthController {
   @override
   AuthState build() {
+    final subscription = SessionEvents.expired.listen((_) => _onSessionExpired());
+    ref.onDispose(subscription.cancel);
     return AuthState.unknown;
+  }
+
+  /// The server ended this session (signed out elsewhere, password changed,
+  /// account deleted): drop live data and go back to sign-in.
+  void _onSessionExpired() {
+    if (state != AuthState.authenticated) return;
+    _resetSessionState();
+    state = AuthState.expired;
+  }
+
+  /// Ends the session on this device only, for when the server-side session
+  /// is already gone (for example after deleting the account).
+  Future<void> signOutLocally() async {
+    await ref.read(authRepositoryProvider).clearLocalSession();
+    _resetSessionState();
+    state = AuthState.unauthenticated;
+  }
+
+  void _resetSessionState() {
+    ref.read(webSocketClientProvider).disconnect();
+    ref.invalidate(devicesProvider);
+    ref.invalidate(realtimeRepositoryProvider);
   }
 
   Future<void> checkAuth() async {
@@ -64,13 +89,7 @@ class AuthController extends _$AuthController {
       await ref.read(authRepositoryProvider).logout();
     } catch (_) {}
     
-    // Clear WebSocket
-    ref.read(webSocketClientProvider).disconnect();
-    
-    // Invalidate state to clear caches
-    ref.invalidate(devicesProvider);
-    ref.invalidate(realtimeRepositoryProvider);
-    
+    _resetSessionState();
     state = AuthState.unauthenticated;
   }
 }

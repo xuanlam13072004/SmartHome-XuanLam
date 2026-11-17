@@ -13,9 +13,13 @@ MongoDB owns the published Product Catalog, device shadows, telemetry, events,
 incidents, active-operation projections and ingest receipts. Physical reported
 state remains device-authoritative.
 
-The initializer accepts an already initialized database only when schema
-version `202` and every required table/collection are present. Any old or
-partial contract is rejected and must be cleared before restart.
+PostgreSQL = baseline `postgres/schema_v2.sql` (version `203`) followed by the
+numbered, additive steps in `postgres/migrations/` (`204_rooms.sql`, …),
+applied by `postgres/migrate.js`. A fresh database gets everything; an existing
+one only the steps missing from `schema_migrations`, each in its own
+transaction, so data is kept across upgrades. Databases older than the baseline
+are rejected and must be cleared. New schema changes go into a new
+`migrations/<next number>_<name>.sql` file; never edit an applied step.
 
 Run source-contract checks with:
 

@@ -110,6 +110,34 @@ class TopologyUpdatedEvent extends WsEvent {
   final String? removedMac;
 }
 
+/// Access to a device was granted to or withdrawn from this account (sharing).
+class DeviceAccessEvent extends WsEvent {
+  DeviceAccessEvent({required this.mac, required this.granted})
+      : super(granted ? 'device_access_granted' : 'device_access_revoked');
+  final String mac;
+  final bool granted;
+}
+
+/// A personal event for this account, e.g. `sharing_invite_received`.
+class AccountNotificationEvent extends WsEvent {
+  AccountNotificationEvent(super.event, this.data);
+  final Map<String, dynamic> data;
+}
+
+/// Progress of one of this account's scene runs (`scene_run_updated`).
+class SceneRunEvent extends WsEvent {
+  SceneRunEvent(this.run) : super('scene_run_updated');
+  final Map<String, dynamic> run;
+}
+
+/// One of this account's automations fired (`automation_fired`): its new status.
+class AutomationFiredEvent extends WsEvent {
+  AutomationFiredEvent(this.status) : super('automation_fired');
+
+  /// automation_id, last_triggered_at, last_result, last_run_id, next_run_at
+  final Map<String, dynamic> status;
+}
+
 class UnknownEvent extends WsEvent {
   final String rawData;
   UnknownEvent(this.rawData) : super('unknown');
@@ -194,6 +222,29 @@ class WsEventParser {
             timestamp: data['timestamp']?.toString() ?? '',
             removedMac: removedMac,
           );
+        case 'device_access_granted':
+        case 'device_access_revoked':
+          return DeviceAccessEvent(
+            mac: data['mac']?.toString().toUpperCase() ?? '',
+            granted: event == 'device_access_granted',
+          );
+        case 'sharing_invite_received':
+        case 'sharing_invite_cancelled':
+        case 'sharing_member_joined':
+        case 'notification_created':
+          return AccountNotificationEvent(
+            event as String,
+            data['data'] is Map ? Map<String, dynamic>.from(data['data'] as Map) : <String, dynamic>{},
+          );
+        case 'automation_fired':
+          final status = data['data'];
+          if (status is! Map || status['automation_id'] is! String) return UnknownEvent(rawJson);
+          return AutomationFiredEvent(Map<String, dynamic>.from(status));
+        case 'scene_run_updated':
+          final payload = data['data'];
+          final run = payload is Map ? payload['run'] : null;
+          if (run is! Map) return UnknownEvent(rawJson);
+          return SceneRunEvent(Map<String, dynamic>.from(run));
         default:
           return UnknownEvent(rawJson);
       }

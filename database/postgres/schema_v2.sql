@@ -9,7 +9,7 @@ CREATE TABLE public.schema_migrations (
 );
 
 INSERT INTO public.schema_migrations (version, name)
-VALUES (202, 'schema_v2_security_camera_contract')
+VALUES (203, 'schema_v2_account_center')
 ON CONFLICT (version) DO NOTHING;
 
 CREATE FUNCTION public.set_updated_at() RETURNS trigger
@@ -77,14 +77,21 @@ CREATE UNIQUE INDEX uq_accounts_email_normalized ON public.accounts (lower(email
 CREATE TABLE public.user_sessions (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     account_id uuid NOT NULL REFERENCES public.accounts(id) ON DELETE CASCADE,
+    -- SHA-256 of a 384-bit random refresh token (high entropy: no slow hash needed).
     refresh_token_hash text NOT NULL,
     status text NOT NULL DEFAULT 'active'
         CHECK (status IN ('active', 'revoked', 'expired')),
+    -- What the user sees in "Phiên đăng nhập"; reported by the app at login.
+    client_platform text NOT NULL DEFAULT 'unknown'
+        CHECK (client_platform IN ('web', 'android', 'ios', 'windows', 'macos', 'linux', 'unknown')),
+    client_name text,
     expires_at timestamp with time zone NOT NULL,
     last_used_at timestamp with time zone,
     created_at timestamp with time zone NOT NULL DEFAULT now(),
     updated_at timestamp with time zone NOT NULL DEFAULT now(),
-    CHECK (expires_at > created_at)
+    CHECK (expires_at > created_at),
+    CHECK (refresh_token_hash ~ '^[0-9a-f]{64}$'),
+    CHECK (client_name IS NULL OR length(btrim(client_name)) BETWEEN 1 AND 80)
 );
 
 CREATE INDEX idx_user_sessions_account_status
@@ -92,6 +99,18 @@ CREATE INDEX idx_user_sessions_account_status
 CREATE INDEX idx_user_sessions_expiry
     ON public.user_sessions (expires_at)
     WHERE status = 'active';
+
+-- Per-account settings that follow the user across devices. A missing row means
+-- defaults. 'safety' (fire, gas, smoke) can never be muted.
+CREATE TABLE public.account_preferences (
+    account_id uuid PRIMARY KEY REFERENCES public.accounts(id) ON DELETE CASCADE,
+    muted_notification_categories text[] NOT NULL DEFAULT ARRAY[]::text[],
+    -- Notifications received after this instant count as unread.
+    notifications_seen_at timestamp with time zone,
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    updated_at timestamp with time zone NOT NULL DEFAULT now(),
+    CHECK (muted_notification_categories <@ ARRAY['security', 'camera', 'outdoor', 'device']::text[])
+);
 
 CREATE TABLE public.factory_devices (
     mac varchar(17) PRIMARY KEY,
@@ -258,6 +277,10 @@ CREATE UNIQUE INDEX uq_device_invites_pending_email
     WHERE status = 'pending';
 CREATE INDEX idx_device_invites_expiry
     ON public.device_invites (expires_at)
+    WHERE status = 'pending';
+-- "Lời mời đang chờ" of the signed-in user.
+CREATE INDEX idx_device_invites_pending_invitee
+    ON public.device_invites (lower(invited_email), created_at DESC)
     WHERE status = 'pending';
 
 CREATE TABLE public.device_invite_permissions (
@@ -547,8 +570,9 @@ CREATE INDEX idx_device_operations_device_timeline
 CREATE INDEX idx_device_operations_active_timeout
     ON public.device_operations (timeout_at)
     WHERE status IN ('accepted', 'queued', 'dispatched', 'executing');
+-- "Lịch sử hoạt động": keyset pages over (created_at, id).
 CREATE INDEX idx_device_operations_actor
-    ON public.device_operations (actor_account_id, created_at DESC)
+    ON public.device_operations (actor_account_id, created_at DESC, id DESC)
     WHERE actor_account_id IS NOT NULL;
 
 CREATE TABLE public.device_operation_transitions (
@@ -741,6 +765,7 @@ CREATE TABLE public.device_audit_logs (
     reason_code text,
     metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
     occurred_at timestamp with time zone NOT NULL DEFAULT now(),
+    CHECK (action ~ '^[a-z][a-z_]*(\.[a-z][a-z_]*)+$'),
     CHECK (jsonb_typeof(metadata) = 'object'),
     CHECK (NOT public.operation_input_has_sensitive_key(metadata))
 );
@@ -748,15 +773,16 @@ CREATE TABLE public.device_audit_logs (
 CREATE INDEX idx_device_audit_logs_device_timeline
     ON public.device_audit_logs (device_id, occurred_at DESC)
     WHERE device_id IS NOT NULL;
+-- "Lịch sử hoạt động": keyset pages over (occurred_at, id).
 CREATE INDEX idx_device_audit_logs_actor_timeline
-    ON public.device_audit_logs (actor_account_id, occurred_at DESC)
+    ON public.device_audit_logs (actor_account_id, occurred_at DESC, id DESC)
     WHERE actor_account_id IS NOT NULL;
 
 CREATE TABLE public.device_shadow_outbox (
     id bigserial PRIMARY KEY,
     device_id uuid,
     mac varchar(17) NOT NULL,
-    operation text NOT NULL CHECK (operation IN ('claim', 'upsert', 'rename', 'unpair')),
+    operation text NOT NULL CHECK (operation IN ('claim', 'upsert', 'rename', 'access', 'unpair')),
     payload jsonb NOT NULL DEFAULT '{}'::jsonb,
     attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
     available_at timestamp with time zone NOT NULL DEFAULT now(),
@@ -804,6 +830,9 @@ CREATE TRIGGER trg_accounts_updated_at
     FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 CREATE TRIGGER trg_user_sessions_updated_at
     BEFORE UPDATE ON public.user_sessions
+    FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER trg_account_preferences_updated_at
+    BEFORE UPDATE ON public.account_preferences
     FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 CREATE TRIGGER trg_factory_devices_updated_at
     BEFORE UPDATE ON public.factory_devices

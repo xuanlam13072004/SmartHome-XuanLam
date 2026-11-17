@@ -8,7 +8,17 @@ import '../providers/devices_provider.dart';
 import '../providers/realtime_provider.dart';
 import '../../../core/network/websocket_client.dart';
 import '../../products/product_ui_registry.dart';
+import '../../../domain/models/device_model.dart';
+import '../../rooms/providers/rooms_providers.dart';
+import '../../rooms/room_insights.dart';
+import 'capability_actions.dart';
 import 'qr_scanner_screen.dart';
+
+/// Room chip selected on "Tổng quan": null = all devices.
+final _roomFilterProvider = StateProvider.autoDispose<String?>((ref) => null);
+
+/// Filter value of the "Chưa xếp phòng" chip (room ids are UUIDs).
+const _unassignedFilter = 'unassigned';
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
@@ -18,6 +28,18 @@ class DashboardScreen extends ConsumerWidget {
     final devicesAsync = ref.watch(devicesProvider);
     // Initialize WebSocket lifecycle (connects when authenticated)
     ref.watch(webSocketLifecycleProvider);
+    final rooms = ref.watch(roomsProvider).valueOrNull?.rooms ?? const [];
+    final groups = RoomGroups(rooms, devicesAsync.valueOrNull ?? const []);
+    var filter = ref.watch(_roomFilterProvider);
+    // A chip whose room is gone (or the last unassigned device moved) shows all.
+    if (filter == _unassignedFilter ? groups.unassigned.isEmpty : filter != null && !groups.byRoom.containsKey(filter)) {
+      filter = null;
+    }
+    List<DeviceModel> visible(List<DeviceModel> devices) => switch (filter) {
+          null => devices,
+          _unassignedFilter => groups.unassigned,
+          final String roomId => groups.of(roomId),
+        };
 
     return Scaffold(
       backgroundColor: context.colorScheme.surface,
@@ -135,6 +157,44 @@ class DashboardScreen extends ConsumerWidget {
               child: SizedBox(height: AppSpacing.lg),
             ),
 
+            // ── Room filter (only once the account has rooms) ───────────────
+            if (rooms.isNotEmpty && (devicesAsync.valueOrNull?.isNotEmpty ?? false))
+              SliverToBoxAdapter(
+                child: SizedBox(
+                  height: 48,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md,
+                      vertical: AppSpacing.xs,
+                    ),
+                    children: [
+                      for (final chip in [
+                        (null, 'Tất cả'),
+                        for (final room in rooms)
+                          (room.id, '${room.name} · ${groups.of(room.id).length}'),
+                        if (groups.unassigned.isNotEmpty)
+                          (_unassignedFilter, 'Chưa xếp phòng · ${groups.unassigned.length}'),
+                      ])
+                        Padding(
+                          padding: const EdgeInsets.only(right: AppSpacing.sm),
+                          child: NeuChip(
+                            label: chip.$2,
+                            isSelected: filter == chip.$1,
+                            onSelected: (_) => ref
+                                .read(_roomFilterProvider.notifier)
+                                .state = chip.$1,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            if (rooms.isNotEmpty && (devicesAsync.valueOrNull?.isNotEmpty ?? false))
+              const SliverToBoxAdapter(
+                child: SizedBox(height: AppSpacing.md),
+              ),
+
             // ── Device Grid (Responsive) ─────────────────────────────────────
             devicesAsync.when(
               loading: () => const SliverToBoxAdapter(
@@ -167,7 +227,22 @@ class DashboardScreen extends ConsumerWidget {
                   ),
                 ),
               ),
-              data: (devices) {
+              data: (allDevices) {
+                final devices = visible(allDevices);
+                if (allDevices.isNotEmpty && devices.isEmpty) {
+                  return SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSpacing.xl),
+                      child: Text(
+                        'Phòng này chưa có thiết bị nào',
+                        textAlign: TextAlign.center,
+                        style: context.textTheme.bodyMedium?.copyWith(
+                          color: context.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  );
+                }
                 // Empty state
                 if (devices.isEmpty) {
                   return SliverToBoxAdapter(
@@ -224,15 +299,9 @@ class DashboardScreen extends ConsumerWidget {
                           context,
                           device: device,
                           onTap: () => context.push('/device/${device.mac}'),
-                          onCapabilityChanged: (capability, value) async {
-                            await ref
-                                .read(devicesProvider.notifier)
-                                .updateCapability(
-                                  device.mac,
-                                  capability,
-                                  value,
-                                );
-                          },
+                          onCapabilityChanged: (capability, value) =>
+                              applyCapabilityChange(
+                                  context, ref, device, capability, value),
                         );
                       },
                       childCount: devices.length,

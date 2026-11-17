@@ -1,12 +1,11 @@
 'use strict';
 
-const fs = require('node:fs');
-const path = require('node:path');
 const { Client } = require('pg');
 const { MongoClient } = require('mongodb');
 
 const { applyMongoCollectionsV2 } = require('./mongodb/v2/apply-collections');
 const { seedCatalogV2 } = require('./mongodb/v2/seed-catalog');
+const { LATEST_SCHEMA_VERSION, applyPostgresSchema } = require('./postgres/migrate');
 
 function assertInitializationGate() {
     if (process.env.ALLOW_V2_DATABASE_INITIALIZATION !== 'true') {
@@ -14,10 +13,19 @@ function assertInitializationGate() {
     }
 }
 
-const POSTGRES_SCHEMA_VERSION = 202;
+const POSTGRES_SCHEMA_VERSION = LATEST_SCHEMA_VERSION;
 const REQUIRED_POSTGRES_TABLES = [
     'accounts',
     'user_sessions',
+    'account_preferences',
+    'rooms',
+    'scenes',
+    'scene_steps',
+    'scene_runs',
+    'scene_run_steps',
+    'scene_schedules',
+    'automations',
+    'account_notifications',
     'factory_devices',
     'device_networks',
     'device_metadata',
@@ -62,31 +70,34 @@ async function initializePostgres() {
                 AND table_type = 'BASE TABLE'`,
         );
         const existingTables = result.rows.map(row => row.table_name).sort();
-        if (existingTables.length > 0) {
-            if (!existingTables.includes('schema_migrations')) {
-                throw new Error(
-                    `PostgreSQL contains an incompatible schema: ${existingTables.join(', ')}. `
-                    + 'Clear the configured PostgreSQL data directory before starting the new architecture.',
-                );
-            }
-
-            const version = await client.query(
-                'SELECT 1 FROM public.schema_migrations WHERE version = $1',
-                [POSTGRES_SCHEMA_VERSION],
+        const fresh = existingTables.length === 0;
+        if (!fresh && !existingTables.includes('schema_migrations')) {
+            throw new Error(
+                `PostgreSQL contains an incompatible schema: ${existingTables.join(', ')}. `
+                + 'Clear the configured PostgreSQL data directory before starting the new architecture.',
             );
-            const missing = REQUIRED_POSTGRES_TABLES.filter(table => !existingTables.includes(table));
-            if (version.rows.length !== 1 || missing.length > 0) {
-                throw new Error(
-                    `PostgreSQL schema is incomplete or incompatible. Missing: ${missing.join(', ') || 'none'}. `
-                    + 'Clear the configured PostgreSQL data directory and initialize again.',
-                );
-            }
-            return { initialized: false, schemaVersion: POSTGRES_SCHEMA_VERSION };
         }
 
-        const schema = fs.readFileSync(path.join(__dirname, 'postgres/schema_v2.sql'), 'utf8');
-        await client.query(schema);
-        return { initialized: true, schemaVersion: POSTGRES_SCHEMA_VERSION };
+        // Baseline on a fresh database, then any pending upgrade steps; data is kept.
+        const { newlyApplied } = await applyPostgresSchema(client, { fresh });
+
+        const tables = await client.query(
+            `SELECT table_name FROM information_schema.tables
+              WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`,
+        );
+        const present = new Set(tables.rows.map(row => row.table_name));
+        const missing = REQUIRED_POSTGRES_TABLES.filter(table => !present.has(table));
+        if (missing.length > 0) {
+            throw new Error(
+                `PostgreSQL schema is incomplete or incompatible. Missing: ${missing.join(', ')}. `
+                + 'Clear the configured PostgreSQL data directory and initialize again.',
+            );
+        }
+        process.stdout.write(
+            `PostgreSQL schema ${POSTGRES_SCHEMA_VERSION}: ${fresh ? 'installed' : 'kept existing data'}`
+            + `${newlyApplied.length > 0 ? `, applied ${newlyApplied.join(', ')}` : ''}.\n`,
+        );
+        return { initialized: fresh, schemaVersion: POSTGRES_SCHEMA_VERSION, newlyApplied };
     } finally {
         await client.end();
     }

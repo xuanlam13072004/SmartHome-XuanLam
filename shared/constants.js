@@ -12,6 +12,14 @@ const REDIS_CHANNELS = {
     TOPOLOGY_HUB_ACK: 'topology.hub.ack',
     // Media relay drops viewers/ingest of these sessions immediately (camera-contract 7.5).
     MEDIA_SESSION_REVOKED: 'media.session.revoked',
+    // { account_id, session_ids?: string[], all?: true }: realtime closes those sockets.
+    ACCOUNT_SESSIONS_REVOKED: 'account.sessions.revoked',
+    // { mac, access_account_ids: string[], removed_account_ids: string[] }: who may see a device changed.
+    DEVICE_ACCESS_CHANGED: 'device.access.changed',
+    // { account_id, event, data }: a personal event (invitation received, member joined…) for one account.
+    ACCOUNT_EVENT: 'account.event',
+    // { id }: an automation was created, changed or deleted; Gateways reload it.
+    AUTOMATION_CHANGED: 'automation.changed',
 };
 
 const OPERATION_STATUS = {

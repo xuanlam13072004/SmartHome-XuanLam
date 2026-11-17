@@ -12,6 +12,7 @@ class DeviceDto {
     required this.diagnostics,
     required this.permissions,
     this.membershipRole,
+    this.roomId,
     this.lastSeen,
     this.networkId,
     this.joinRank,
@@ -35,6 +36,8 @@ class DeviceDto {
   final Map<String, dynamic> diagnostics;
   final List<String> permissions;
   final String? membershipRole;
+  /// This account's own room for the device; null = "Chưa xếp phòng".
+  final String? roomId;
   final String? lastSeen;
   final String? networkId;
   final int? joinRank;
@@ -62,6 +65,7 @@ class DeviceDto {
           .map((value) => value.toString())
           .toList(growable: false),
       membershipRole: json['role']?.toString(),
+      roomId: json['room_id']?.toString(),
       lastSeen: _dateString(shadow['last_seen']),
       networkId: json['network_id']?.toString(),
       joinRank: _toInt(json['join_rank']),

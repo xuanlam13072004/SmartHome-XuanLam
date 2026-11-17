@@ -1,7 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Release builds need this to reach the API (debug/profile add it themselves). -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- usesCleartextTraffic: the development backend (API, camera video) is plain
+         HTTP on the local network. Remove it once the server is served over HTTPS. -->
     <application
-        android:label="smarthome_app"
+        android:label="SmartHome"
+        android:usesCleartextTraffic="true"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

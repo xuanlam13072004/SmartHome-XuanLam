@@ -3,12 +3,15 @@ import { env } from '../config/env.js';
 
 export interface VerifiedAccess {
     userId: string;
+    /** Login session the token belongs to (null for tokens issued before sessions were bound). */
+    sessionId: string | null;
     /** Access-token expiry, epoch milliseconds. */
     expiresAtMs: number;
 }
 
 interface AccessClaims {
     userId?: string;
+    sid?: string;
     purpose?: string;
     exp?: number;
 }
@@ -55,5 +58,9 @@ export async function verifyAccessToken(token: string): Promise<VerifiedAccess> 
     if (body?.user?.id !== claims.userId) {
         throw new AccessTokenRejectedError('Token subject mismatch');
     }
-    return { userId: claims.userId, expiresAtMs: claims.exp * 1000 };
+    return {
+        userId: claims.userId,
+        sessionId: typeof claims.sid === 'string' ? claims.sid : null,
+        expiresAtMs: claims.exp * 1000,
+    };
 }

@@ -84,6 +84,25 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ),
                 const SizedBox(height: AppSpacing.xxl),
 
+                // Shown after this device was signed out remotely.
+                if (_errorText == null &&
+                    ref.watch(authControllerProvider) == AuthState.expired) ...[
+                  Container(
+                    padding: const EdgeInsets.all(AppSpacing.sm),
+                    decoration: BoxDecoration(
+                      color: context.colorScheme.secondaryContainer,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      'Phiên đăng nhập đã kết thúc (đăng xuất từ thiết bị khác hoặc '
+                      'mật khẩu đã đổi). Vui lòng đăng nhập lại.',
+                      style: TextStyle(color: context.colorScheme.onSecondaryContainer),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                ],
+
                 if (_errorText != null) ...[
                   Container(
                     padding: const EdgeInsets.all(AppSpacing.sm),

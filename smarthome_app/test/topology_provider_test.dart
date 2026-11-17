@@ -78,6 +78,9 @@ class _FakeDeviceRepository implements IDeviceRepository {
   Future<void> unpairDevice(String mac) async {}
 
   @override
+  Future<void> setDeviceRoom(String mac, String? roomId) async {}
+
+  @override
   Future<void> updateCapability(
     String mac,
     CapabilityModel capability,

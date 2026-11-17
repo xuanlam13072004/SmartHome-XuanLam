@@ -8,10 +8,20 @@ export const registerSchema = z.object({
     }),
 });
 
+/** Shown in "Phiên đăng nhập", e.g. `{ platform: 'web', name: 'Chrome · Windows' }`. */
+export const clientInfoSchema = z.object({
+    platform: z.enum(['web', 'android', 'ios', 'windows', 'macos', 'linux', 'unknown']).default('unknown'),
+    name: z.string().trim()
+        .transform(value => value.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 80))
+        .pipe(z.string().min(1))
+        .optional(),
+});
+
 export const loginSchema = z.object({
     body: z.object({
         email: z.string().trim().email().max(254),
         password: z.string().min(8).max(128),
+        client: clientInfoSchema.optional(),
     }),
 });
 

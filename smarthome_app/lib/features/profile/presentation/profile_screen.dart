@@ -1,205 +1,179 @@
 import 'package:flutter/material.dart';
-import 'package:lucide_icons/lucide_icons.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:lucide_icons/lucide_icons.dart';
+
 import '../../../core/core.dart';
+import '../../../core/navigation/app_routes.dart';
+import '../../../core/theme/theme_mode_controller.dart';
+import '../../../core/utils/app_error_mapper.dart';
 import '../../../core/widgets/widgets.dart';
 import '../../auth/providers/auth_provider.dart';
-import '../../../core/storage/token_storage_provider.dart';
-import 'package:riverpod_annotation/riverpod_annotation.dart';
+import '../../notifications/providers/notification_providers.dart';
+import '../providers/account_providers.dart';
+import '../widgets/profile_header.dart';
+import '../widgets/profile_section.dart';
+import 'change_password_sheet.dart';
+import 'edit_profile_sheet.dart';
+import 'theme_mode_sheet.dart';
 
-part 'profile_screen.g.dart';
-
-/// Provider to load user profile from secure storage.
-@riverpod
-Future<Map<String, String>> userProfile(Ref ref) async {
-  final storage = ref.watch(tokenStorageProvider);
-  final fullName = await storage.getUserFullName() ?? '';
-  final email = await storage.getUserEmail() ?? '';
-  return {
-    'fullName': fullName,
-    'email': email,
-  };
-}
-
+/// "Cá nhân": the account header and every account feature, one tap away.
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final profileAsync = ref.watch(userProfileProvider);
+    final overview = ref.watch(accountOverviewProvider);
+    final themeMode = ref.watch(themeModeProvider);
+    final unread = ref.watch(badgesProvider).valueOrNull?.notifications ?? 0;
 
     return PageScaffold(
       scrollable: false,
-      appBar: AppBar(
-        title: const Text('Cá nhân'),
-        centerTitle: false,
-      ),
+      appBar: AppBar(title: const Text('Cá nhân')),
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-      child: ListView(
-        padding: const EdgeInsets.only(top: AppSpacing.md, bottom: 100),
-        children: [
-          // ── User Profile Header ──────────────────────────────────────────
-          Center(
-            child: NeuIconBox(
-              icon: LucideIcons.user,
-              size: 100,
-              iconSize: 48,
-              shape: BoxShape.circle,
-              isActive: true,
-              iconColor: context.colorScheme.primary,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          Center(
-            child: profileAsync.when(
-              data: (profile) => Text(
-                profile['fullName']!.isNotEmpty ? profile['fullName']! : 'Người dùng',
-                style: context.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
+      child: RefreshIndicator(
+        onRefresh: () async {
+          ref.invalidate(accountOverviewProvider);
+          try {
+            await ref.read(accountOverviewProvider.future);
+          } catch (_) {
+            // The header shows the error with a retry button.
+          }
+        },
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.only(top: AppSpacing.sm, bottom: 120),
+          children: [
+            overview.when(
+              data: (data) => ProfileHeader(
+                overview: data,
+                onEdit: () => showEditProfileSheet(context, currentName: data.user.fullName),
+              ),
+              loading: () => const NeuCard(
+                child: SizedBox(height: 168, child: Center(child: CircularProgressIndicator())),
+              ),
+              error: (error, _) => NeuCard(
+                child: EmptyState(
+                  icon: LucideIcons.alertTriangle,
+                  title: 'Không tải được hồ sơ',
+                  description: AppErrorMapper.mapError(error),
+                  actionText: 'Thử lại',
+                  onActionTap: () => ref.invalidate(accountOverviewProvider),
                 ),
               ),
-              loading: () => const SizedBox(height: 24, width: 24, child: CircularProgressIndicator(strokeWidth: 2)),
-              error: (_, __) => Text(
-                'Người dùng',
-                style: context.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
             ),
-          ),
-          const SizedBox(height: AppSpacing.xs),
-          Center(
-            child: profileAsync.when(
-              data: (profile) => Text(
-                profile['email']!.isNotEmpty ? profile['email']! : '',
-                style: context.textTheme.bodyMedium?.copyWith(
-                  color: context.colorScheme.onSurfaceVariant,
-                ),
-              ),
-              loading: () => const SizedBox.shrink(),
-              error: (_, __) => const SizedBox.shrink(),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.xxl),
-
-          // ── Settings List ────────────────────────────────────────────────
-          const SectionTitle(title: 'Cài đặt chung'),
-          NeuCard(
-            padding: EdgeInsets.zero,
-            child: Column(
+            const SizedBox(height: AppSpacing.lg),
+            ProfileSection(
+              title: 'Chia sẻ',
               children: [
-                _buildSettingTile(
-                  context: context,
-                  icon: LucideIcons.moon,
-                  title: 'Giao diện tối',
-                  trailing: NeuToggle(
-                    value: false,
-                    onChanged: (_) {},
-                  ),
+                ProfileTile(
+                  icon: LucideIcons.users,
+                  title: 'Chia sẻ thiết bị',
+                  subtitle: 'Lời mời, thiết bị được chia sẻ, người dùng chung',
+                  badgeCount: overview.valueOrNull?.stats.pendingInvites ?? 0,
+                  onTap: () => context.push(AppRoutes.profileSharing),
                 ),
-                _buildDivider(context),
-                _buildSettingTile(
-                  context: context,
+              ],
+            ),
+            ProfileSection(
+              title: 'Thông báo & hoạt động',
+              children: [
+                ProfileTile(
                   icon: LucideIcons.bell,
                   title: 'Thông báo',
-                  trailing: NeuToggle(
-                    value: true,
-                    onChanged: (_) {},
-                  ),
+                  subtitle: 'Cảnh báo từ thiết bị: khói, khí gas, sai mã PIN, trời mưa…',
+                  badgeCount: unread,
+                  onTap: () => context.push(AppRoutes.profileNotifications),
                 ),
-                _buildDivider(context),
-                _buildSettingTile(
-                  context: context,
-                  icon: LucideIcons.globe,
-                  title: 'Ngôn ngữ',
-                  trailing: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text('Tiếng Việt'),
-                      SizedBox(width: 8),
-                      Icon(LucideIcons.chevronRight, size: 16),
-                    ],
-                  ),
-                  onTap: () {},
+                ProfileTile(
+                  icon: LucideIcons.settings2,
+                  title: 'Loại thông báo',
+                  subtitle: 'Chọn loại cảnh báo muốn nhận',
+                  onTap: () => context.push(AppRoutes.profileNotificationSettings),
+                ),
+                ProfileTile(
+                  icon: LucideIcons.history,
+                  title: 'Lịch sử hoạt động',
+                  subtitle: 'Thao tác của bạn với thiết bị và tài khoản',
+                  onTap: () => context.push(AppRoutes.profileActivity),
                 ),
               ],
             ),
-          ),
-          const SizedBox(height: AppSpacing.xl),
-          const SectionTitle(title: 'Khác'),
-          NeuCard(
-            padding: EdgeInsets.zero,
-            child: Column(
+            ProfileSection(
+              title: 'Cài đặt ứng dụng',
               children: [
-                _buildSettingTile(
-                  context: context,
-                  icon: LucideIcons.shieldQuestion,
-                  title: 'Hỗ trợ & Trợ giúp',
-                  trailing: const Icon(LucideIcons.chevronRight, size: 16),
-                  onTap: () {},
+                ProfileTile(
+                  icon: LucideIcons.sunMoon,
+                  title: 'Giao diện',
+                  value: themeMode.label,
+                  onTap: () => showThemeModeSheet(context),
                 ),
-                _buildDivider(context),
-                _buildSettingTile(
-                  context: context,
+              ],
+            ),
+            ProfileSection(
+              title: 'Hỗ trợ',
+              children: [
+                ProfileTile(
+                  icon: LucideIcons.lifeBuoy,
+                  title: 'Hướng dẫn & trợ giúp',
+                  subtitle: 'Cách dùng, câu hỏi thường gặp, trạng thái hệ thống',
+                  onTap: () => context.push(AppRoutes.profileHelp),
+                ),
+              ],
+            ),
+            ProfileSection(
+              title: 'Tài khoản & bảo mật',
+              children: [
+                ProfileTile(
+                  icon: LucideIcons.keyRound,
+                  title: 'Đổi mật khẩu',
+                  subtitle: 'Các thiết bị khác sẽ bị đăng xuất',
+                  onTap: () => showChangePasswordSheet(context),
+                ),
+                ProfileTile(
+                  icon: LucideIcons.smartphone,
+                  title: 'Phiên đăng nhập',
+                  subtitle: 'Xem và đăng xuất các thiết bị đang đăng nhập',
+                  onTap: () => context.push(AppRoutes.profileSessions),
+                ),
+                ProfileTile(
                   icon: LucideIcons.logOut,
                   title: 'Đăng xuất',
-                  iconColor: context.colorScheme.error,
-                  textColor: context.colorScheme.error,
-                  onTap: () {
-                    ref.read(authControllerProvider.notifier).logout();
-                  },
+                  destructive: true,
+                  onTap: () => _confirmSignOut(context, ref),
+                ),
+                ProfileTile(
+                  icon: LucideIcons.userX,
+                  title: 'Xóa tài khoản',
+                  destructive: true,
+                  onTap: () => context.push(AppRoutes.profileDeleteAccount),
                 ),
               ],
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSettingTile({
-    required BuildContext context,
-    required IconData icon,
-    required String title,
-    Widget? trailing,
-    Color? iconColor,
-    Color? textColor,
-    VoidCallback? onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(AppRadius.lg),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.lg,
-          vertical: AppSpacing.md,
-        ),
-        child: Row(
-          children: [
-            Icon(icon, size: 24, color: iconColor ?? context.colorScheme.onSurface),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
-              child: Text(
-                title,
-                style: context.textTheme.bodyLarge?.copyWith(
-                  fontWeight: FontWeight.w500,
-                  color: textColor ?? context.colorScheme.onSurface,
-                ),
-              ),
-            ),
-            if (trailing != null) trailing,
           ],
         ),
       ),
     );
   }
 
-  Widget _buildDivider(BuildContext context) {
-    return Divider(
-      height: 1,
-      thickness: 1,
-      indent: AppSpacing.lg + 24 + AppSpacing.md,
-      color: context.colorScheme.outlineVariant.withValues(alpha: 0.5),
+  Future<void> _confirmSignOut(BuildContext context, WidgetRef ref) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Đăng xuất?'),
+        content: const Text('Bạn sẽ cần đăng nhập lại để xem và điều khiển thiết bị.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Hủy'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Đăng xuất'),
+          ),
+        ],
+      ),
     );
+    if (confirmed == true) await ref.read(authControllerProvider.notifier).logout();
   }
 }

@@ -5,29 +5,26 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'core/core.dart';
 import 'core/navigation/app_router.dart';
+import 'core/storage/local_preferences.dart';
+import 'core/theme/theme_mode_controller.dart';
 
 // ignore: depend_on_referenced_packages
 import 'l10n/generated/app_localizations.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  SystemChrome.setSystemUIOverlayStyle(
-    const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.dark,
-      systemNavigationBarColor: Colors.transparent,
-    ),
-  );
 
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
 
+  final themeMode = await const LocalPreferences().readThemeMode();
+
   runApp(
-    const ProviderScope(
-      child: SmartHomeApp(),
+    ProviderScope(
+      overrides: [initialThemeModeProvider.overrideWithValue(themeMode)],
+      child: const SmartHomeApp(),
     ),
   );
 }
@@ -45,7 +42,7 @@ class SmartHomeApp extends ConsumerWidget {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
-      themeMode: ThemeMode.light,
+      themeMode: ref.watch(themeModeProvider),
       locale: const Locale('vi'),
       supportedLocales: AppL10n.supportedLocales,
       localizationsDelegates: const [
@@ -55,6 +52,18 @@ class SmartHomeApp extends ConsumerWidget {
         GlobalCupertinoLocalizations.delegate,
       ],
       routerConfig: goRouter,
+      // Status-bar icons follow the active theme (dark icons on light, light on dark).
+      builder: (context, child) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        final overlay = isDark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark;
+        return AnnotatedRegion<SystemUiOverlayStyle>(
+          value: overlay.copyWith(
+            statusBarColor: Colors.transparent,
+            systemNavigationBarColor: Colors.transparent,
+          ),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
     );
   }
 }

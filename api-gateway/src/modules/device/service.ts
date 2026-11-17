@@ -7,6 +7,7 @@ import { validateObjectAgainstSchema } from '../../../../shared/validation';
 // @ts-ignore - shared CommonJS module
 import { CACHE_PREFIXES, REDIS_CHANNELS } from '../../../../shared/constants';
 import { dispatchDeviceShadowOutboxEvent } from '../../workers/deviceShadowOutboxDispatcher';
+import { recordAudit } from '../activity/audit';
 import { dispatchTopologyOutboxEvent } from '../../workers/topologyOutboxDispatcher';
 import {
     claimTopologyMembership,
@@ -150,6 +151,12 @@ export async function claimDevice(app: FastifyInstance, input: {
             ],
         );
         shadowOutboxId = Number(outbox.rows[0].id);
+        await recordAudit(client, {
+            actorAccountId: ownerId,
+            deviceId: topologyResult.device.id,
+            action: 'device.claimed',
+            metadata: { device_name: name, mac, product_id: factory.product_id },
+        });
         await client.query('COMMIT');
     } catch (error) {
         await client.query('ROLLBACK');
@@ -199,8 +206,18 @@ export async function unpairDevice(app: FastifyInstance, macInput: string, owner
             [mac, ownerId],
         );
         revokedSessionIds = activeSessions.rows.map(row => row.id);
+        const removed = await client.query(
+            `SELECT name, product_id FROM device_metadata WHERE mac = $1 AND owner_id = $2`,
+            [mac, ownerId],
+        );
         removalResult = await removeTopologyMembership(client, ownerId, mac);
         if (!removalResult) throw buildError('Device not found', 404, 'DEVICE_NOT_FOUND');
+        // The device row is gone, so the entry keeps its name instead of a reference.
+        await recordAudit(client, {
+            actorAccountId: ownerId,
+            action: 'device.unpaired',
+            metadata: { device_name: removed.rows[0]?.name ?? mac, mac, product_id: removed.rows[0]?.product_id ?? null },
+        });
 
         const released = await client.query(
             `UPDATE factory_devices
@@ -260,6 +277,8 @@ export async function listDevices(app: FastifyInstance, accountId: string) {
                 device.firmware_version, device.network_id, device.join_rank,
                 device.is_active, device.claimed_at, device.created_at,
                 device.updated_at, membership.role,
+                -- This account's own room for the device (rooms are personal).
+                membership.room_id,
                 COALESCE(
                     ARRAY_AGG(permission.permission_scope)
                         FILTER (WHERE permission.permission_scope IS NOT NULL),
@@ -291,7 +310,7 @@ export async function listDevices(app: FastifyInstance, accountId: string) {
          LEFT JOIN device_networks AS network ON network.id = device.network_id
          LEFT JOIN device_metadata AS hub ON hub.id = network.active_hub_device_id
          WHERE device.is_active = true
-         GROUP BY device.id, membership.role, network.id, hub.mac
+         GROUP BY device.id, membership.role, membership.room_id, network.id, hub.mac
          ORDER BY device.created_at DESC`,
         [accountId],
     );
@@ -327,9 +346,10 @@ export async function listDevices(app: FastifyInstance, accountId: string) {
     });
 }
 
-export async function loadAccessibleDevice(app: FastifyInstance, mac: string, accountId: string) {
+/** The caller's active devices among [macs] with role and granted permissions, keyed by MAC. */
+export async function loadAccessibleDevices(app: FastifyInstance, macs: string[], accountId: string) {
     const result = await app.pg.query(
-        `SELECT device.id, device.owner_id, device.mac, device.product_id,
+        `SELECT device.id, device.owner_id, device.mac, device.name, device.product_id,
                 device.catalog_revision, membership.role,
                 COALESCE(ARRAY_AGG(permission.permission_scope)
                     FILTER (WHERE permission.permission_scope IS NOT NULL),
@@ -343,11 +363,15 @@ export async function loadAccessibleDevice(app: FastifyInstance, mac: string, ac
          LEFT JOIN device_membership_permissions AS permission
            ON permission.device_id = membership.device_id
           AND permission.account_id = membership.account_id
-         WHERE device.mac = $2 AND device.is_active = true
+         WHERE device.mac = ANY($2::text[]) AND device.is_active = true
          GROUP BY device.id, membership.role`,
-        [accountId, mac],
+        [accountId, macs],
     );
-    return result.rows[0] || null;
+    return new Map(result.rows.map(row => [row.mac as string, row]));
+}
+
+export async function loadAccessibleDevice(app: FastifyInstance, mac: string, accountId: string) {
+    return (await loadAccessibleDevices(app, [mac], accountId)).get(mac) || null;
 }
 
 export async function createDeviceOperation(app: FastifyInstance, input: {
@@ -1091,6 +1115,12 @@ export async function updateDeviceName(
             [device.id, mac, JSON.stringify({ name: trimmedName })],
         );
         outboxId = Number(outbox.rows[0].id);
+        await recordAudit(client, {
+            actorAccountId: ownerId,
+            deviceId: device.id,
+            action: 'device.renamed',
+            metadata: { device_name: trimmedName, mac },
+        });
         await client.query('COMMIT');
     } catch (error) {
         await client.query('ROLLBACK');

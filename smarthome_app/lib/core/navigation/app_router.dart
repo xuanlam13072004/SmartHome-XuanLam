@@ -11,8 +11,20 @@ import '../../features/auth/presentation/register_screen.dart';
 import '../../features/auth/providers/auth_provider.dart';
 import '../../features/dashboard/presentation/dashboard_screen.dart';
 import '../../features/dashboard/presentation/device_detail_screen.dart';
+import '../../features/rooms/presentation/room_detail_screen.dart';
 import '../../features/rooms/presentation/rooms_screen.dart';
+import '../../features/automations/presentation/automation_editor_screen.dart';
+import '../../features/scenes/presentation/scene_editor_screen.dart';
+import '../../features/scenes/presentation/scene_runs_screen.dart';
 import '../../features/scenes/presentation/scenes_screen.dart';
+import '../../features/notifications/presentation/activity_screen.dart';
+import '../../features/notifications/presentation/notification_settings_screen.dart';
+import '../../features/notifications/presentation/notifications_screen.dart';
+import '../../features/profile/presentation/delete_account_screen.dart';
+import '../../features/profile/presentation/help_screen.dart';
+import '../../features/profile/presentation/sessions_screen.dart';
+import '../../features/sharing/presentation/device_members_screen.dart';
+import '../../features/sharing/presentation/sharing_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/debug/presentation/debug_screen.dart';
 
@@ -133,6 +145,14 @@ GoRouter router(Ref ref) {
                   state,
                   const RoomsScreen(),
                 ),
+                routes: [
+                  // Nested so the bottom bar stays visible.
+                  GoRoute(
+                    path: ':roomId',
+                    builder: (context, state) =>
+                        RoomDetailScreen(roomId: state.pathParameters['roomId']!),
+                  ),
+                ],
               ),
             ],
           ),
@@ -147,6 +167,35 @@ GoRouter router(Ref ref) {
                   state,
                   const ScenesScreen(),
                 ),
+                routes: [
+                  GoRoute(
+                    path: 'history',
+                    builder: (context, state) => const SceneRunsScreen(),
+                  ),
+                  // The editor covers the bottom bar (full-screen form).
+                  GoRoute(
+                    path: 'new',
+                    parentNavigatorKey: _rootNavigatorKey,
+                    builder: (context, state) => const SceneEditorScreen(),
+                  ),
+                  GoRoute(
+                    path: 'automations/new',
+                    parentNavigatorKey: _rootNavigatorKey,
+                    builder: (context, state) => const AutomationEditorScreen(),
+                  ),
+                  GoRoute(
+                    path: 'automations/:automationId/edit',
+                    parentNavigatorKey: _rootNavigatorKey,
+                    builder: (context, state) =>
+                        AutomationEditorScreen(automationId: state.pathParameters['automationId']),
+                  ),
+                  GoRoute(
+                    path: ':sceneId/edit',
+                    parentNavigatorKey: _rootNavigatorKey,
+                    builder: (context, state) =>
+                        SceneEditorScreen(sceneId: state.pathParameters['sceneId']),
+                  ),
+                ],
               ),
             ],
           ),
@@ -161,6 +210,38 @@ GoRouter router(Ref ref) {
                   state,
                   const ProfileScreen(),
                 ),
+                routes: [
+                  GoRoute(
+                    path: 'help',
+                    builder: (context, state) => const HelpScreen(),
+                  ),
+                  GoRoute(
+                    path: 'sessions',
+                    builder: (context, state) => const SessionsScreen(),
+                  ),
+                  GoRoute(
+                    path: 'delete-account',
+                    builder: (context, state) => const DeleteAccountScreen(),
+                  ),
+                  GoRoute(
+                    path: 'sharing',
+                    builder: (context, state) => const SharingScreen(),
+                  ),
+                  GoRoute(
+                    path: 'notifications',
+                    builder: (context, state) => const NotificationsScreen(),
+                    routes: [
+                      GoRoute(
+                        path: 'settings',
+                        builder: (context, state) => const NotificationSettingsScreen(),
+                      ),
+                    ],
+                  ),
+                  GoRoute(
+                    path: 'activity',
+                    builder: (context, state) => const ActivityScreen(),
+                  ),
+                ],
               ),
             ],
           ),
@@ -179,6 +260,16 @@ GoRouter router(Ref ref) {
             DeviceDetailScreen(deviceMac: mac),
           );
         },
+      ),
+
+      GoRoute(
+        path: AppRoutes.deviceMembers,
+        parentNavigatorKey: _rootNavigatorKey,
+        pageBuilder: (context, state) => _buildPageWithSlideTransition(
+          context,
+          state,
+          DeviceMembersScreen(mac: state.pathParameters['mac']!),
+        ),
       ),
 
       // ── Debug Routes ─────────────────────────────────────────────────────

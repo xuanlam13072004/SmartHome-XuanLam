@@ -16,6 +16,8 @@ import { TopologyCoordinator } from './workers/topologyCoordinator';
 import { RuntimeCatalog } from '../../shared/catalog-v2';
 import { CredentialOutboxDispatcher } from './workers/credentialOutboxDispatcher';
 import { CredentialStatusConsumer } from './workers/credentialStatusConsumer';
+import { SceneRunner } from './workers/sceneRunner';
+import { AutomationEngine } from './workers/automationEngine';
 
 const app = buildApp();
 
@@ -31,6 +33,8 @@ const start = async () => {
         let topologyCoordinator: TopologyCoordinator | null = null;
         let credentialOutboxDispatcher: CredentialOutboxDispatcher | null = null;
         let credentialStatusConsumer: CredentialStatusConsumer | null = null;
+        let sceneRunner: SceneRunner | null = null;
+        let automationEngine: AutomationEngine | null = null;
 
         // Đăng ký hook dừng Consumer khi app đóng (phải đăng ký trước khi ready/listen)
         app.addHook('onClose', async () => {
@@ -54,6 +58,12 @@ const start = async () => {
             }
             if (credentialStatusConsumer) {
                 await credentialStatusConsumer.stop();
+            }
+            if (automationEngine) {
+                await automationEngine.stop();
+            }
+            if (sceneRunner) {
+                await sceneRunner.stop();
             }
         });
 
@@ -109,6 +119,12 @@ const start = async () => {
             app.log
         );
         await topologyCoordinator.start();
+        // Scenes: delayed steps, results of their device operations, history trim.
+        sceneRunner = new SceneRunner(app);
+        sceneRunner.start();
+        // Automations triggered by device states and events (time triggers run in the scene runner).
+        automationEngine = new AutomationEngine(app);
+        await automationEngine.start();
 
         // Start listening
         await app.listen({ port, host });

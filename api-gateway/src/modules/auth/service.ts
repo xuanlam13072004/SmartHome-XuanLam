@@ -1,7 +1,15 @@
 import argon2 from 'argon2';
-import crypto from 'crypto';
 import { FastifyInstance } from 'fastify';
 import { env } from '../../config/env';
+import {
+    generateRefreshToken,
+    hashRefreshToken,
+    refreshTokenMatches,
+    signAccessToken,
+} from './tokens';
+import { publishSessionsRevoked } from './sessionEvents';
+
+export type ClientPlatform = 'web' | 'android' | 'ios' | 'windows' | 'macos' | 'linux' | 'unknown';
 
 function nowPlusSeconds(seconds: number): Date {
     return new Date(Date.now() + seconds * 1000);
@@ -9,10 +17,6 @@ function nowPlusSeconds(seconds: number): Date {
 
 function normalizeEmail(email: string): string {
     return email.trim().toLowerCase();
-}
-
-function generateRefreshToken(): string {
-    return crypto.randomBytes(48).toString('hex');
 }
 
 function authError(message: string, code: string) {
@@ -49,6 +53,7 @@ export async function registerUser(app: FastifyInstance, input: {
 export async function loginUser(app: FastifyInstance, input: {
     email: string;
     password: string;
+    client?: { platform?: ClientPlatform; name?: string };
 }) {
     const email = normalizeEmail(input.email);
     const result = await app.pg.query(
@@ -62,26 +67,45 @@ export async function loginUser(app: FastifyInstance, input: {
         throw authError('Invalid credentials', 'INVALID_CREDENTIALS');
     }
 
-    const accessToken = app.jwt.sign(
-        { userId: user.id, email: user.email, tokenVersion: user.token_version },
-        { expiresIn: env.JWT_EXPIRES_IN },
-    );
     const refreshToken = generateRefreshToken();
     const session = await app.pg.query(
-        `INSERT INTO user_sessions (account_id, refresh_token_hash, status, expires_at)
-         VALUES ($1, $2, 'active', $3)
+        `INSERT INTO user_sessions
+            (account_id, refresh_token_hash, status, client_platform, client_name, expires_at)
+         VALUES ($1, $2, 'active', $3, $4, $5)
          RETURNING id`,
         [
             user.id,
-            await argon2.hash(refreshToken),
+            hashRefreshToken(refreshToken),
+            input.client?.platform ?? 'unknown',
+            input.client?.name ?? null,
             nowPlusSeconds(env.REFRESH_TOKEN_TTL_SECONDS),
         ],
     );
+    const sessionId: string = session.rows[0].id;
+
+    // Keep at most MAX_SESSIONS_PER_ACCOUNT: sign out the least recently used.
+    const evicted = await app.pg.query(
+        `UPDATE user_sessions SET status = 'revoked'
+         WHERE id IN (
+             SELECT id FROM user_sessions
+             WHERE account_id = $1 AND status = 'active'
+             ORDER BY COALESCE(last_used_at, created_at) DESC, created_at DESC
+             OFFSET $2
+         )
+         RETURNING id`,
+        [user.id, env.MAX_SESSIONS_PER_ACCOUNT],
+    );
+    await publishSessionsRevoked(app, user.id, evicted.rows.map(row => row.id));
 
     return {
-        access_token: accessToken,
+        access_token: signAccessToken(app, {
+            userId: user.id,
+            email: user.email,
+            tokenVersion: user.token_version,
+            sid: sessionId,
+        }),
         refresh_token: refreshToken,
-        session_id: session.rows[0].id,
+        session_id: sessionId,
         user: {
             id: user.id,
             email: user.email,
@@ -112,7 +136,7 @@ export async function refreshSession(app: FastifyInstance, input: {
         if (!session || session.account_status !== 'active') {
             throw authError('Invalid session', 'INVALID_SESSION');
         }
-        if (!(await argon2.verify(session.refresh_token_hash, input.refresh_token))) {
+        if (!refreshTokenMatches(session.refresh_token_hash, input.refresh_token)) {
             throw authError('Invalid refresh token', 'INVALID_REFRESH_TOKEN');
         }
 
@@ -122,19 +146,17 @@ export async function refreshSession(app: FastifyInstance, input: {
             `UPDATE user_sessions
              SET refresh_token_hash = $1, expires_at = $2, last_used_at = NOW()
              WHERE id = $3`,
-            [await argon2.hash(refreshToken), expiresAt, session.id],
+            [hashRefreshToken(refreshToken), expiresAt, session.id],
         );
         await client.query('COMMIT');
 
         return {
-            access_token: app.jwt.sign(
-                {
-                    userId: session.account_id,
-                    email: session.email,
-                    tokenVersion: session.token_version,
-                },
-                { expiresIn: env.JWT_EXPIRES_IN },
-            ),
+            access_token: signAccessToken(app, {
+                userId: session.account_id,
+                email: session.email,
+                tokenVersion: session.token_version,
+                sid: session.id,
+            }),
             refresh_token: refreshToken,
             session_id: session.id,
         };
@@ -162,7 +184,7 @@ export async function logoutSession(app: FastifyInstance, input: {
         );
         const session = result.rows[0];
         if (!session) throw authError('Invalid session', 'INVALID_SESSION');
-        if (!(await argon2.verify(session.refresh_token_hash, input.refresh_token))) {
+        if (!refreshTokenMatches(session.refresh_token_hash, input.refresh_token)) {
             throw authError('Invalid refresh token', 'INVALID_REFRESH_TOKEN');
         }
         await client.query(

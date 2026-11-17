@@ -13,6 +13,11 @@ import '../../auth/providers/auth_provider.dart';
 import '../models/capability_model.dart';
 import '../../../domain/models/product_model.dart';
 import '../../products/widgets/product_activity_panel.dart';
+import '../../../core/navigation/app_routes.dart';
+import '../../sharing/presentation/sharing_screen.dart' show refreshSharingState;
+import '../../sharing/providers/sharing_providers.dart';
+import '../../rooms/presentation/room_picker_sheet.dart';
+import 'capability_actions.dart';
 
 class DeviceDetailScreen extends ConsumerWidget {
   const DeviceDetailScreen({
@@ -82,33 +87,76 @@ class DeviceDetailScreen extends ConsumerWidget {
                 onSelected: (value) {
                   if (value == 'rename') {
                     _showRenameDialog(context, ref, device);
+                  } else if (value == 'share') {
+                    context.push(AppRoutes.deviceMembersOf(device.mac));
                   } else if (value == 'delete') {
                     _showDeleteDialog(context, ref, device);
+                  } else if (value == 'leave') {
+                    _showLeaveDialog(context, ref, device);
+                  } else if (value == 'room') {
+                    moveDeviceToRoom(context, ref, device);
                   }
                 },
+                // Only the owner renames, shares or removes a device; a member may leave it.
+                // Rooms are personal, so members arrange shared devices too.
                 itemBuilder: (context) => [
                   const PopupMenuItem(
-                    value: 'rename',
+                    value: 'room',
                     child: Row(
                       children: [
-                        Icon(Icons.edit, size: 20),
+                        Icon(Icons.meeting_room_rounded, size: 20),
                         SizedBox(width: 8),
-                        Text('Đổi tên thiết bị'),
+                        Text('Chuyển phòng'),
                       ],
                     ),
                   ),
-                  PopupMenuItem(
-                    value: 'delete',
-                    child: Row(
-                      children: [
-                        Icon(Icons.delete,
-                            size: 20, color: context.colorScheme.error),
-                        const SizedBox(width: 8),
-                        Text('Xóa thiết bị',
-                            style: TextStyle(color: context.colorScheme.error)),
+                  ...device.membershipRole != 'owner'
+                    ? [
+                        PopupMenuItem(
+                          value: 'leave',
+                          child: Row(
+                            children: [
+                              Icon(Icons.logout, size: 20, color: context.colorScheme.error),
+                              const SizedBox(width: 8),
+                              Text('Rời khỏi thiết bị', style: TextStyle(color: context.colorScheme.error)),
+                            ],
+                          ),
+                        ),
+                      ]
+                    : [
+                      const PopupMenuItem(
+                        value: 'rename',
+                        child: Row(
+                          children: [
+                            Icon(Icons.edit, size: 20),
+                            SizedBox(width: 8),
+                            Text('Đổi tên thiết bị'),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'share',
+                        child: Row(
+                          children: [
+                            Icon(Icons.group_add_outlined, size: 20),
+                            SizedBox(width: 8),
+                            Text('Chia sẻ thiết bị'),
+                          ],
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'delete',
+                        child: Row(
+                          children: [
+                            Icon(Icons.delete,
+                                size: 20, color: context.colorScheme.error),
+                            const SizedBox(width: 8),
+                            Text('Xóa thiết bị',
+                                style: TextStyle(color: context.colorScheme.error)),
+                          ],
+                        ),
+                      ),
                       ],
-                    ),
-                  ),
                 ],
               ),
             ],
@@ -118,15 +166,8 @@ class DeviceDetailScreen extends ConsumerWidget {
           child: productUiRegistry.buildDetail(
             context,
             device: device,
-            onCapabilityChanged: (capability, value) async {
-              await _applyCapabilityChange(
-                context,
-                ref,
-                device,
-                capability,
-                value,
-              );
-            },
+            onCapabilityChanged: (capability, value) =>
+                applyCapabilityChange(context, ref, device, capability, value),
             onReplaceCredential: (credential) => _replaceCredential(
               context,
               ref,
@@ -154,7 +195,7 @@ class DeviceDetailScreen extends ConsumerWidget {
       final pin = await _requestNewPin(context, credential);
       if (pin == null) return;
       if (!context.mounted) return;
-      final password = await _requestPassword(
+      final password = await requestOwnerPassword(
         context,
         const CapabilityOperationDescriptor(
           operationName: 'replace_credential',
@@ -230,116 +271,6 @@ class DeviceDetailScreen extends ConsumerWidget {
               ),
             ],
           ),
-        ),
-      );
-    } finally {
-      controller.dispose();
-    }
-  }
-
-  Future<void> _applyCapabilityChange(
-    BuildContext context,
-    WidgetRef ref,
-    DeviceModel device,
-    CapabilityModel capability,
-    dynamic value,
-  ) async {
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      final operation = capability.resolveOperation(value);
-      String? reauthToken;
-
-      if (operation.confirmation == 'confirm') {
-        final confirmed = await _confirmOperation(context, operation);
-        if (!confirmed) return;
-      } else if (operation.confirmation == 'reauthenticate') {
-        final password = await _requestPassword(context, operation);
-        if (password == null) return;
-        reauthToken =
-            await ref.read(authRepositoryProvider).reauthenticate(password);
-      }
-
-      await ref.read(devicesProvider.notifier).updateCapability(
-            device.mac,
-            capability,
-            value,
-            reauthToken: reauthToken,
-          );
-    } catch (error) {
-      messenger.showSnackBar(
-        SnackBar(content: Text(AppErrorMapper.mapError(error))),
-      );
-    }
-  }
-
-  Future<bool> _confirmOperation(
-    BuildContext context,
-    CapabilityOperationDescriptor operation,
-  ) async {
-    return await showDialog<bool>(
-          context: context,
-          builder: (dialogContext) => AlertDialog(
-            title: const Text('Xác nhận thao tác'),
-            content: Text(
-              'Bạn có chắc muốn thực hiện “${operation.label.isEmpty ? operation.operationName : operation.label}”?',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext, false),
-                child: const Text('Hủy'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(dialogContext, true),
-                child: const Text('Xác nhận'),
-              ),
-            ],
-          ),
-        ) ??
-        false;
-  }
-
-  Future<String?> _requestPassword(
-    BuildContext context,
-    CapabilityOperationDescriptor operation,
-  ) async {
-    final controller = TextEditingController();
-    try {
-      return await showDialog<String>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('Xác minh chủ sở hữu'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Thao tác “${operation.label.isEmpty ? operation.operationName : operation.label}” cần nhập lại mật khẩu tài khoản.',
-              ),
-              const SizedBox(height: AppSpacing.md),
-              TextField(
-                controller: controller,
-                autofocus: true,
-                obscureText: true,
-                decoration: const InputDecoration(labelText: 'Mật khẩu'),
-                onSubmitted: (value) {
-                  if (value.isNotEmpty) Navigator.pop(dialogContext, value);
-                },
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Hủy'),
-            ),
-            FilledButton(
-              onPressed: () {
-                final password = controller.text;
-                if (password.isNotEmpty) Navigator.pop(dialogContext, password);
-              },
-              child: const Text('Tiếp tục'),
-            ),
-          ],
         ),
       );
     } finally {
@@ -429,6 +360,41 @@ class DeviceDetailScreen extends ConsumerWidget {
               }
             },
             child: const Text('Xóa'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showLeaveDialog(BuildContext pageContext, WidgetRef ref, DeviceModel device) {
+    final messenger = ScaffoldMessenger.of(pageContext);
+    showDialog<void>(
+      context: pageContext,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Rời khỏi thiết bị'),
+        content: Text(
+            'Bạn sẽ không còn thấy "${device.name}". Muốn dùng lại, chủ thiết bị phải mời bạn lần nữa.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Hủy'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: pageContext.colorScheme.error),
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              // This screen closes; keep the container to refresh lists afterwards.
+              final container = ProviderScope.containerOf(pageContext, listen: false);
+              try {
+                await ref.read(sharingApiProvider).leaveDevice(device.mac);
+                if (pageContext.mounted) pageContext.pop();
+                messenger.showSnackBar(SnackBar(content: Text('Đã rời khỏi "${device.name}"')));
+                refreshSharingState(container.invalidate);
+              } catch (e) {
+                messenger.showSnackBar(SnackBar(content: Text(AppErrorMapper.mapError(e))));
+              }
+            },
+            child: const Text('Rời khỏi'),
           ),
         ],
       ),

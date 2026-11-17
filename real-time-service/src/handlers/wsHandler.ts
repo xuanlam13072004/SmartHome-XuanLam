@@ -56,7 +56,7 @@ export function handleConnection(socket: WebSocket, req: IncomingMessage): void 
                 rejectConnection('Access token expired');
                 return;
             }
-            if (!addConnection(access.userId, socket)) {
+            if (!addConnection(access.userId, socket, access.sessionId)) {
                 rejectConnection('Connection limit exceeded', 4008);
                 return;
             }

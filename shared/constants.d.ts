@@ -9,6 +9,10 @@ export declare const REDIS_CHANNELS: {
     readonly TOPOLOGY_REMOVED: 'topology.removed';
     readonly TOPOLOGY_HUB_ACK: 'topology.hub.ack';
     readonly MEDIA_SESSION_REVOKED: 'media.session.revoked';
+    readonly ACCOUNT_SESSIONS_REVOKED: 'account.sessions.revoked';
+    readonly DEVICE_ACCESS_CHANGED: 'device.access.changed';
+    readonly ACCOUNT_EVENT: 'account.event';
+    readonly AUTOMATION_CHANGED: 'automation.changed';
 };
 
 export declare const OPERATION_STATUS: {

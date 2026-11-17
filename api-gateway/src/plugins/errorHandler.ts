@@ -12,6 +12,11 @@ const errorHandlerPlugin: FastifyPluginAsync = async (app: FastifyInstance) => {
         let errorCode = error.code || 'INTERNAL_ERROR';
         let errorMessage = error.message || 'Internal server error';
 
+        // @fastify/rate-limit throws a plain object without a code: give clients a stable one.
+        if (statusCode === 429 && (!error.code || error.code === 'FST_ERR_RATE_LIMIT')) {
+            errorCode = 'RATE_LIMITED';
+        }
+
         // Map riêng lỗi Postgres unique constraint (23505) -> 409
         if ((error as any).code === '23505') {
             statusCode = 409;

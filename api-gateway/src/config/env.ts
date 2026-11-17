@@ -8,6 +8,22 @@ const envSchema = z.object({
     JWT_SECRET: z.string().min(8),
     JWT_EXPIRES_IN: z.coerce.number().int().positive().default(900),
     REFRESH_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(604800),
+    // Signing in beyond this many active sessions signs out the least recently used one,
+    // so sessions stay bounded even for accounts that log in from scripts.
+    MAX_SESSIONS_PER_ACCOUNT: z.coerce.number().int().min(1).max(100).default(20),
+    // Device sharing: members + pending invitations per device (owner excluded), invitation lifetime.
+    MAX_DEVICE_MEMBERS: z.coerce.number().int().min(1).max(50).default(10),
+    INVITE_TTL_HOURS: z.coerce.number().int().min(1).max(720).default(168),
+    // Rooms each account may create.
+    MAX_ROOMS_PER_ACCOUNT: z.coerce.number().int().min(1).max(200).default(30),
+    // Scenes ("Kịch bản"): per-account count, steps per scene, run history kept.
+    MAX_SCENES_PER_ACCOUNT: z.coerce.number().int().min(1).max(500).default(50),
+    MAX_SCENE_STEPS: z.coerce.number().int().min(1).max(20).default(10),
+    SCENE_RUN_RETENTION_DAYS: z.coerce.number().int().min(1).max(365).default(30),
+    MAX_SCHEDULES_PER_SCENE: z.coerce.number().int().min(1).max(20).default(5),
+    // Automations ("Tự động") per account; their notifications are kept this long.
+    MAX_AUTOMATIONS_PER_ACCOUNT: z.coerce.number().int().min(1).max(200).default(30),
+    ACCOUNT_NOTIFICATION_RETENTION_DAYS: z.coerce.number().int().min(1).max(365).default(30),
 
     PG_HOST: z.string(),
     PG_PORT: z.coerce.number().int().positive().default(5432),
