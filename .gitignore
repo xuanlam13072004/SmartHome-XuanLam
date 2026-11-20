@@ -1,5 +1,7 @@
 # Environment variables
 .env*
+# Cloudflare Tunnel secrets (only cloudflared/config.yml is part of the project)
+cloudflared/*.json
 !.env.example
 !.env.docker.example
 

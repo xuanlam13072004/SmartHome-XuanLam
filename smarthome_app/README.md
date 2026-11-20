@@ -5,18 +5,27 @@ Android, iOS and web. Tested toolchain: Flutter 3.27.1.
 ## Server address
 
 The app talks to the API Gateway (port 3000) and the realtime service
-(port 3001, derived from the same host). Camera video comes from the media
-relay (port 8090); when the server publishes it as `localhost`, the app uses
-the API host instead (`AppConfig.reachableUrl`).
+(port 3001, path `/ws`). Camera video comes from the media relay (port 8090);
+when the server publishes it as `localhost`, the app uses the API host instead
+(`AppConfig.reachableUrl`).
 
 | Where the app runs | Command |
 |---|---|
+| Phone, anywhere (Cloudflare Tunnel) | `flutter run --dart-define-from-file=config/cloudflare.json` |
 | Android emulator | `flutter run` (uses `10.0.2.2`, the emulator's name for the computer) |
-| Phone on the same Wi-Fi | `flutter run --dart-define=API_BASE_URL=http://<IP máy tính>:3000` |
 | Chrome | `flutter run -d chrome` (uses `localhost`) |
+| Phone on the same Wi-Fi, by IP | `flutter run --dart-define=API_BASE_URL=http://<IP máy tính>:3000` (see below) |
 
-For a phone, find the computer's IPv4 with `ipconfig` and allow ports 3000,
-3001 and 8090 through Windows Firewall once (PowerShell as Administrator):
+`config/cloudflare.json` holds the tunnel hostnames (`API_BASE_URL`, `WS_URL`)
+and `MEDIA_BASE_URL`, the private address of camera video
+(`http://10.250.0.2:8090`). That address works only while the phone runs the
+Cloudflare One Agent (WARP) enrolled in the project's Zero Trust organization;
+without it everything but camera video still works. Setup:
+`docs/cloudflare-tunnel.md`.
+
+By IP on the LAN instead: set `PUBLISH_HOST=0.0.0.0` and `TRUST_PROXY=` in the
+root `.env` (see `.env.example`), find the computer's IPv4 with `ipconfig` and
+allow the ports through Windows Firewall once (PowerShell as Administrator):
 
 ```powershell
 New-NetFirewallRule -DisplayName "SmartHome dev" -Direction Inbound -Protocol TCP -LocalPort 3000,3001,8090 -Action Allow -Profile Private
@@ -27,7 +36,7 @@ The Wi-Fi network must be set to Private in Windows.
 ## Release APK
 
 ```
-flutter build apk --release --dart-define=API_BASE_URL=http://<IP máy tính>:3000
+flutter build apk --release --dart-define-from-file=config/cloudflare.json
 ```
 
 The APK is in `build/app/outputs/flutter-apk/app-release.apk` (signed with the

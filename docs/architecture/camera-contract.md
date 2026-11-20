@@ -376,14 +376,19 @@ File được đặt tên theo giờ UTC.
 | real-time-service | Tunnel, hostname công khai (ví dụ `ws.<tên-miền>`), WebSocket | Cloudflare lo TLS |
 | Máy chủ media (HLS) | **Tuyến mạng riêng** của tunnel (Cloudflare Zero Trust); **không** có hostname công khai | Thiết bị xem cài Cloudflare WARP và đăng nhập tổ chức Zero Trust của người dùng |
 
-- Máy chủ media có một địa chỉ riêng (ví dụ `media.<tên-miền>` trỏ tới IP trong mạng
-  nhà). Ở nhà, app tới thẳng địa chỉ này qua mạng LAN; ở ngoài, WARP định tuyến tới
-  đó qua tunnel. `MEDIA_PUBLIC_URL` của Gateway dùng địa chỉ này.
-- WARP mã hóa đường đi, nhưng trình phát trên Android/iOS mặc định chặn HTTP không
-  mã hóa. Máy chủ media cần **HTTPS bằng chứng chỉ thật** cho `media.<tên-miền>`
-  (ví dụ Let's Encrypt cấp qua DNS challenge, không cần mở cổng). Phương án dự
-  phòng là cho phép HTTP riêng tên miền này trong cấu hình mạng của app.
-- Thiết bị dùng để demo (điện thoại hoặc laptop) phải cài sẵn WARP.
+- **Đã làm (2026-11-20, `docs/cloudflare-tunnel.md`):** máy chủ media có địa chỉ cố
+  định `10.250.0.2:8090` trong mạng Docker `media_net`; tunnel (dịch vụ `cloudflared`
+  trong docker-compose, cùng nằm trong `media_net`) có private network route
+  `10.250.0.2/32`. Điện thoại cài Cloudflare One Agent (WARP), Split Tunnels để dải
+  10.224.0.0/11 đi qua WARP.
+- Gateway vẫn công bố `MEDIA_PUBLIC_URL` mặc định (`http://localhost:8090`); app tự
+  đổi gốc URL video sang `MEDIA_BASE_URL` (`config/cloudflare.json`,
+  `AppConfig.mediaUrl`). Máy ảo Android không đặt biến này nên đi `10.0.2.2:8090`.
+- Bên trong WARP dùng HTTP thường (đường đi đã được WARP mã hóa); app đang cho phép
+  cleartext (`usesCleartextTraffic`). Bản phát hành thật nên chuyển sang HTTPS hoặc
+  chỉ cho phép cleartext riêng địa chỉ này.
+- Thiết bị dùng để demo phải cài sẵn Cloudflare One Agent; tắt agent thì mọi thứ
+  vẫn chạy trừ video.
 - Quick Tunnel (`trycloudflare.com`) chỉ dùng để thử nhanh; bản demo dùng tunnel cố
   định trên tên miền của người dùng.
 

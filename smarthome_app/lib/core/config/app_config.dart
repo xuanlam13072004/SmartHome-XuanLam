@@ -5,7 +5,8 @@ class AppConfig {
 
   /// API Gateway address.
   ///
-  /// - Phone on the same Wi-Fi: `--dart-define=API_BASE_URL=http://<IP máy tính>:3000`.
+  /// - Anywhere, through Cloudflare Tunnel:
+  ///   `--dart-define-from-file=config/cloudflare.json` (also sets WS_URL).
   /// - Android emulator without the define: `10.0.2.2`, the emulator's name
   ///   for the computer it runs on.
   /// - Web / desktop without the define: `localhost`.
@@ -19,6 +20,12 @@ class AppConfig {
 
   static const String wsUrl =
       String.fromEnvironment('WS_URL', defaultValue: '');
+
+  /// Where this phone reaches camera video, when that differs from what the
+  /// server publishes: through Cloudflare Tunnel video takes the private
+  /// route `http://10.250.0.2:8090`, open only with Cloudflare WARP on
+  /// (docs/cloudflare-tunnel.md). Set by `config/cloudflare.json`.
+  static const String _mediaBaseUrl = String.fromEnvironment('MEDIA_BASE_URL');
 
   static const _loopbackHosts = {'localhost', '127.0.0.1', '::1'};
 
@@ -34,6 +41,17 @@ class AppConfig {
       return url;
     }
     return target.replace(host: api.host).toString();
+  }
+
+  /// A camera video URL from the server, made reachable from this phone:
+  /// MEDIA_BASE_URL's scheme, host and port when set, else [reachableUrl].
+  static String mediaUrl(String url) {
+    final base = Uri.tryParse(_mediaBaseUrl);
+    final target = Uri.tryParse(url);
+    if (_mediaBaseUrl.isEmpty || base == null || target == null || !base.hasAuthority) {
+      return reachableUrl(url);
+    }
+    return target.replace(scheme: base.scheme, host: base.host, port: base.port).toString();
   }
 
   /// Time zone of scene schedules (IANA name). The app is used in Viet Nam;

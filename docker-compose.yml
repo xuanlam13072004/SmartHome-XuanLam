@@ -2,6 +2,14 @@
 networks:
   smarthome_net:
     driver: bridge
+  # Camera video leaves the house only through the tunnel's private network
+  # route (Cloudflare WARP). This small network gives the media relay the fixed
+  # address of that route, 10.250.0.2 (cloudflared/config.yml).
+  media_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.250.0.0/29
 
 services:
   postgres:
@@ -14,7 +22,8 @@ services:
     volumes:
       - "E:/smarthome_data/postgresql:/var/lib/postgresql"
     ports:
-      - "5433:5432"
+      # Only this computer (database tools); containers use postgres:5432.
+      - "127.0.0.1:5433:5432"
     networks:
       - smarthome_net
     healthcheck:
@@ -42,7 +51,8 @@ services:
     image: mongo:8.0
     container_name: mongodb
     ports:
-      - "27017:27017"
+      # Only this computer (database tools); containers use mongodb:27017.
+      - "127.0.0.1:27017:27017"
     volumes:
       - "E:/smarthome_data/mongodb:/data/db"
       - "E:/smarthome_data/mongodb-config:/data/configdb"
@@ -132,8 +142,14 @@ services:
       # what the app's HLS player opens; the ingest URL is what cameras dial.
       MEDIA_PUBLIC_URL: ${MEDIA_PUBLIC_URL:-http://localhost:8090}
       MEDIA_INGEST_URL: ${MEDIA_INGEST_URL:-ws://media-relay-service:8090/v1/ingest}
+      # Requests arrive through Cloudflare Tunnel: take the visitor's address from
+      # X-Forwarded-For when it comes from this computer or Docker (api-gateway
+      # src/config/trustProxy.ts). Set TRUST_PROXY= (empty) if PUBLISH_HOST opens the LAN.
+      TRUST_PROXY: ${TRUST_PROXY-loopback,linklocal,uniquelocal}
     ports:
-      - "3000:3000"
+      # 127.0.0.1: reached through Cloudflare Tunnel (cloudflared on this computer)
+      # and the Android emulator; PUBLISH_HOST=0.0.0.0 opens it to the LAN.
+      - "${PUBLISH_HOST:-127.0.0.1}:3000:3000"
     networks:
       - smarthome_net
     depends_on:
@@ -153,9 +169,11 @@ services:
       PORT: 8090
       REDIS_URL: redis://redis:6379
     ports:
-      - "8090:8090"
+      - "${PUBLISH_HOST:-127.0.0.1}:8090:8090"
     networks:
-      - smarthome_net
+      smarthome_net:
+      media_net:
+        ipv4_address: 10.250.0.2
     depends_on:
       redis:
         condition: service_healthy
@@ -169,7 +187,7 @@ services:
     env_file:
       - real-time-service/.env.docker
     ports:
-      - "3001:3001"
+      - "${PUBLISH_HOST:-127.0.0.1}:3001:3001"
     networks:
       - smarthome_net
     depends_on:
@@ -206,3 +224,23 @@ services:
         condition: service_healthy
       db-initialize:
         condition: service_completed_successfully
+
+  # Cloudflare Tunnel (docs/cloudflare-tunnel.md): api-datn / ws-datn public
+  # hostnames and the private route to the media relay for WARP phones.
+  cloudflared:
+    image: cloudflare/cloudflared:2026.2.0
+    container_name: cloudflared
+    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
+    volumes:
+      - ./cloudflared/config.yml:/etc/cloudflared/config.yml:ro
+      # The tunnel's secret stays outside the project, e.g.
+      # C:/Users/<you>/.cloudflared/<tunnel-id>.json (root .env).
+      - ${CLOUDFLARED_CREDENTIALS_FILE:-./cloudflared/credentials.json}:/etc/cloudflared/credentials.json:ro
+    networks:
+      - smarthome_net
+      - media_net
+    depends_on:
+      - api-gateway
+      - real-time-service
+      - media-relay-service
+    restart: unless-stopped

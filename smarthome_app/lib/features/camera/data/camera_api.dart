@@ -121,7 +121,7 @@ class CameraApi {
             return CameraMediaSession(
               mac: mac,
               sessionId: sessionId,
-              playlistUrl: AppConfig.reachableUrl('$locator$accessToken/index.m3u8'),
+              playlistUrl: AppConfig.mediaUrl('$locator$accessToken/index.m3u8'),
               expiresAt: DateTime.tryParse(session['expires_at']?.toString() ?? '') ??
                   DateTime.now().add(const Duration(minutes: 4)),
             );

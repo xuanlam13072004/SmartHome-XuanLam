@@ -1,0 +1,25 @@
+# Cloudflare Tunnel run by the `cloudflared` service of docker-compose.yml
+# (setup steps: docs/cloudflare-tunnel.md).
+#
+# - API and realtime: public hostnames, Cloudflare handles HTTPS.
+# - Camera video: NO public hostname (Cloudflare's terms do not allow video
+#   over public hostnames on the Free plan). The media relay is reached only
+#   through the tunnel's private network route 10.250.0.2/32, by phones
+#   running the Cloudflare One Agent (WARP) enrolled in this Zero Trust
+#   organization (docs/architecture/camera-contract.md §11.1).
+#
+# The tunnel's secret is NOT in this folder: docker-compose mounts the
+# credentials file named by CLOUDFLARED_CREDENTIALS_FILE in the root .env.
+tunnel: caa664b2-91a5-4034-a3ed-3e5694448d9d
+credentials-file: /etc/cloudflared/credentials.json
+
+# Let WARP clients reach the private network routes of this tunnel.
+warp-routing:
+  enabled: true
+
+ingress:
+  - hostname: api-datn.lamnguyenxuan.id.vn
+    service: http://api-gateway:3000
+  - hostname: ws-datn.lamnguyenxuan.id.vn
+    service: http://real-time-service:3001
+  - service: http_status:404

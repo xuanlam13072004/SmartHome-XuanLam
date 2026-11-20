@@ -17,6 +17,8 @@ import rateLimitPlugin from './plugins/rateLimit';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import { corsOptions } from './config/cors';
+import { env } from './config/env';
+import { trustProxyOption } from './config/trustProxy';
 
 /**
  * buildApp
@@ -27,6 +29,8 @@ import { corsOptions } from './config/cors';
 export function buildApp(): FastifyInstance {
     const app = fastify({
         logger: true,
+        // Real client address behind Cloudflare Tunnel (config/trustProxy.ts).
+        trustProxy: trustProxyOption(env.TRUST_PROXY),
     });
 
     // Security plugins

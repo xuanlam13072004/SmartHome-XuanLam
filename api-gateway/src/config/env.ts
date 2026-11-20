@@ -4,6 +4,8 @@ const envSchema = z.object({
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
     HOST: z.string().default('0.0.0.0'),
     PORT: z.coerce.number().int().positive().default(3000),
+    // Proxies allowed to set X-Forwarded-For (Cloudflare Tunnel), see config/trustProxy.ts.
+    TRUST_PROXY: z.string().default(''),
 
     JWT_SECRET: z.string().min(8),
     JWT_EXPIRES_IN: z.coerce.number().int().positive().default(900),

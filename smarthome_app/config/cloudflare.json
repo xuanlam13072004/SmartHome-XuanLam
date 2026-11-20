@@ -1,0 +1,5 @@
+{
+  "API_BASE_URL": "https://api-datn.lamnguyenxuan.id.vn",
+  "WS_URL": "wss://ws-datn.lamnguyenxuan.id.vn/ws",
+  "MEDIA_BASE_URL": "http://10.250.0.2:8090"
+}
