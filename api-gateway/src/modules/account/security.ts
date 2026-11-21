@@ -21,7 +21,7 @@ export interface SessionView {
  * tens of milliseconds. Callers update with `password_hash = $old` so a
  * concurrent change is detected instead of silently overwritten.
  */
-async function verifyPassword(app: FastifyInstance, accountId: string, password: string) {
+export async function verifyPassword(app: FastifyInstance, accountId: string, password: string) {
     const result = await app.pg.query(
         `SELECT email, password_hash, token_version
          FROM accounts WHERE id = $1 AND status = 'active'`,

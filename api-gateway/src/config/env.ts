@@ -26,6 +26,10 @@ const envSchema = z.object({
     // Automations ("Tự động") per account; their notifications are kept this long.
     MAX_AUTOMATIONS_PER_ACCOUNT: z.coerce.number().int().min(1).max(200).default(30),
     ACCOUNT_NOTIFICATION_RETENTION_DAYS: z.coerce.number().int().min(1).max(365).default(30),
+    // Voice verification service (docs/architecture/voice.md). Without a token the
+    // voice endpoints answer 503 VOICE_UNAVAILABLE.
+    VOICE_SERVICE_URL: z.string().url().default('http://voice-service:8000'),
+    VOICE_SERVICE_TOKEN: z.string().default(''),
 
     PG_HOST: z.string(),
     PG_PORT: z.coerce.number().int().positive().default(5432),

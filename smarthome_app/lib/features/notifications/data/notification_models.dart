@@ -23,15 +23,18 @@ class AppNotification {
     this.automationId,
   });
 
-  /// device_event · automation
+  /// device_event · automation · security
   final String kind;
 
-  /// An automation's name and message (kind `automation`).
+  /// An automation's name and message (kind `automation`), or a security
+  /// notice such as the voice lock (kind `security`).
   final String? title;
   final String? body;
   final String? automationId;
 
   bool get fromAutomation => kind == 'automation';
+
+  bool get fromSecurity => kind == 'security';
 
   final String id;
   final DateTime at;

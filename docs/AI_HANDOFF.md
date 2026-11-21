@@ -325,13 +325,16 @@ backend), gọn còn ít trang. Đã làm:
 
 ## Cá nhân, Phòng, Kịch bản (2026-11-09 → 11-13)
 
-- Schema PostgreSQL = baseline 203 (`schema_v2.sql`) + bước nâng cấp trong `database/postgres/migrations` (`migrate.js`, giữ dữ liệu). Hiện là **207**.
+- Schema PostgreSQL = baseline 203 (`schema_v2.sql`) + bước nâng cấp trong `database/postgres/migrations` (`migrate.js`, giữ dữ liệu). Hiện là **208**.
 - Trang Cá nhân: `docs/architecture/account-center.md`. Phòng (204): `docs/architecture/rooms.md`. Kịch bản (205 + hẹn giờ 206 + tự động hóa 207): `docs/architecture/scenes.md`.
 - Kịch bản: đã xong cả 3 đợt — chạy tay + lịch sử, hẹn giờ, tự động hóa (Khi trạng thái/sự kiện/giờ → Nếu → Thì chạy kịch bản/gửi thông báo) + gợi ý. Bộ máy: `workers/automationEngine.ts` (nghe Redis `device.telemetry/event/status`, chỉ mục MAC trong bộ nhớ), `modules/automations/firing.ts` (khóa dòng → đúng 1 lần dù nhiều Gateway). Thông báo của tự động hóa nằm ở bảng `account_notifications`, gộp vào `GET /me/notifications`.
   Đã chốt: bước "được bảo vệ" (catalog `confirmation` khác `none`, vd mở khóa cửa) chỉ cho chạy tay và phải nhập mật khẩu mỗi lần; không cho trong hẹn giờ/tự động hóa.
   Người được chia sẻ tạo kịch bản riêng với thao tác họ có quyền.
 - Cloudflare Tunnel (2026-11-20, hướng dẫn `docs/cloudflare-tunnel.md`): dịch vụ `cloudflared` trong docker-compose, cấu hình `cloudflared/config.yml` (`api-datn` → `api-gateway:3000`, `ws-datn` → `real-time-service:3001`), file bí mật mount từ `CLOUDFLARED_CREDENTIALS_FILE` (`.env` gốc). Video theo phương án B: không có tên miền công khai, đi private route `10.250.0.2/32` (mạng Docker `media_net`) cho điện thoại có Cloudflare One Agent (WARP); app dùng `MEDIA_BASE_URL` (`AppConfig.mediaUrl`). Tên miền chỉ một cấp con vì chứng chỉ miễn phí của Cloudflare không phủ `a.b.<tên-miền>`.
   docker-compose công bố 3000/3001/8090 trên `PUBLISH_HOST` (mặc định 127.0.0.1), Postgres/Mongo chỉ 127.0.0.1, MQTT 1883 vẫn mở cho thiết bị. Gateway lấy IP thật từ X-Forwarded-For qua `TRUST_PROXY` (mặc định `loopback,linklocal,uniquelocal`, `src/config/trustProxy.ts`, `test/trust-proxy.test.ts`); mở LAN (`PUBLISH_HOST=0.0.0.0`) thì phải đặt `TRUST_PROXY=` rỗng. App: `flutter run --dart-define-from-file=config/cloudflare.json`.
+
+- Giọng nói — đợt A (2026-11-21, `docs/architecture/voice.md`): xác minh 1:1 "đúng giọng chủ tài khoản, giọng thật" cho trợ lý giọng nói sau này. Dịch vụ mới `voice-service/` (Python 3.12, FastAPI, ECAPA-TDNN + RawNet2 chống giả mạo theo từng người, AS-norm khi có cohort), chỉ Gateway gọi qua token `VOICE_SERVICE_TOKEN` (`.env` gốc, bắt buộc). Bảng 208: `voice_profiles/templates/clips/antispoof_models/attempts` + `account_notifications.kind`. Gateway `modules/voice` (multipart, rate limit, khóa tạm 15 phút sau 5 lần không khớp + thông báo `security`, xóa hồ sơ phải nhập mật khẩu). App: Cá nhân → Giọng nói (gói `record`, ghi 16 kHz mono, tắt AGC/khử ồn, kiểm tra chất lượng ngay trên máy giống hệt server). Công cụ: `tools/build_cohort.py`, `tools/evaluate.py` (EER/FAR/FRR cho báo cáo).
+  Tiếp theo: đợt B trợ lý (PhoWhisper + Gemini function calling, bộ ~100 câu kiểm thử prompt, giới hạn token), đợt C thanh toán (VietQR + SePay, xác nhận tay, mock).
 
 ## Mục tiêu và lộ trình tiếp theo
 

@@ -146,6 +146,9 @@ services:
       # X-Forwarded-For when it comes from this computer or Docker (api-gateway
       # src/config/trustProxy.ts). Set TRUST_PROXY= (empty) if PUBLISH_HOST opens the LAN.
       TRUST_PROXY: ${TRUST_PROXY-loopback,linklocal,uniquelocal}
+      # Voice verification (docs/architecture/voice.md); shared with voice-service.
+      VOICE_SERVICE_URL: http://voice-service:8000
+      VOICE_SERVICE_TOKEN: ${VOICE_SERVICE_TOKEN:?Set VOICE_SERVICE_TOKEN in the root .env (see .env.example)}
     ports:
       # 127.0.0.1: reached through Cloudflare Tunnel (cloudflared on this computer)
       # and the Android emulator; PUBLISH_HOST=0.0.0.0 opens it to the LAN.
@@ -159,6 +162,32 @@ services:
         condition: service_healthy
       db-initialize:
         condition: service_completed_successfully
+
+  # Voice verification (docs/architecture/voice.md): only the API Gateway calls it.
+  voice-service:
+    build:
+      context: ./voice-service
+    container_name: voice-service
+    environment:
+      VOICE_SERVICE_TOKEN: ${VOICE_SERVICE_TOKEN:?Set VOICE_SERVICE_TOKEN in the root .env (see .env.example)}
+      PG_HOST: postgres
+      PG_PORT: 5432
+      PG_DATABASE: smarthome
+      PG_USER: postgres
+      PG_PASSWORD: postgres
+      # Recordings judged at the same time (each uses about one CPU core).
+      VOICE_MAX_CONCURRENCY: ${VOICE_MAX_CONCURRENCY:-2}
+    volumes:
+      # cohort.npy for score normalization (python -m tools.build_cohort).
+      - "E:/smarthome_data/voice:/data"
+    networks:
+      - smarthome_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      db-initialize:
+        condition: service_completed_successfully
+    restart: unless-stopped
 
   media-relay-service:
     build:

@@ -29,6 +29,9 @@ abstract final class AppRoutes {
   static const String profileNotifications = '/profile/notifications';
   static const String profileNotificationSettings = '/profile/notifications/settings';
   static const String profileActivity = '/profile/activity';
+  static const String profileVoice = '/profile/voice';
+
+  static String profileVoiceSessionOf(String mode) => '/profile/voice/session/$mode';
 
   // Feature Routes
   static const String deviceDetail = '/device/:mac';

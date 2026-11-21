@@ -28,11 +28,14 @@ const errorHandlerPlugin: FastifyPluginAsync = async (app: FastifyInstance) => {
         }
 
         // Default response format
+        // Field-level details of a client error (validation issues, which recording failed).
+        const details = statusCode < 500 ? (error as { details?: unknown }).details : undefined;
         const response = {
             success: false,
             error: {
                 code: errorCode,
                 message: errorMessage,
+                ...(details !== undefined ? { details } : {}),
             },
             meta: {
                 requestId: request.id,

@@ -1,0 +1,13 @@
+# PyTorch 2.2.0 / torchaudio 2.2.0 (CPU builds) are installed first by the
+# Dockerfile. Versions match the original voice system's working environment.
+numpy==1.26.4
+scipy==1.17.1
+soundfile==0.13.1
+speechbrain==1.0.2
+huggingface_hub==0.36.2
+hyperpyyaml==1.2.3
+fastapi==0.134.0
+python-multipart==0.0.22
+uvicorn==0.41.0
+psycopg[binary]==3.2.13
+psycopg-pool==3.2.8

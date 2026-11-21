@@ -47,5 +47,7 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Ứng dụng cần quyền sử dụng Camera để quét mã QR kết nối thiết bị.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Ứng dụng cần quyền dùng micro để đăng ký và xác minh giọng nói của bạn.</string>
 </dict>
 </plist>

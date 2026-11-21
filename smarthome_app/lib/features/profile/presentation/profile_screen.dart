@@ -131,6 +131,12 @@ class ProfileScreen extends ConsumerWidget {
                   onTap: () => showChangePasswordSheet(context),
                 ),
                 ProfileTile(
+                  icon: LucideIcons.fingerprint,
+                  title: 'Giọng nói',
+                  subtitle: 'Đăng ký để hệ thống nhận ra đúng giọng của bạn',
+                  onTap: () => context.push(AppRoutes.profileVoice),
+                ),
+                ProfileTile(
                   icon: LucideIcons.smartphone,
                   title: 'Phiên đăng nhập',
                   subtitle: 'Xem và đăng xuất các thiết bị đang đăng nhập',

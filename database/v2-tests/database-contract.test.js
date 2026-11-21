@@ -214,4 +214,8 @@ test('PostgreSQL upgrade steps are numbered after the baseline, additive and tra
     // Deleting a scene leaves its automations without one; a removed device takes them.
     assert.match(automations, /ON DELETE SET NULL \(scene_id\)/);
     assert.match(automations, /trigger_device_id uuid REFERENCES public\.device_metadata\(id\) ON DELETE CASCADE/);
+    const voice = fs.readFileSync(migrations.find(item => item.name === 'voice_profiles').file, 'utf8');
+    // Biometric data goes with the account; embeddings have a fixed size.
+    assert.match(voice, /account_id uuid PRIMARY KEY REFERENCES public\.accounts\(id\) ON DELETE CASCADE/);
+    assert.match(voice, /octet_length\(embedding\) = 768/);
 });

@@ -107,10 +107,14 @@ class _NotificationTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = item.fromAutomation
         ? context.colorScheme.primary
-        : item.critical
+        : item.critical || item.fromSecurity
             ? context.colorScheme.error
             : context.neu.warningColor;
-    final icon = item.fromAutomation ? Icons.auto_mode_rounded : NotificationLabels.category(item.category).icon;
+    final icon = item.fromAutomation
+        ? Icons.auto_mode_rounded
+        : item.fromSecurity
+            ? Icons.shield_outlined
+            : NotificationLabels.category(item.category).icon;
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.smMd),
       child: NeuCard(
@@ -119,7 +123,9 @@ class _NotificationTile extends StatelessWidget {
           borderRadius: BorderRadius.circular(AppRadius.lg),
           onTap: item.fromAutomation
               ? (item.automationId == null ? null : () => context.push(AppRoutes.automationEditOf(item.automationId!)))
-              : item.deviceMac.isEmpty
+              : item.fromSecurity
+                  ? () => context.push(AppRoutes.profileVoice)
+                  : item.deviceMac.isEmpty
                   ? null
                   : () => context.push(AppRoutes.deviceDetail.replaceFirst(':mac', item.deviceMac)),
           child: Padding(
@@ -148,7 +154,7 @@ class _NotificationTile extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '${item.fromAutomation ? 'Tự động: ${item.title ?? ''}' : item.deviceName} · ${TimeFormat.clock(item.at)}',
+                        '${item.fromAutomation ? 'Tự động: ${item.title ?? ''}' : item.fromSecurity ? 'Bảo mật: ${item.title ?? ''}' : item.deviceName} · ${TimeFormat.clock(item.at)}',
                         style: context.textTheme.bodySmall?.copyWith(color: context.colorScheme.onSurfaceVariant),
                       ),
                     ],

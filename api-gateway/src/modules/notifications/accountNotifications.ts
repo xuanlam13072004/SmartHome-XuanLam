@@ -4,13 +4,16 @@ import { REDIS_CHANNELS } from '../../../../shared/constants';
 import { env } from '../../config/env';
 
 /**
- * Notifications addressed to one account (an automation's "gửi thông báo"),
- * kept in PostgreSQL next to the device events the notification center reads
- * from MongoDB. They are never muted: the account chose to receive them.
+ * Notifications addressed to one account: an automation's "gửi thông báo" and
+ * security notices (voice verification locked). Kept in PostgreSQL next to the
+ * device events the notification center reads from MongoDB. Never muted.
  */
+
+export type AccountNotificationKind = 'automation' | 'security';
 
 export interface AccountNotificationRow {
     id: string;
+    kind: AccountNotificationKind;
     automation_id: string | null;
     title: string;
     body: string;
@@ -19,43 +22,43 @@ export interface AccountNotificationRow {
 
 export interface AccountNotificationItem {
     id: string;
-    kind: 'automation';
+    kind: AccountNotificationKind;
     at: string;
     occurred_at: string;
     title: string;
     body: string;
     automation_id: string | null;
-    severity: 'info';
-    category: 'automation';
+    severity: 'info' | 'warning';
+    category: AccountNotificationKind;
     unread: boolean;
 }
 
-const COLUMNS = 'id, automation_id, title, body, created_at';
+const COLUMNS = 'id, kind, automation_id, title, body, created_at';
 
 export function notificationItem(row: AccountNotificationRow, seenAt: Date | null): AccountNotificationItem {
     const at = new Date(row.created_at);
     return {
         id: row.id,
-        kind: 'automation',
+        kind: row.kind,
         at: at.toISOString(),
         occurred_at: at.toISOString(),
         title: row.title,
         body: row.body,
         automation_id: row.automation_id,
-        severity: 'info',
-        category: 'automation',
+        severity: row.kind === 'security' ? 'warning' : 'info',
+        category: row.kind,
         unread: !seenAt || at > seenAt,
     };
 }
 
 export async function insertAccountNotification(
-    client: PoolClient,
-    input: { accountId: string; automationId: string | null; title: string; body: string },
+    client: Pool | PoolClient,
+    input: { accountId: string; automationId: string | null; title: string; body: string; kind?: AccountNotificationKind },
 ): Promise<AccountNotificationRow> {
     const result = await client.query(
-        `INSERT INTO account_notifications (account_id, automation_id, title, body)
-         VALUES ($1, $2, $3, $4) RETURNING ${COLUMNS}`,
-        [input.accountId, input.automationId, input.title, input.body],
+        `INSERT INTO account_notifications (account_id, automation_id, title, body, kind)
+         VALUES ($1, $2, $3, $4, $5) RETURNING ${COLUMNS}`,
+        [input.accountId, input.automationId, input.title, input.body, input.kind ?? 'automation'],
     );
     return result.rows[0];
 }

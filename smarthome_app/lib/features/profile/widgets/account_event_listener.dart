@@ -11,6 +11,7 @@ import '../../dashboard/providers/realtime_provider.dart';
 import '../../notifications/notification_labels.dart';
 import '../../notifications/providers/notification_providers.dart';
 import '../../sharing/providers/sharing_providers.dart';
+import '../../voice/providers/voice_providers.dart';
 import '../providers/account_providers.dart';
 
 /// Reacts to realtime events anywhere in the app: device warnings and alarms
@@ -54,7 +55,12 @@ class _AccountEventListenerState extends ConsumerState<AccountEventListener> {
             ? Map<String, dynamic>.from(notice.data['notification'] as Map)
             : const <String, dynamic>{};
         final body = item['body']?.toString() ?? '';
-        _show(body.isEmpty ? 'Tự động hóa vừa gửi thông báo' : body, route: AppRoutes.profileNotifications);
+        if (item['kind'] == 'security') {
+          ref.invalidate(voiceStateProvider);
+          _show(body.isEmpty ? 'Có cảnh báo bảo mật mới' : body, route: AppRoutes.profileVoice);
+        } else {
+          _show(body.isEmpty ? 'Tự động hóa vừa gửi thông báo' : body, route: AppRoutes.profileNotifications);
+        }
       case final AccountNotificationEvent notice:
         _refreshAccount();
         final device = notice.data['device_name']?.toString() ?? 'thiết bị';

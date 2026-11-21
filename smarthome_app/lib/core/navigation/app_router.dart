@@ -26,6 +26,8 @@ import '../../features/profile/presentation/sessions_screen.dart';
 import '../../features/sharing/presentation/device_members_screen.dart';
 import '../../features/sharing/presentation/sharing_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
+import '../../features/voice/presentation/voice_screen.dart';
+import '../../features/voice/presentation/voice_session_screen.dart';
 import '../../features/debug/presentation/debug_screen.dart';
 
 import 'app_routes.dart';
@@ -240,6 +242,19 @@ GoRouter router(Ref ref) {
                   GoRoute(
                     path: 'activity',
                     builder: (context, state) => const ActivityScreen(),
+                  ),
+                  GoRoute(
+                    path: 'voice',
+                    builder: (context, state) => const VoiceScreen(),
+                    routes: [
+                      GoRoute(
+                        path: 'session/:mode',
+                        builder: (context, state) {
+                          final mode = VoiceSessionMode.parse(state.pathParameters['mode']);
+                          return mode == null ? const VoiceScreen() : VoiceSessionScreen(mode: mode);
+                        },
+                      ),
+                    ],
                   ),
                 ],
               ),

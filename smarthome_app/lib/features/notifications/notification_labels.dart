@@ -63,7 +63,9 @@ abstract final class NotificationLabels {
 
   static String notificationTitle(AppNotification notification) => notification.fromAutomation
       ? notification.body ?? notification.title ?? 'Tự động hóa'
-      : eventTitle(notification.eventName, notification.data);
+      : notification.fromSecurity
+          ? notification.body ?? notification.title ?? 'Bảo mật'
+          : eventTitle(notification.eventName, notification.data);
 }
 
 /// One line of "Lịch sử hoạt động".
