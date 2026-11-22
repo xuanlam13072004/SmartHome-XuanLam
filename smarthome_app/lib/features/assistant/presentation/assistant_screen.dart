@@ -9,8 +9,10 @@ import 'package:lucide_icons/lucide_icons.dart';
 import '../../../core/core.dart';
 import '../../../core/navigation/app_routes.dart';
 import '../../../core/utils/app_error_mapper.dart';
+import '../../../core/utils/time_format.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../dashboard/presentation/capability_actions.dart' show requestAccountPassword;
+import '../../payments/providers/payments_providers.dart';
 import '../../voice/audio/voice_audio.dart';
 import '../../voice/audio/voice_recorder.dart';
 import '../data/assistant_models.dart';
@@ -33,8 +35,12 @@ const _suggestions = [
 /// operations the app normally confirms wait for a tap (or the password).
 /// The assistant also advises on plans and sells them here: after the user
 /// confirms, the order's QR appears in the chat and the result is announced.
+/// Opened from a plan reminder ([renewPlan]), it starts with that plan's offer.
 class AssistantScreen extends ConsumerStatefulWidget {
-  const AssistantScreen({super.key});
+  const AssistantScreen({super.key, this.renewPlan});
+
+  /// Code of a plan to offer for renewal right away.
+  final String? renewPlan;
 
   @override
   ConsumerState<AssistantScreen> createState() => _AssistantScreenState();
@@ -65,6 +71,21 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
       ..addListener(_onChat)
       ..resume();
     if (_shown > 0) _toBottom(animate: false);
+    if (widget.renewPlan != null) unawaited(_offerRenewal(widget.renewPlan!));
+  }
+
+  /// The renewal offer of a plan reminder (once per open offer).
+  Future<void> _offerRenewal(String code) async {
+    try {
+      final options = await ref.read(paymentsApiProvider).options();
+      final plan = options.plans.where((item) => item.code == code).firstOrNull;
+      final alreadyOffered = _chat.entries
+          .any((entry) => entry.offer?.planCode == code && entry.offerState == OfferState.open);
+      if (!mounted || plan == null || !options.available || alreadyOffered) return;
+      _chat.offerPlan(plan);
+    } catch (_) {
+      // Payments unavailable: the chat opens normally.
+    }
   }
 
   @override
@@ -270,8 +291,10 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
                       ),
                       const SizedBox(width: AppSpacing.sm),
                       Text(
-                        'Gói ${usage.plan.name}',
-                        style: context.textTheme.bodySmall?.copyWith(color: context.colorScheme.onSurfaceVariant),
+                        _planLabel(usage.plan.name, usage.expiresAt),
+                        style: context.textTheme.bodySmall?.copyWith(
+                          color: _endsSoon(usage.expiresAt) ? context.neu.warningColor : context.colorScheme.onSurfaceVariant,
+                        ),
                       ),
                     ],
                   ),
@@ -302,6 +325,13 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
     );
   }
 }
+
+/// A paid plan ending within three days (the reminders' window).
+bool _endsSoon(DateTime? expiresAt) =>
+    expiresAt != null && expiresAt.difference(DateTime.now()) < const Duration(days: 3);
+
+String _planLabel(String name, DateTime? expiresAt) =>
+    _endsSoon(expiresAt) ? 'Gói $name · hết hạn ${TimeFormat.date(expiresAt!)}' : 'Gói $name';
 
 class _Welcome extends StatelessWidget {
   const _Welcome({required this.onPick});

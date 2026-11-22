@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Accent of push notifications: the app's teal (AppPalette.primaryTeal). -->
+    <color name="notification_accent">#00B4A6</color>
+</resources>

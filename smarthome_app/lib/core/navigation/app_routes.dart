@@ -37,6 +37,9 @@ abstract final class AppRoutes {
   // Assistant ("Trợ lý"), full screen above the tabs.
   static const String assistant = '/assistant';
 
+  /// The assistant chat opening with an offer to renew [planCode] (plan reminders).
+  static String assistantRenewOf(String planCode) => '/assistant?renew=${Uri.encodeQueryComponent(planCode)}';
+
   static String profileVoiceSessionOf(String mode) => '/profile/voice/session/$mode';
 
   // Feature Routes

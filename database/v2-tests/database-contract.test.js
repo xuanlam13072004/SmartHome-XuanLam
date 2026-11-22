@@ -226,4 +226,8 @@ test('PostgreSQL upgrade steps are numbered after the baseline, additive and tra
     // A retried webhook can never pay twice; amounts come from the server.
     assert.match(payments, /UNIQUE \(provider, provider_ref\)/);
     assert.match(payments, /code text NOT NULL UNIQUE/);
+    const push = fs.readFileSync(migrations.find(item => item.name === 'push_notifications').file, 'utf8');
+    // A phone stops receiving when its session ends; each reminder is sent once.
+    assert.match(push, /session_id uuid NOT NULL REFERENCES public\.user_sessions\(id\) ON DELETE CASCADE/);
+    assert.match(push, /PRIMARY KEY \(account_id, plan_expires_at, stage\)/);
 });

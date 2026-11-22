@@ -13,6 +13,7 @@ import automationRoutes from './modules/automations/routes';
 import voiceRoutes from './modules/voice/routes';
 import assistantRoutes from './modules/assistant/routes';
 import paymentRoutes from './modules/payments/routes';
+import pushRoutes from './modules/push/routes';
 import jwtPlugin from './plugins/jwt';
 import errorHandlerPlugin from './plugins/errorHandler';
 import validationPlugin from './plugins/validation';
@@ -77,6 +78,7 @@ export function buildApp(): FastifyInstance {
     app.register(voiceRoutes);
     app.register(assistantRoutes);
     app.register(paymentRoutes);
+    app.register(pushRoutes);
 
     // Health check cho load balancer / k8s
     app.get('/health', async () => {

@@ -6,6 +6,7 @@ import '../../../data/datasources/remote/auth_remote_data_source_provider.dart';
 import '../repositories/auth_repository.dart';
 import '../../dashboard/providers/realtime_provider.dart';
 import '../../dashboard/providers/devices_provider.dart';
+import '../../push/push_notifications.dart';
 
 part 'auth_provider.g.dart';
 
@@ -85,6 +86,8 @@ class AuthController extends _$AuthController {
   }
 
   Future<void> logout() async {
+    // While the session still works: this phone stops receiving the account's pushes.
+    await ref.read(pushNotificationsProvider).stop(signedIn: true);
     try {
       await ref.read(authRepositoryProvider).logout();
     } catch (_) {}

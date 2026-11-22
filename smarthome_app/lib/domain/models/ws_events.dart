@@ -233,6 +233,8 @@ class WsEventParser {
         case 'sharing_member_joined':
         case 'notification_created':
         case 'payment_updated':
+        case 'plan_expiring':
+        case 'plan_expired':
           return AccountNotificationEvent(
             event as String,
             data['data'] is Map ? Map<String, dynamic>.from(data['data'] as Map) : <String, dynamic>{},

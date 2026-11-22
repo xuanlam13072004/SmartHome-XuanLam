@@ -34,6 +34,9 @@ dependencies:
   flutter_tts: ^4.2.0
   # VietQR payment codes (Gói dịch vụ → Thanh toán).
   qr_flutter: ^4.1.0
+  # Push notifications when the app is closed (docs/architecture/push.md).
+  firebase_core: ^3.6.0
+  firebase_messaging: ^15.1.3
   web: ^1.1.0
 
 dev_dependencies:

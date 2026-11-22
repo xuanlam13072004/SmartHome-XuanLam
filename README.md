@@ -30,6 +30,8 @@ App và backend không phân biệt thiết bị thật hay ảo.
    - thanh toán: mặc định `PAYMENT_MODE=mock` (không tiền thật); tiền thật xem
      `docs/architecture/payments.md`;
    - truy cập từ xa: `CLOUDFLARED_CREDENTIALS_FILE` (`docs/cloudflare-tunnel.md`).
+   - thông báo đẩy (không bắt buộc): đặt `secrets/firebase-service-account.json`
+     và `smarthome_app/android/app/google-services.json` (`docs/architecture/push.md`).
    - `api-gateway/.env.docker`, `real-time-service/.env.docker`,
      `mqtt-worker-service/.env.docker` tạo từ các file `.env.docker.example`.
 3. `docker compose up -d --build` (lần đầu lâu: voice-service tải PyTorch, ECAPA,
@@ -49,7 +51,7 @@ cd device-simulator/backend; npm test
 cd media-relay-service; npm test
 docker compose run --rm voice-service python -m pytest -q
 cd smarthome_app; flutter test
-cd api-gateway; npm run assistant:eval   # bộ 103 câu với Gemini thật (cần GEMINI_API_KEY)
+cd api-gateway; npm run assistant:eval   # bộ 115 câu với Gemini thật (cần GEMINI_API_KEY)
 ```
 
 ## Tài liệu

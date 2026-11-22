@@ -162,6 +162,11 @@ services:
       PAYMENT_BANK_NAME: ${PAYMENT_BANK_NAME:-}
       SEPAY_WEBHOOK_SECRET: ${SEPAY_WEBHOOK_SECRET:-}
       SEPAY_API_KEY: ${SEPAY_API_KEY:-}
+      # Push notifications (docs/architecture/push.md): the Firebase service account
+      # JSON in ./secrets (Git-ignored). Missing file = push off.
+      FCM_SERVICE_ACCOUNT_FILE: /run/smarthome-secrets/firebase-service-account.json
+    volumes:
+      - ./secrets:/run/smarthome-secrets:ro
     ports:
       # 127.0.0.1: reached through Cloudflare Tunnel (cloudflared on this computer)
       # and the Android emulator; PUBLISH_HOST=0.0.0.0 opens it to the LAN.

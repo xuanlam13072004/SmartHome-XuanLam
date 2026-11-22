@@ -4,6 +4,8 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <!-- Voice profile recordings (Cá nhân → Giọng nói). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Push notifications (Android 13+ asks the user). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- usesCleartextTraffic: the development backend (API, camera video) is plain
          HTTP on the local network. Remove it once the server is served over HTTPS. -->
     <application
@@ -33,6 +35,17 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- Push notifications (docs/architecture/push.md): small icon, accent colour and
+             the channel used when a push names none (channels: MainActivity.kt). -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_notify" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/notification_accent" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="general" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

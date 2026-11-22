@@ -63,6 +63,9 @@ minutes) or **API Key** (`SEPAY_API_KEY`; `Authorization: Apikey <key>`).
   monthly prices (seconds × old price / new price). Expired → free plan.
 - **Records are kept** (orders and transactions are bookkeeping; deleting an
   account removes its orders, its transactions stay unlinked).
+- **Reminders**: 3 days and 1 day before a paid plan ends, and once it has
+  ended, as a snackbar in the open app and a push notification that opens the
+  chat with a renewal offer (docs/architecture/push.md).
 
 ## Manual confirmation (CLI in the Gateway container)
 

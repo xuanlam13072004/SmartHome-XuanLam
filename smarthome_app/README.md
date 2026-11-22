@@ -55,6 +55,11 @@ debug key; fine for testing, not for a store).
   `qr_flutter` (VietQR on the payment screen). `record` 6.1+ builds with Kotlin
   2.2: if Gradle complains about the Kotlin version, raise
   `org.jetbrains.kotlin.android` in `android/settings.gradle` to 2.2.x.
+- Push notifications (`firebase_messaging`): put the Firebase project's
+  `google-services.json` in `android/app/` (Git-ignored) to turn them on; the
+  Google services plugin is applied only when that file exists, so the app
+  builds without it. Channels `alerts` / `general` are created in
+  `MainActivity.kt`. Setup and testing: `docs/architecture/push.md`.
 - Camera: the web app plays HLS with hls.js; Android / iOS use `video_player`
   (ExoPlayer). Recordings are mapped to wall-clock time from
   `#EXT-X-PROGRAM-DATE-TIME` (`lib/features/camera/player/hls_playlist.dart`).

@@ -18,6 +18,7 @@ import { CredentialOutboxDispatcher } from './workers/credentialOutboxDispatcher
 import { CredentialStatusConsumer } from './workers/credentialStatusConsumer';
 import { SceneRunner } from './workers/sceneRunner';
 import { AutomationEngine } from './workers/automationEngine';
+import { PushNotifier } from './workers/pushNotifier';
 
 const app = buildApp();
 
@@ -35,6 +36,7 @@ const start = async () => {
         let credentialStatusConsumer: CredentialStatusConsumer | null = null;
         let sceneRunner: SceneRunner | null = null;
         let automationEngine: AutomationEngine | null = null;
+        let pushNotifier: PushNotifier | null = null;
 
         // Đăng ký hook dừng Consumer khi app đóng (phải đăng ký trước khi ready/listen)
         app.addHook('onClose', async () => {
@@ -58,6 +60,9 @@ const start = async () => {
             }
             if (credentialStatusConsumer) {
                 await credentialStatusConsumer.stop();
+            }
+            if (pushNotifier) {
+                await pushNotifier.stop();
             }
             if (automationEngine) {
                 await automationEngine.stop();
@@ -125,6 +130,9 @@ const start = async () => {
         // Automations triggered by device states and events (time triggers run in the scene runner).
         automationEngine = new AutomationEngine(app);
         await automationEngine.start();
+        // Push notifications for phones where the app is closed (docs/architecture/push.md).
+        pushNotifier = new PushNotifier(app);
+        await pushNotifier.start();
 
         // Start listening
         await app.listen({ port, host });

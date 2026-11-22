@@ -177,7 +177,12 @@ class _UsageCard extends StatelessWidget {
           if (usage.resetsAt != null)
             Text('Làm mới vào ${TimeFormat.dateTime(usage.resetsAt!)}', style: muted),
           if (usage.expiresAt != null)
-            Text('Gói hiện tại hết hạn ${TimeFormat.dateTime(usage.expiresAt!)}', style: muted),
+            Text(
+              'Gói hiện tại hết hạn ${TimeFormat.dateTime(usage.expiresAt!)}',
+              style: usage.expiresAt!.difference(DateTime.now()) < const Duration(days: 3)
+                  ? muted?.copyWith(color: context.neu.warningColor, fontWeight: FontWeight.w600)
+                  : muted,
+            ),
         ],
       ),
     );

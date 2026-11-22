@@ -2,6 +2,12 @@
 .env*
 # Cloudflare Tunnel secrets (only cloudflared/config.yml is part of the project)
 cloudflared/*.json
+# Other server secrets (Firebase service account...); only the README is shared
+secrets/*
+!secrets/README.md
+# Firebase app config of each developer's own project
+smarthome_app/android/app/google-services.json
+smarthome_app/ios/Runner/GoogleService-Info.plist
 !.env.example
 !.env.docker.example
 

@@ -280,7 +280,7 @@ GoRouter router(Ref ref) {
       GoRoute(
         path: AppRoutes.assistant,
         parentNavigatorKey: _rootNavigatorKey,
-        builder: (context, state) => const AssistantScreen(),
+        builder: (context, state) => AssistantScreen(renewPlan: state.uri.queryParameters['renew']),
       ),
       GoRoute(
         path: AppRoutes.deviceDetail,

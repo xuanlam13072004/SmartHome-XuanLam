@@ -1,7 +1,7 @@
 # Current SmartHome architecture
 
 This repository has one active contract: Product Catalog V2 and database schema
-version 210 (baseline 203 + incremental migrations in
+version 211 (baseline 203 + incremental migrations in
 `database/postgres/migrations`). There is no V1 compatibility layer.
 
 ## Authority boundaries
@@ -54,6 +54,9 @@ state, event or time → scene and/or notification) and suggestions:
 - Payments: VietQR transfers confirmed by the SePay webhook, by hand (CLI) or
   simulated in mock mode; a paid order extends the account's plan:
   [payments.md](payments.md).
+- Push notifications: alerts, automation and security notices, payments,
+  sharing and plan reminders reach phones with the app closed (FCM HTTP v1,
+  tokens tied to sessions, one sender across Gateways): [push.md](push.md).
 
 ## Security camera (proposal)
 

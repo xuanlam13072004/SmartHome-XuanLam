@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/navigation/app_routes.dart';
+import '../../../core/utils/time_format.dart';
 import '../../../domain/models/ws_events.dart';
 import '../../dashboard/providers/devices_provider.dart';
 import '../../dashboard/providers/realtime_provider.dart';
@@ -16,11 +17,14 @@ import '../../assistant/providers/assistant_chat.dart';
 import '../../assistant/providers/assistant_providers.dart';
 import '../../payments/data/payment_models.dart';
 import '../../payments/providers/payments_providers.dart';
+import '../../push/push_notifications.dart';
 import '../providers/account_providers.dart';
 
 /// Reacts to realtime events anywhere in the app: device warnings and alarms
 /// (unless their category is muted), messages from the account's automations,
-/// sharing invitations, and the badges of the "Cá nhân" tab.
+/// sharing invitations, plan reminders, and the badges of the "Cá nhân" tab.
+/// It also starts push notifications for the signed-in account and opens the
+/// screen of a tapped notification.
 class AccountEventListener extends ConsumerStatefulWidget {
   const AccountEventListener({super.key, required this.child});
 
@@ -32,16 +36,23 @@ class AccountEventListener extends ConsumerStatefulWidget {
 
 class _AccountEventListenerState extends ConsumerState<AccountEventListener> {
   StreamSubscription<WsEvent>? _subscription;
+  StreamSubscription<String>? _pushTaps;
 
   @override
   void initState() {
     super.initState();
     _subscription = ref.read(realtimeRepositoryProvider).eventStream.listen(_onEvent);
+    final push = ref.read(pushNotificationsProvider);
+    _pushTaps = push.taps.listen((route) {
+      if (mounted) context.push(route);
+    });
+    unawaited(push.start());
   }
 
   @override
   void dispose() {
     _subscription?.cancel();
+    _pushTaps?.cancel();
     super.dispose();
   }
 
@@ -67,6 +78,19 @@ class _AccountEventListenerState extends ConsumerState<AccountEventListener> {
         if (order['status'] == 'paid' && !(inChat && chat!.onScreen)) {
           _show('Đã kích hoạt gói ${plan ?? 'trợ lý'}', route: AppRoutes.profilePlans);
         }
+      case final AccountNotificationEvent notice when notice.event == 'plan_expiring' || notice.event == 'plan_expired':
+        ref.invalidate(assistantUsageProvider);
+        final plan = notice.data['plan'] is Map ? Map<String, dynamic>.from(notice.data['plan'] as Map) : const <String, dynamic>{};
+        final name = plan['name']?.toString() ?? 'trợ lý';
+        final code = plan['code']?.toString() ?? '';
+        final until = DateTime.tryParse(notice.data['expires_at']?.toString() ?? '');
+        _show(
+          notice.event == 'plan_expired'
+              ? 'Gói $name đã hết hạn, tài khoản về gói Miễn phí'
+              : 'Gói $name hết hạn ${until == null ? 'sắp tới' : 'ngày ${TimeFormat.date(until)}'}',
+          route: code.isEmpty ? AppRoutes.profilePlans : AppRoutes.assistantRenewOf(code),
+          actionLabel: 'Gia hạn',
+        );
       case final AccountNotificationEvent notice when notice.event == 'notification_created':
         ref.invalidate(badgesProvider);
         final item = notice.data['notification'] is Map
@@ -117,7 +141,7 @@ class _AccountEventListenerState extends ConsumerState<AccountEventListener> {
     _show('$deviceName: $title', route: AppRoutes.profileNotifications, critical: severity == 'critical');
   }
 
-  void _show(String message, {String? route, bool critical = false}) {
+  void _show(String message, {String? route, bool critical = false, String actionLabel = 'Xem'}) {
     final scheme = Theme.of(context).colorScheme;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(message, style: critical ? TextStyle(color: scheme.onError) : null),
@@ -126,7 +150,7 @@ class _AccountEventListenerState extends ConsumerState<AccountEventListener> {
       action: route == null
           ? null
           : SnackBarAction(
-              label: 'Xem',
+              label: actionLabel,
               textColor: critical ? scheme.onError : null,
               onPressed: () => context.push(route),
             ),

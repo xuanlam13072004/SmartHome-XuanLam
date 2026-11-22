@@ -15,7 +15,7 @@ const CHANNELS = [
 ];
 
 /** Personal events the Gateway may send to one account (sharing invitations, scene progress, automations…). */
-export const ACCOUNT_EVENT_NAME = /^(sharing|notification|scene|automation|payment)_[a-z_]{1,40}$/;
+export const ACCOUNT_EVENT_NAME = /^(sharing|notification|scene|automation|payment|plan)_[a-z_]{1,40}$/;
 
 /** Device state, events and presence go to everyone who may see the device. */
 const AUDIENCE_CHANNELS = new Set<string>([
