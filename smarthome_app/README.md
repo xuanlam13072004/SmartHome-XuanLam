@@ -49,6 +49,12 @@ debug key; fine for testing, not for a store).
   (the one bundled with Android Studio works).
 - `usesCleartextTraffic="true"` lets the app use the development server over
   plain HTTP. Remove it when the server is served over HTTPS.
+- Voice and assistant: `record` (16 kHz mono PCM, Android `voiceRecognition`
+  source, `RECORD_AUDIO` / `NSMicrophoneUsageDescription`), `flutter_tts`
+  (replies read aloud; the manifest declares the `TTS_SERVICE` query),
+  `qr_flutter` (VietQR on the payment screen). `record` 6.1+ builds with Kotlin
+  2.2: if Gradle complains about the Kotlin version, raise
+  `org.jetbrains.kotlin.android` in `android/settings.gradle` to 2.2.x.
 - Camera: the web app plays HLS with hls.js; Android / iOS use `video_player`
   (ExoPlayer). Recordings are mapped to wall-clock time from
   `#EXT-X-PROGRAM-DATE-TIME` (`lib/features/camera/player/hls_playlist.dart`).

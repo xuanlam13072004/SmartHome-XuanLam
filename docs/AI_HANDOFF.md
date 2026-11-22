@@ -401,7 +401,7 @@ Lệnh Docker khởi chạy phải đối chiếu compose/env thật trước kh
 
 - Có nhiều thay đổi chưa commit trong repo (thời điểm lập bản này, `git status --short` báo khoảng 88 entries). Giữ nguyên và phân biệt code của người dùng với phần sửa của AI.
 - `.understand-anything/knowledge-graph.json` được sinh 2026-08-11, hash commit cũ; dùng để định hướng đọc, không dùng làm trạng thái hiện tại.
-- README Catalog V2 có mô tả cũ/mâu thuẫn như đã nêu.
+- (Đã sửa 2026-11-22) README Catalog V2 và `docs/products/README.md` đã cập nhật đúng trạng thái published, revision 13, 5 sản phẩm.
 - Camera hardware còn chưa có module/pin/SD hardware profile được chốt; không sửa pin map hoặc hứa ghi/stream đồng thời trước khi thử phần cứng.
 - Không giả định Docker đang chạy, hoặc dữ liệu E là dữ liệu test có thể xóa.
 - Nếu yêu cầu người dùng là review/giải thích/kế hoạch, không tự ý sửa code; nếu họ nói triển khai/sửa thì mới thay đổi và báo file/test cụ thể.

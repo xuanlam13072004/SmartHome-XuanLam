@@ -1,7 +1,7 @@
 # Current SmartHome architecture
 
 This repository has one active contract: Product Catalog V2 and database schema
-version 207 (baseline 203 + incremental migrations in
+version 210 (baseline 203 + incremental migrations in
 `database/postgres/migrations`). There is no V1 compatibility layer.
 
 ## Authority boundaries
@@ -40,6 +40,20 @@ Personal scenes ("Kịch bản"): ordered device operations run by the Gateway's
 scene runner, with history and schedules; automations ("Tự động": device
 state, event or time → scene and/or notification) and suggestions:
 [scenes.md](scenes.md).
+
+## Voice, assistant and plans
+
+- Voice verification ("Giọng nói"): 1:1 check that a recording is the account
+  owner's live voice — ECAPA-TDNN, per-profile RawNet2 anti-spoofing, AS-norm,
+  temporary lock — in the Python `voice-service`, reached only by the Gateway:
+  [voice.md](voice.md).
+- Assistant ("Trợ lý"): general chat plus home control; Gemini only proposes
+  commands through functions over short ids, the Gateway checks each one and
+  runs it through the normal device/scene paths; spoken commands need the
+  verified voice; monthly token allowance per plan: [assistant.md](assistant.md).
+- Payments: VietQR transfers confirmed by the SePay webhook, by hand (CLI) or
+  simulated in mock mode; a paid order extends the account's plan:
+  [payments.md](payments.md).
 
 ## Security camera (proposal)
 
