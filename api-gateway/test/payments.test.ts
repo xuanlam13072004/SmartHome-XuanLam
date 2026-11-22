@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { env } from '../src/config/env';
+import { readHistory } from '../src/modules/assistant/memory';
 import assistantRoutes from '../src/modules/assistant/routes';
 import paymentRoutes from '../src/modules/payments/routes';
 import { confirmOrderManually } from '../src/modules/payments/service';
@@ -113,6 +114,10 @@ test.describe('payments', { skip: skipWithoutDatabase }, () => {
         assert.equal(usage.plan.monthly_tokens, 1500000);
         const event = published.find(item => item.channel === REDIS_CHANNELS.ACCOUNT_EVENT && item.payload.event === 'payment_updated');
         assert.equal(event?.payload.data.order.status, 'paid');
+        const remembered = (await readHistory(app, user.id)).at(-1);
+        assert.equal(remembered?.role, 'model');
+        assert.match(remembered?.text ?? '', new RegExp(`^Đã nhận 49\\.000đ cho đơn ${code}\\. Gói Cơ bản đã kích hoạt đến \\d{2}/\\d{2}/\\d{4}\\.$`),
+            'the assistant knows about the payment in the next chat');
 
         // SePay retries the same notification: nothing changes.
         assert.equal((await sepay(payload)).statusCode, 200);

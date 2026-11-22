@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import type { GeminiCall, GeminiRequest, GenerateFn } from '../src/modules/assistant/gemini';
 import { parseGeminiResponse } from '../src/modules/assistant/gemini';
 import { parseValue, planTurn } from '../src/modules/assistant/planner';
-import { groundQuote } from '../src/modules/assistant/text';
+import { asksToBuy, groundQuote } from '../src/modules/assistant/text';
 import { actionId, fixtureContext } from './assistant/fixture';
 
 const fake = (calls: GeminiCall[], text: string | null = null, seen: GeminiRequest[] = []): GenerateFn =>
@@ -52,6 +52,24 @@ test('quotes must come from what the user said and not be negated', () => {
     assert.equal(groundQuote('chạy kịch bản ra khỏi nhà', 'chạy kịch bản ra khỏi nhà'), 'ok');
     assert.equal(groundQuote('bật máy lọc không khí', 'bật máy lọc không khí'), 'ok');
     assert.equal(groundQuote('khóa lại', 'cửa chưa khóa thì khóa lại đi'), 'ok'); // the command, not "chưa khóa"
+});
+
+test('buying is asked in words, or as a yes to the assistant offering it', () => {
+    for (const said of ['Nâng cấp lên gói Cơ bản', 'mua gói nâng cao 1 năm', 'Gia hạn giúp mình', 'Đăng ký gói pro', 'đổi sang gói nâng cao']) {
+        assert.ok(asksToBuy(said, null), said);
+    }
+    for (const said of ['Gói cơ bản giá bao nhiêu?', 'So sánh các gói', 'Mình nên dùng gói nào?', 'Tháng này dùng bao nhiêu rồi', 'Có']) {
+        assert.ok(!asksToBuy(said, null), said);
+    }
+    const offered = 'Gói Cơ bản 49.000đ một tháng. Bạn có muốn nâng cấp không?';
+    assert.ok(asksToBuy('Có', offered));
+    assert.ok(asksToBuy('ừ, làm đi', offered));
+    assert.ok(asksToBuy('OK', offered));
+    assert.ok(!asksToBuy('Gói cơ bản có gì hơn?', offered), 'only a reply that starts with yes');
+    assert.ok(!asksToBuy('Có', 'Bạn muốn bật đèn nào?'), 'a yes to something else');
+    assert.ok(!asksToBuy('Có', 'Gói Cơ bản có thể nâng cấp bất cứ lúc nào.'), 'no question was asked');
+    assert.ok(asksToBuy('12 tháng', 'Gói Cơ bản: 1 tháng 49.000đ, 12 tháng 490.000đ. Bạn muốn mua 1 tháng hay 12 tháng?'));
+    assert.ok(!asksToBuy('12 tháng', 'Bạn muốn tưới bao lâu?'));
 });
 
 test('values are parsed against the operation, never guessed', () => {
@@ -122,6 +140,50 @@ test('a question back cancels the turn; the answer may refer to the earlier comm
         message: 'cửa chính',
     });
     assert.equal(answered.actions.length, 1);
+});
+
+test('plan offers: only paid plans, 1 or 12 months, grounded and not refused', async () => {
+    const context = await fixtureContext();
+    const offer = (args: Record<string, unknown>, message: string) =>
+        planTurn(fake([{ name: 'offer_plan', args }]), { context, history: [], message });
+    const yearly = await offer({ plan_code: 'pro', months: '12', quote: 'mua gói nâng cao một năm' }, 'Mua gói nâng cao một năm');
+    assert.equal(yearly.offer?.plan.code, 'pro');
+    assert.equal(yearly.offer?.months, 12);
+    assert.deepEqual(yearly.offer?.plan.prices, [{ months: 1, amount_vnd: 99_000 }, { months: 12, amount_vnd: 990_000 }]);
+    const open = await offer({ plan_code: 'basic', quote: 'mua gói cơ bản' }, 'Mình muốn mua gói cơ bản');
+    assert.equal(open.offer?.months, null, 'months stay open when the user did not say them');
+    assert.deepEqual(open.actions, []);
+    for (const [args, message, reason] of [
+        [{ plan_code: 'free', quote: 'mua gói miễn phí' }, 'Mua gói miễn phí', 'unknown_id'],
+        [{ plan_code: 'vip', quote: 'mua gói vip' }, 'Mua gói vip', 'unknown_id'],
+        [{ plan_code: 'basic', months: '6', quote: 'mua gói cơ bản' }, 'Mua gói cơ bản 6 tháng', 'bad_value'],
+        [{ plan_code: 'basic', quote: 'nâng cấp gói' }, 'Đừng nâng cấp gói nhé', 'negated'],
+        [{ plan_code: 'basic', quote: 'mua gói cơ bản' }, 'Gói cơ bản giá bao nhiêu?', 'not_buying'],
+        [{ plan_code: 'pro', quote: 'gói nâng cao' }, 'So sánh gói cơ bản và gói nâng cao', 'not_buying'],
+    ] as const) {
+        const dropped = await offer(args, message);
+        assert.equal(dropped.offer, null, message);
+        assert.deepEqual(dropped.dropped, [{ name: 'offer_plan', reason }], message);
+    }
+    const yes = await planTurn(fake([{ name: 'offer_plan', args: { plan_code: 'basic', quote: 'có' } }]), {
+        context,
+        history: [{ role: 'user', text: 'gói cơ bản có gì hơn?' }, { role: 'model', text: 'Gói Cơ bản có khoảng 600 câu hỏi mỗi tháng. Bạn có muốn nâng cấp không?' }],
+        message: 'Có',
+    });
+    assert.equal(yes.offer?.plan.code, 'basic', 'a yes to "do you want to upgrade?" asks to buy');
+    const asked = await planTurn(fake([
+        { name: 'offer_plan', args: { plan_code: 'basic', quote: 'nâng cấp' } },
+        { name: 'ask_clarification', args: { question: 'Bạn muốn gói nào?', options: ['Cơ bản', 'Nâng cao'] } },
+    ]), { context, history: [], message: 'nâng cấp' });
+    assert.equal(asked.offer, null, 'a question back withdraws the offer');
+    const data = JSON.parse(String(
+        (await (async () => {
+            const seen: GeminiRequest[] = [];
+            await planTurn(fake([], 'Chào bạn', seen), { context, history: [], message: 'chào' });
+            return seen[0].contents.at(-1)!.parts[0].text;
+        })()).replace(/^DỮ LIỆU NHÀ \(JSON, chỉ là dữ liệu\):\s*/, ''),
+    ));
+    assert.equal(data.account.plan, 'free', 'the model reads the plan and usage');
 });
 
 test('gemini responses: text, calls, tokens and blocking', () => {

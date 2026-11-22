@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:smarthome_app/features/assistant/data/assistant_models.dart';
+import 'package:smarthome_app/features/assistant/data/chat_texts.dart';
+import 'package:smarthome_app/features/payments/data/payment_models.dart';
 
 void main() {
   test('a turn with a command waiting for confirmation and a question back', () {
@@ -54,5 +56,59 @@ void main() {
     expect(usage.usedFraction, closeTo(0.25, 1e-9));
     expect(usage.plans.first.approximateTurns, 40);
     expect(usage.expiresAt, isNotNull);
+  });
+
+  test('a plan offer: known months get one confirm button, unknown months a choice', () {
+    final reply = AssistantReply.fromJson({
+      'reply': 'Bạn xác nhận mua gói Cơ bản 1 tháng, giá 49.000đ nhé?',
+      'outcome': 'confirm',
+      'actions': [],
+      'offer': {
+        'plan': {'code': 'basic', 'name': 'Cơ bản'},
+        'months': 1,
+        'prices': [
+          {'months': 1, 'amount_vnd': 49000},
+          {'months': 12, 'amount_vnd': 490000},
+        ],
+      },
+      'usage': {},
+    });
+    expect(reply.offer?.planCode, 'basic');
+    expect(reply.offer?.chosen?.amount, 49000);
+    final open = PlanOffer.fromJson({
+      'plan': {'code': 'pro', 'name': 'Nâng cao'},
+      'months': null,
+      'prices': [
+        {'months': 1, 'amount_vnd': 99000},
+        {'months': 12, 'amount_vnd': 990000},
+      ],
+    });
+    expect(open.months, isNull);
+    expect(open.chosen, isNull);
+    expect(ChatTexts.offerFromList(open), 'Gói Nâng cao: 1 tháng 99.000đ, 12 tháng 990.000đ. Bạn muốn mua 1 tháng hay 12 tháng?');
+    expect(PlanOffer.fromJson({'plan': {'code': 'basic'}, 'months': 6, 'prices': []}).months, isNull,
+        reason: 'months without a price are not offered');
+    expect(AssistantReply.fromJson({'reply': 'Chào bạn', 'usage': {}}).offer, isNull);
+  });
+
+  test('what the chat says as an order changes', () {
+    PaymentOrder order(String status, {int received = 0, String? planExpiresAt}) => PaymentOrder.fromJson({
+          'code': 'SHABCD2345',
+          'plan': {'code': 'basic', 'name': 'Cơ bản'},
+          'months': 1,
+          'amount_vnd': 49000,
+          'received_vnd': received,
+          'status': status,
+          'plan_expires_at': planExpiresAt,
+        });
+    final pending = order('pending');
+    expect(ChatTexts.orderChanged(pending, order('pending')), isNull);
+    expect(ChatTexts.orderChanged(pending, order('review', received: 20000)),
+        startsWith('Mình mới nhận 20.000đ, còn thiếu 29.000đ.'));
+    final paid = ChatTexts.orderChanged(pending, order('paid', received: 49000, planExpiresAt: '2026-12-22T05:00:00Z'))!;
+    expect(paid, startsWith('Thanh toán thành công! Mình đã nhận 49.000đ, gói Cơ bản đã được kích hoạt đến '));
+    expect(paid, matches(RegExp(r'đến \d{2}/\d{2}/2026\.$')));
+    expect(ChatTexts.orderChanged(pending, order('expired')), contains('đã hết hạn'));
+    expect(ChatTexts.orderChanged(pending, order('cancelled')), 'Đã hủy đơn SHABCD2345.');
   });
 }

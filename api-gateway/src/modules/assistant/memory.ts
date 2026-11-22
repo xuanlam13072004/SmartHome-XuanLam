@@ -28,7 +28,9 @@ export interface PendingAction {
     scene_id?: string;
 }
 
-export async function readHistory(app: FastifyInstance, accountId: string): Promise<ChatMessage[]> {
+type WithRedis = Pick<FastifyInstance, 'redis'>;
+
+export async function readHistory(app: WithRedis, accountId: string): Promise<ChatMessage[]> {
     const raw = await app.redis.get(historyKey(accountId));
     try {
         const parsed = raw ? JSON.parse(raw) : [];
@@ -38,7 +40,7 @@ export async function readHistory(app: FastifyInstance, accountId: string): Prom
     }
 }
 
-export async function appendHistory(app: FastifyInstance, accountId: string, messages: ChatMessage[]) {
+export async function appendHistory(app: WithRedis, accountId: string, messages: ChatMessage[]) {
     const history = [...(await readHistory(app, accountId)), ...messages].slice(-HISTORY_MESSAGES);
     await app.redis.set(historyKey(accountId), JSON.stringify(history), 'EX', HISTORY_SECONDS);
 }

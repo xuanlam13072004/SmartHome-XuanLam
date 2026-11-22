@@ -1,6 +1,8 @@
 /// Assistant ("Trợ lý") data from /assistant/….
 library;
 
+import '../../payments/data/payment_models.dart';
+
 Map<String, dynamic> _map(Object? value) =>
     value is Map ? Map<String, dynamic>.from(value) : <String, dynamic>{};
 
@@ -56,6 +58,38 @@ class AssistantAction {
       );
 }
 
+/// A plan the assistant offers to sell. Nothing is ordered until the user
+/// taps to confirm; [months] is null when they still have to pick 1 or 12.
+class PlanOffer {
+  const PlanOffer({required this.planCode, required this.planName, required this.prices, this.months});
+
+  final String planCode;
+  final String planName;
+  final int? months;
+  final List<PlanPrice> prices;
+
+  PlanPrice? get chosen => prices.where((price) => price.months == months).firstOrNull;
+
+  /// The same plan offered from the plan list (the user picks the months).
+  factory PlanOffer.fromPlan(PaymentPlan plan) =>
+      PlanOffer(planCode: plan.code, planName: plan.name, prices: plan.prices);
+
+  factory PlanOffer.fromJson(Map<String, dynamic> json) {
+    final plan = _map(json['plan']);
+    final prices = [
+      for (final item in json['prices'] as List? ?? const [])
+        PlanPrice(months: _int(_map(item)['months']), amount: _int(_map(item)['amount_vnd'])),
+    ];
+    final months = json['months'] is num ? (json['months'] as num).toInt() : null;
+    return PlanOffer(
+      planCode: plan['code']?.toString() ?? '',
+      planName: plan['name']?.toString() ?? '',
+      prices: prices,
+      months: prices.any((price) => price.months == months) ? months : null,
+    );
+  }
+}
+
 class AssistantReply {
   const AssistantReply({
     required this.message,
@@ -65,6 +99,7 @@ class AssistantReply {
     required this.options,
     required this.usedTokens,
     required this.monthlyTokens,
+    this.offer,
     this.transcript,
     this.voiceVerified,
   });
@@ -78,6 +113,9 @@ class AssistantReply {
 
   /// Choices offered with a question back.
   final List<String> options;
+
+  /// A plan to buy, waiting for the user's tap.
+  final PlanOffer? offer;
   final int usedTokens;
   final int monthlyTokens;
 
@@ -96,6 +134,7 @@ class AssistantReply {
         for (final item in json['actions'] as List? ?? const []) AssistantAction.fromJson(_map(item)),
       ],
       options: [for (final item in clarification['options'] as List? ?? const []) item.toString()],
+      offer: json['offer'] is Map ? PlanOffer.fromJson(_map(json['offer'])) : null,
       usedTokens: _int(usage['used_tokens']),
       monthlyTokens: _int(usage['monthly_tokens']),
       transcript: json['transcript']?.toString(),

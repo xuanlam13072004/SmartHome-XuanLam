@@ -91,7 +91,7 @@ test('media session projection follows creation, readiness, renewal and revocati
 
     const renewed = new Date(Date.now() + 300_000).toISOString();
     await updateMediaSessionProjection(redis, 'sess-1', { status: 'ready', expires_at: renewed });
-    const stored = JSON.parse(await redis.get(mediaSessionKey('sess-1')));
+    const stored = JSON.parse((await redis.get(mediaSessionKey('sess-1')))!);
     assert.equal(stored.status, 'ready');
     assert.equal(stored.expires_at, renewed);
     assert.ok((await redis.pttl(mediaSessionKey('sess-1'))) > 60_000);

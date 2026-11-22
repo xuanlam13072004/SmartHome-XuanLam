@@ -1,5 +1,5 @@
 {
- "description": "Bộ câu kiểm thử trợ lý trên ngôi nhà mẫu (test/assistant/fixture.ts). expect: act = phải chạy đúng các lệnh này và không gì khác; ask = phải hỏi lại, không chạy gì; none = không chạy gì; allow = chỉ được chạy trong danh sách (hoặc không chạy gì).",
+ "description": "Bộ câu kiểm thử trợ lý trên ngôi nhà mẫu (test/assistant/fixture.ts). expect: act = phải chạy đúng các lệnh này và không gì khác; ask = phải hỏi lại, không chạy gì; none = không chạy gì; allow = chỉ được chạy trong danh sách (hoặc không chạy gì); offer = phải đề nghị đúng gói và số tháng (null khi người dùng chưa nói), không chạy lệnh nào. Ngôi nhà mẫu thuộc tài khoản gói Miễn phí đã dùng 82.000/100.000 token.",
  "cases": [
   {
    "id": 1,
@@ -862,6 +862,99 @@
      "clarify": true
     }
    ]
+  },
+  {
+   "id": 104,
+   "say": "Nâng cấp lên gói Cơ bản 1 tháng",
+   "expect": "offer",
+   "offer": {
+    "plan": "basic",
+    "months": 1
+   }
+  },
+  {
+   "id": 105,
+   "say": "Mua gói nâng cao một năm",
+   "expect": "offer",
+   "offer": {
+    "plan": "pro",
+    "months": 12
+   }
+  },
+  {
+   "id": 106,
+   "say": "Mình muốn mua gói cơ bản",
+   "expect": "offer",
+   "offer": {
+    "plan": "basic",
+    "months": null
+   },
+   "note": "chưa nói số tháng: để app cho chọn"
+  },
+  {
+   "id": 107,
+   "say": "Đăng ký gói Nâng cao 1 tháng cho mình",
+   "expect": "offer",
+   "offer": {
+    "plan": "pro",
+    "months": 1
+   }
+  },
+  {
+   "id": 108,
+   "say": "Có, mua 12 tháng luôn",
+   "expect": "offer",
+   "offer": {
+    "plan": "basic",
+    "months": 12
+   },
+   "history": [
+    {
+     "role": "user",
+     "text": "Gói cơ bản có gì hơn gói miễn phí?"
+    },
+    {
+     "role": "model",
+     "text": "Gói Cơ bản có 1.500.000 token mỗi tháng, khoảng 600 câu hỏi, giá 49.000đ một tháng hoặc 490.000đ mười hai tháng. Bạn có muốn nâng cấp không?"
+    }
+   ]
+  },
+  {
+   "id": 109,
+   "say": "Gói cơ bản giá bao nhiêu?",
+   "expect": "none",
+   "note": "hỏi giá thì trả lời, không đề nghị mua"
+  },
+  {
+   "id": 110,
+   "say": "Mình nên dùng gói nào?",
+   "expect": "none"
+  },
+  {
+   "id": 111,
+   "say": "Tháng này mình dùng hết bao nhiêu lượt trợ lý rồi?",
+   "expect": "none"
+  },
+  {
+   "id": 112,
+   "say": "So sánh gói Cơ bản với gói Nâng cao giúp mình",
+   "expect": "none"
+  },
+  {
+   "id": 113,
+   "say": "Đừng nâng cấp gói nhé",
+   "expect": "none"
+  },
+  {
+   "id": 114,
+   "say": "Chưa cần mua gói đâu",
+   "expect": "none"
+  },
+  {
+   "id": 115,
+   "say": "Mua gói miễn phí",
+   "expect": "none",
+   "note": "gói miễn phí không bán"
   }
  ]
 }

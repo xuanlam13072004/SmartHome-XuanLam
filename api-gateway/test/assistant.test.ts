@@ -202,6 +202,63 @@ test.describe('assistant', { skip: skipWithoutMongo }, () => {
         assert.equal(unclear.json().error.code, 'VOICE_NOT_UNDERSTOOD');
     });
 
+    test('the model reads the plan and usage; a plan offer waits for the user to confirm in the app', async () => {
+        const user = await signUp(app);
+        const mode = env.PAYMENT_MODE;
+        env.PAYMENT_MODE = 'mock';
+        try {
+            let account: any;
+            gemini = (said, home) => {
+                account = home.account;
+                return { body: call(user, 'offer_plan', { plan_code: 'basic', months: '1', quote: said }) };
+            };
+            const offered = await message(user, 'nâng cấp lên gói cơ bản 1 tháng');
+            assert.equal(offered.statusCode, 200, offered.body);
+            const body = offered.json();
+            assert.equal(account.plan, 'free');
+            assert.equal(account.payments, true);
+            assert.deepEqual(account.plans.map((plan: any) => plan.code), ['free', 'basic', 'pro']);
+            assert.equal(body.outcome, 'confirm');
+            assert.deepEqual(body.actions, []);
+            assert.deepEqual(body.offer, {
+                plan: { code: 'basic', name: 'Cơ bản' }, months: 1,
+                prices: [{ months: 1, amount_vnd: 49000 }, { months: 12, amount_vnd: 490000 }],
+            });
+            assert.equal(body.reply, 'Bạn xác nhận mua gói Cơ bản 1 tháng, giá 49.000đ nhé? Mã thanh toán chỉ được tạo khi bạn bấm xác nhận.');
+            const orders = await db.pool.query('SELECT 1 FROM payment_orders WHERE account_id = $1', [user.id]);
+            assert.equal(orders.rowCount, 0, 'nothing is ordered until the user confirms');
+
+            gemini = said => ({ body: call(user, 'offer_plan', { plan_code: 'pro', quote: said }) });
+            const open = (await message(user, 'mình muốn mua gói nâng cao')).json();
+            assert.equal(open.offer.months, null);
+            assert.equal(open.reply, 'Gói Nâng cao: 1 tháng 99.000đ, 12 tháng 990.000đ. Bạn muốn mua 1 tháng hay 12 tháng?');
+
+            // Typing the duration instead of tapping it brings the confirm button back, still nothing ordered.
+            gemini = said => ({ body: call(user, 'offer_plan', { plan_code: 'pro', months: '12', quote: said }) });
+            const typed = (await message(user, '12 tháng')).json();
+            assert.equal(typed.offer.months, 12);
+            assert.match(typed.reply, /^Bạn xác nhận mua gói Nâng cao 12 tháng, giá 990\.000đ nhé\?/);
+
+            gemini = said => ({ body: call(user, 'offer_plan', { plan_code: 'free', quote: said }) });
+            assert.equal((await message(user, 'mua gói miễn phí')).json().offer, null, 'the free plan is not for sale');
+
+            env.PAYMENT_MODE = 'off';
+            gemini = said => ({ body: call(user, 'offer_plan', { plan_code: 'basic', months: '1', quote: said }) });
+            const closed = (await message(user, 'mua gói cơ bản 1 tháng')).json();
+            assert.equal(closed.offer, null);
+            assert.equal(closed.outcome, 'chat');
+            assert.match(closed.reply, /chưa mở thanh toán/);
+
+            const turns = (await db.pool.query(
+                'SELECT outcome, actions FROM assistant_turns WHERE account_id = $1 ORDER BY created_at', [user.id],
+            )).rows;
+            assert.deepEqual(turns.map(row => row.outcome), ['confirm', 'confirm', 'confirm', 'clarify', 'chat']);
+            assert.deepEqual(turns[0].actions, [{ kind: 'offer', plan: 'basic', months: 1 }]);
+        } finally {
+            env.PAYMENT_MODE = mode;
+        }
+    });
+
     test('allowance per plan, the system ceiling and Gemini failures', async () => {
         const user = await signUp(app);
         gemini = () => ({ body: say('Xin chào!') });

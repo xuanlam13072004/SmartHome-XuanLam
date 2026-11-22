@@ -1,7 +1,7 @@
-import type { AssistantAction, AssistantScene, HomeContext } from './context';
+import type { AssistantAction, AssistantScene, HomeContext, PurchasablePlan } from './context';
 import type { ChatMessage, GenerateFn } from './gemini';
 import { FUNCTIONS, SYSTEM_PROMPT } from './prompt';
-import { clip, groundQuote } from './text';
+import { asksToBuy, clip, groundQuote } from './text';
 
 /**
  * One turn of understanding: asks the model, then checks every command it
@@ -19,17 +19,24 @@ export type ProposedAction =
 
 export type DropReason =
     | 'unknown_function' | 'unknown_id' | 'quote_missing' | 'negated' | 'bad_value' | 'missing_value'
-    | 'too_many' | 'ambiguous';
+    | 'too_many' | 'ambiguous' | 'not_buying';
 
 export interface DroppedCall {
     name: string;
     reason: DropReason;
 }
 
+export interface PlanOffer {
+    plan: PurchasablePlan;
+    /** Null when the user did not say; the app lets them pick 1 or 12. */
+    months: 1 | 12 | null;
+}
+
 export interface Plan {
     text: string | null;
     actions: ProposedAction[];
     clarification: { question: string; options: string[] } | null;
+    offer: PlanOffer | null;
     dropped: DroppedCall[];
     tokens: number;
     blocked: boolean;
@@ -114,7 +121,9 @@ export async function planTurn(generate: GenerateFn, input: PlanInput): Promise<
         return groundQuote(quote, earlier);
     };
 
-    const plan: Plan = { text: result.text, actions: [], clarification: null, dropped: [], tokens: result.tokens, blocked: result.blocked };
+    const plan: Plan = {
+        text: result.text, actions: [], clarification: null, offer: null, dropped: [], tokens: result.tokens, blocked: result.blocked,
+    };
     const seen = new Set<string>();
     for (const call of result.calls) {
         const args = call.args;
@@ -127,7 +136,7 @@ export async function planTurn(generate: GenerateFn, input: PlanInput): Promise<
             }
             continue;
         }
-        if (call.name !== 'control_device' && call.name !== 'run_scene') {
+        if (call.name !== 'control_device' && call.name !== 'run_scene' && call.name !== 'offer_plan') {
             plan.dropped.push({ name: call.name, reason: 'unknown_function' });
             continue;
         }
@@ -135,6 +144,24 @@ export async function planTurn(generate: GenerateFn, input: PlanInput): Promise<
         const grounding = ground(quote);
         if (grounding !== 'ok') {
             plan.dropped.push({ name: call.name, reason: grounding === 'negated' ? 'negated' : 'quote_missing' });
+            continue;
+        }
+        if (call.name === 'offer_plan') {
+            // Only when the user asks to buy: a price question or a comparison gets words, not a payment card.
+            if (!asksToBuy(message, last?.role === 'model' ? last.text : null)) {
+                plan.dropped.push({ name: call.name, reason: 'not_buying' });
+                continue;
+            }
+            const offered = context.plans.find(item => item.code === String(args.plan_code ?? ''));
+            const months = args.months === undefined || args.months === null || args.months === ''
+                ? null : Number(args.months);
+            if (!offered) {
+                plan.dropped.push({ name: call.name, reason: 'unknown_id' });
+            } else if (months !== null && months !== 1 && months !== 12) {
+                plan.dropped.push({ name: call.name, reason: 'bad_value' });
+            } else if (!plan.offer) {
+                plan.offer = { plan: offered, months: months as 1 | 12 | null };
+            }
             continue;
         }
         let proposal: ProposedAction;
@@ -172,12 +199,14 @@ export async function planTurn(generate: GenerateFn, input: PlanInput): Promise<
         }
         plan.actions.push(proposal);
     }
-    // A question back means the model is unsure: run nothing this turn.
-    if (plan.clarification && plan.actions.length > 0) {
+    // A question back means the model is unsure: run (and offer) nothing this turn.
+    if (plan.clarification && (plan.actions.length > 0 || plan.offer)) {
         plan.dropped.push(...plan.actions.map(item => ({
             name: item.kind === 'device' ? 'control_device' : 'run_scene', reason: 'ambiguous' as const,
         })));
+        if (plan.offer) plan.dropped.push({ name: 'offer_plan', reason: 'ambiguous' });
         plan.actions = [];
+        plan.offer = null;
     }
     return plan;
 }

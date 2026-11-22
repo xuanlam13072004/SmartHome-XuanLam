@@ -1,5 +1,5 @@
 import { RuntimeCatalog } from '../../../shared/catalog-v2';
-import { buildHomeContext, type DeviceRow, type HomeContext } from '../../src/modules/assistant/context';
+import { buildHomeContext, type DeviceRow, type HomeContext, withAccount } from '../../src/modules/assistant/context';
 
 /**
  * A sample home for assistant tests and the prompt evaluation: front door,
@@ -41,8 +41,16 @@ export const FIXTURE_SHADOWS = new Map<string, any>([
     ['AA:00:00:00:00:06', { is_online: true, instances: { main_lock: { reported: { lock_state: 'unlocked' } } } }],
 ]);
 
+/** The seeded plans (migrations 209 and 210). */
+export const FIXTURE_PLANS = [
+    { code: 'free', name: 'Miễn phí', monthly_tokens: 100_000, price_vnd: 0, price_12m_vnd: null },
+    { code: 'basic', name: 'Cơ bản', monthly_tokens: 1_500_000, price_vnd: 49_000, price_12m_vnd: 490_000 },
+    { code: 'pro', name: 'Nâng cao', monthly_tokens: 5_000_000, price_vnd: 99_000, price_12m_vnd: 990_000 },
+];
+
+/** The sample home of an account on the free plan that has used most of this month's allowance. */
 export async function fixtureContext(): Promise<HomeContext> {
-    return buildHomeContext({
+    const home = buildHomeContext({
         catalog: await loadCatalog(),
         devices: FIXTURE_DEVICES,
         rooms: new Map([['living', 'Phòng khách'], ['yard', 'Sân'], ['kitchen', 'Bếp']]),
@@ -52,6 +60,13 @@ export async function fixtureContext(): Promise<HomeContext> {
             { id: '00000000-0000-4000-8000-0000000000a2', name: 'Ra khỏi nhà', protected: true },
         ],
         now: new Date('2026-11-21T13:40:00Z'),
+    });
+    return withAccount(home, {
+        plan: { code: 'free', name: 'Miễn phí', monthly_tokens: 100_000, expires_at: null },
+        used_tokens: 82_000,
+        resets_at: '2026-11-30T17:00:00.000Z',
+        plans: FIXTURE_PLANS,
+        payments: true,
     });
 }
 

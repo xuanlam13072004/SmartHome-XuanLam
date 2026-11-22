@@ -4,12 +4,13 @@ import { env } from '../../config/env';
 import { httpError } from '../../utils/httpError';
 import { createDeviceOperation } from '../device/service';
 import { startRun } from '../scenes/runs';
+import { paymentsAvailable } from '../payments/service';
 import { clearVoiceFailures, recordVoiceFailure, voiceLockState } from '../voice/lockout';
-import { loadHomeContext } from './context';
+import { loadHomeContext, withAccount } from './context';
 import { type GenerateFn, geminiGenerate } from './gemini';
 import { appendHistory, type PendingAction, peekPending, readHistory, savePending, takePending } from './memory';
-import { planTurn, type ProposedAction } from './planner';
-import { addUsage, assertQuota, usageSummary } from './quota';
+import { type PlanOffer, planTurn, type ProposedAction } from './planner';
+import { addUsage, assertQuota, listPlans, usageSummary } from './quota';
 import { clip } from './text';
 
 /**
@@ -99,6 +100,34 @@ function resultLine(result: ActionResult): string {
     }
 }
 
+/** A plan the user may buy from the chat; the order is created only when they tap to confirm. */
+export interface OfferView {
+    plan: { code: string; name: string };
+    months: 1 | 12 | null;
+    prices: Array<{ months: 1 | 12; amount_vnd: number }>;
+}
+
+const vnd = (value: number) => `${value.toLocaleString('vi-VN')}đ`;
+const term = (months: number) => (months === 12 ? '12 tháng' : '1 tháng');
+
+function offerView(offer: PlanOffer): OfferView {
+    const months = offer.months && offer.plan.prices.some(price => price.months === offer.months) ? offer.months : null;
+    return { plan: { code: offer.plan.code, name: offer.plan.name }, months, prices: offer.plan.prices };
+}
+
+function offerLine(offer: OfferView, currentPlan: string): string {
+    const verb = offer.plan.code === currentPlan ? 'gia hạn' : 'mua';
+    const chosen = offer.prices.find(price => price.months === offer.months);
+    if (chosen) {
+        return `Bạn xác nhận ${verb} gói ${offer.plan.name} ${term(chosen.months)}, giá ${vnd(chosen.amount_vnd)} nhé? `
+            + 'Mã thanh toán chỉ được tạo khi bạn bấm xác nhận.';
+    }
+    const prices = offer.prices.map(price => `${term(price.months)} ${vnd(price.amount_vnd)}`).join(', ');
+    return `Gói ${offer.plan.name}: ${prices}. Bạn muốn ${verb} ${offer.prices.map(price => term(price.months)).join(' hay ')}?`;
+}
+
+const PAYMENTS_CLOSED = 'Hiện ứng dụng chưa mở thanh toán nên chưa mua gói được. Bạn vẫn dùng gói hiện tại bình thường.';
+
 /** Why spoken commands are refused; null when the speaker may give them. */
 async function voiceGate(app: FastifyInstance, accountId: string, voice: VoiceInput): Promise<string | null> {
     const lock = await voiceLockState(app, accountId);
@@ -130,8 +159,14 @@ export async function runAssistantTurn(
 ) {
     const message = clip(input.message, 500);
     if (!message) throw httpError(400, 'ASSISTANT_EMPTY_MESSAGE', 'Hãy nhập hoặc nói một câu.');
-    await assertQuota(app, accountId);
-    const [context, history] = await Promise.all([loadHomeContext(app, accountId), readHistory(app, accountId)]);
+    const quota = await assertQuota(app, accountId);
+    const [home, history, plans] = await Promise.all([
+        loadHomeContext(app, accountId), readHistory(app, accountId), listPlans(app),
+    ]);
+    const payments = paymentsAvailable();
+    const context = withAccount(home, {
+        plan: quota.plan, used_tokens: quota.used_tokens, resets_at: quota.resets_at, plans, payments,
+    });
     const plan = await planTurn(generate, { context, history, message });
     if (plan.tokens > 0) await addUsage(app, accountId, plan.tokens);
 
@@ -140,6 +175,8 @@ export async function runAssistantTurn(
     let reply: string;
     let outcome: TurnOutcome;
     const voiceVerified = input.voice?.verification ? input.voice.verification.accepted : null;
+    const offer = !plan.blocked && plan.offer && payments ? offerView(plan.offer) : null;
+    const offerText = plan.blocked || !plan.offer ? null : offer ? offerLine(offer, quota.plan.code) : PAYMENTS_CLOSED;
 
     if (plan.blocked) {
         reply = 'Xin lỗi, mình không thể trả lời yêu cầu này.';
@@ -174,6 +211,11 @@ export async function runAssistantTurn(
             outcome = results.some(item => item.status === 'pending') ? 'confirm'
                 : results.some(item => item.status === 'sent') ? 'action' : 'error';
         }
+        if (offerText) reply = `${reply} ${offerText}`;
+        if (offer) outcome = 'confirm';
+    } else if (offerText) {
+        reply = offerText;
+        outcome = offer ? 'confirm' : 'chat';
     } else if (plan.clarification) {
         reply = plan.clarification.question;
         outcome = 'clarify';
@@ -195,7 +237,10 @@ export async function runAssistantTurn(
         `INSERT INTO assistant_turns (id, account_id, channel, message, reply, outcome, actions, tokens, voice_verified)
          VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)`,
         [turnId, accountId, input.channel, message, clip(reply, 4000), outcome,
-            JSON.stringify(results.map(({ pending_id: _, ...rest }) => rest)), plan.tokens, voiceVerified],
+            JSON.stringify([
+                ...results.map(({ pending_id: _, ...rest }) => rest),
+                ...(offer ? [{ kind: 'offer', plan: offer.plan.code, months: offer.months }] : []),
+            ]), plan.tokens, voiceVerified],
     );
     const usage = await usageSummary(app, accountId);
     return {
@@ -205,6 +250,7 @@ export async function runAssistantTurn(
         outcome,
         actions: results,
         clarification: outcome === 'clarify' && plan.clarification ? plan.clarification : null,
+        offer,
         usage: { used_tokens: usage.used_tokens, monthly_tokens: usage.plan.monthly_tokens, plan: usage.plan.code },
     };
 }

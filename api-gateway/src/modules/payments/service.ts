@@ -4,6 +4,7 @@ import type { Pool, PoolClient } from 'pg';
 import { REDIS_CHANNELS } from '../../../../shared/constants';
 import { env } from '../../config/env';
 import { httpError } from '../../utils/httpError';
+import { appendHistory } from '../assistant/memory';
 import { buildVietQr, findOrderCode, isOrderCode, newOrderCode } from './vietqr';
 
 /**
@@ -29,7 +30,7 @@ export function bankConfigured(): boolean {
     return Boolean(env.PAYMENT_BANK_BIN && env.PAYMENT_BANK_ACCOUNT);
 }
 
-function paymentsAvailable(): boolean {
+export function paymentsAvailable(): boolean {
     return env.PAYMENT_MODE === 'mock' || (env.PAYMENT_MODE === 'bank' && bankConfigured());
 }
 
@@ -230,10 +231,29 @@ async function applyPayment(client: PoolClient, order: any, amount: number, via:
     return { outcome: 'paid' as const, changed: true };
 }
 
+/** What the assistant remembers of a payment, so a chat right after it knows the plan changed. */
+function paymentNote(row: any): string | null {
+    const amount = (value: number) => `${value.toLocaleString('vi-VN')}đ`;
+    if (row.status === 'paid') {
+        const until = new Intl.DateTimeFormat('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit', year: 'numeric' })
+            .format(new Date(row.plan_expires_at));
+        return `Đã nhận ${amount(Number(row.received_vnd))} cho đơn ${row.code}. Gói ${row.plan_name} đã kích hoạt đến ${until}.`;
+    }
+    if (row.status === 'review') {
+        return `Đơn ${row.code}: đã nhận ${amount(Number(row.received_vnd))}, còn thiếu ${amount(Number(row.amount_vnd) - Number(row.received_vnd))}.`;
+    }
+    return null;
+}
+
 async function settle(deps: PaymentDeps, orderId: string) {
     const row = await loadOrder(deps.pg, 'o.id = $1', [orderId]);
     if (row) {
         await publishOrder(deps, row);
+        const note = paymentNote(row);
+        if (note && deps.redis) {
+            await appendHistory({ redis: deps.redis }, row.account_id, [{ role: 'model', text: note }])
+                .catch(error => deps.log.warn({ error }, 'Failed to note a payment in the assistant history'));
+        }
         deps.log.info({ order: row.code, status: row.status, via: row.paid_via }, 'Payment order updated');
     }
     return row ? orderView(row) : null;

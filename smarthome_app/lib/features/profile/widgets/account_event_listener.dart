@@ -12,7 +12,9 @@ import '../../notifications/notification_labels.dart';
 import '../../notifications/providers/notification_providers.dart';
 import '../../sharing/providers/sharing_providers.dart';
 import '../../voice/providers/voice_providers.dart';
+import '../../assistant/providers/assistant_chat.dart';
 import '../../assistant/providers/assistant_providers.dart';
+import '../../payments/data/payment_models.dart';
 import '../../payments/providers/payments_providers.dart';
 import '../providers/account_providers.dart';
 
@@ -59,7 +61,10 @@ class _AccountEventListenerState extends ConsumerState<AccountEventListener> {
             ? Map<String, dynamic>.from(notice.data['order'] as Map)
             : const <String, dynamic>{};
         final plan = order['plan'] is Map ? (order['plan'] as Map)['name']?.toString() : null;
-        if (order['status'] == 'paid') {
+        // An order made in the assistant chat is announced there while the chat is open.
+        final chat = ref.exists(assistantChatProvider) ? ref.read(assistantChatProvider) : null;
+        final inChat = order.isNotEmpty && (chat?.onOrderUpdate(PaymentOrder.fromJson(order)) ?? false);
+        if (order['status'] == 'paid' && !(inChat && chat!.onScreen)) {
           _show('Đã kích hoạt gói ${plan ?? 'trợ lý'}', route: AppRoutes.profilePlans);
         }
       case final AccountNotificationEvent notice when notice.event == 'notification_created':

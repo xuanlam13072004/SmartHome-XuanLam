@@ -65,6 +65,33 @@ export function groundQuote(quote: string, message: string): Grounding {
     return 'ok';
 }
 
+/** Buying words, tone marks ignored ("nâng cấp" → "nang cap"). */
+const BUY_PHRASES = [
+    'mua', 'nang cap', 'nang len', 'gia han', 'dang ky', 'dang ki', 'thanh toan',
+    'len goi', 'doi goi', 'doi sang', 'chuyen goi', 'chuyen sang', 'lay goi', 'chot',
+];
+/** How a reply starts when it says yes ("Có", "Ừ", "OK", "Đồng ý"...). */
+const YES_PHRASES = ['co', 'ok', 'oke', 'okay', 'u', 'uh', 'um', 'dong y', 'duoc', 'xac nhan', 'chot', 'lam di'];
+
+const hasPhrase = (words: string[], phrases: string[]) => {
+    const text = ` ${words.join(' ')} `;
+    return phrases.some(phrase => text.includes(` ${phrase} `));
+};
+
+/**
+ * Does [message] ask to buy a plan? Either in its own words ("nâng cấp lên gói
+ * Cơ bản"), or as an answer to the assistant asking whether or how long to buy
+ * ("Bạn có muốn nâng cấp không?" → "Có"; "… 1 tháng hay 12 tháng?" → "12 tháng").
+ * Asking a price or comparing plans does not.
+ */
+export function asksToBuy(message: string, previousReply: string | null): boolean {
+    const words = tokens(message, true);
+    if (hasPhrase(words, BUY_PHRASES)) return true;
+    if (!previousReply?.includes('?') || !hasPhrase(tokens(previousReply, true), BUY_PHRASES)) return false;
+    const yes = YES_PHRASES.some(phrase => ` ${words.join(' ')} `.startsWith(` ${phrase} `));
+    return yes || words.includes('thang') || words.includes('nam');
+}
+
 export function clip(text: string, max: number): string {
     const value = text.replace(/\s+/g, ' ').trim();
     return value.length <= max ? value : `${value.slice(0, max - 1)}…`;

@@ -14,56 +14,25 @@ import '../../dashboard/presentation/capability_actions.dart' show requestAccoun
 import '../../voice/audio/voice_audio.dart';
 import '../../voice/audio/voice_recorder.dart';
 import '../data/assistant_models.dart';
+import '../providers/assistant_chat.dart';
 import '../providers/assistant_providers.dart';
 import '../widgets/chat_bubble.dart';
-
-class _Entry {
-  _Entry.user(this.text, {this.spoken = false, this.working = false})
-      : fromUser = true,
-        actions = [],
-        options = const [],
-        error = false,
-        quota = false;
-
-  _Entry.assistant(this.text, {List<AssistantAction> actions = const [], this.options = const []})
-      : fromUser = false,
-        actions = [...actions],
-        spoken = false,
-        working = false,
-        error = false,
-        quota = false;
-
-  _Entry.error(this.text, {this.quota = false})
-      : fromUser = false,
-        actions = [],
-        options = const [],
-        spoken = false,
-        working = false,
-        error = true;
-
-  final bool fromUser;
-  String text;
-  final List<AssistantAction> actions;
-  final List<String> options;
-  final bool spoken;
-  bool working;
-  final bool error;
-
-  /// The month's allowance is used up: offer the plans.
-  final bool quota;
-}
+import '../widgets/chat_order_card.dart';
+import '../widgets/offer_actions.dart';
 
 const _maxRecording = Duration(seconds: 10);
 const _suggestions = [
   'Bạn làm được những gì?',
   'Cửa chính đã khóa chưa?',
   'Đóng mái che',
-  'Tưới vườn 10 phút',
+  'Mình nên dùng gói trợ lý nào?',
 ];
 
 /// "Trợ lý": chat by typing or speaking. Commands that change something run
 /// through the normal device paths; spoken ones must be the owner's voice;
 /// operations the app normally confirms wait for a tap (or the password).
+/// The assistant also advises on plans and sells them here: after the user
+/// confirms, the order's QR appears in the chat and the result is announced.
 class AssistantScreen extends ConsumerStatefulWidget {
   const AssistantScreen({super.key});
 
@@ -72,26 +41,37 @@ class AssistantScreen extends ConsumerStatefulWidget {
 }
 
 class _AssistantScreenState extends ConsumerState<AssistantScreen> {
-  final _entries = <_Entry>[];
   final _input = TextEditingController();
   final _scroll = ScrollController();
   final _recorder = VoiceRecorder();
   final _tts = FlutterTts();
   final _stopwatch = Stopwatch();
+  late final AssistantChat _chat;
+  StreamSubscription<String>? _speech;
   Timer? _ticker;
   bool _recording = false;
-  bool _busy = false;
   bool _speak = true;
+  int _shown = 0;
 
   @override
   void initState() {
     super.initState();
     unawaited(_tts.setLanguage('vi-VN'));
     unawaited(_tts.setSpeechRate(0.5));
+    _chat = ref.read(assistantChatProvider);
+    _shown = _chat.entries.length;
+    _speech = _chat.speech.listen(_say);
+    _chat
+      ..addListener(_onChat)
+      ..resume();
+    if (_shown > 0) _toBottom(animate: false);
   }
 
   @override
   void dispose() {
+    _chat.removeListener(_onChat);
+    unawaited(_speech?.cancel());
+    _chat.pause();
     _ticker?.cancel();
     unawaited(_tts.stop());
     unawaited(_recorder.dispose());
@@ -100,11 +80,21 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
     super.dispose();
   }
 
-  void _toBottom() {
+  void _onChat() {
+    if (_chat.entries.length != _shown) {
+      _shown = _chat.entries.length;
+      _toBottom();
+    }
+  }
+
+  void _toBottom({bool animate = true}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scroll.hasClients) {
-        _scroll.animateTo(_scroll.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+      if (!_scroll.hasClients) return;
+      final end = _scroll.position.maxScrollExtent;
+      if (animate) {
+        _scroll.animateTo(end, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+      } else {
+        _scroll.jumpTo(end);
       }
     });
   }
@@ -113,47 +103,12 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
     if (_speak && text.isNotEmpty) unawaited(_tts.speak(text));
   }
 
-  void _showReply(AssistantReply reply) {
-    _entries.add(_Entry.assistant(reply.reply, actions: reply.actions, options: reply.options));
-    ref.invalidate(assistantUsageProvider);
-    _say(reply.reply);
-  }
-
-  void _showError(Object error) {
-    final code = AppErrorMapper.codeOf(error);
-    _entries.add(_Entry.error(AppErrorMapper.mapError(error), quota: code == 'ASSISTANT_QUOTA_EXCEEDED'));
-  }
-
   Future<void> _sendText([String? preset]) async {
     final text = (preset ?? _input.text).trim();
-    if (text.isEmpty || _busy) return;
+    if (text.isEmpty || _chat.busy) return;
     _input.clear();
     unawaited(_tts.stop());
-    final pending = _Entry.assistant('')..working = true;
-    setState(() {
-      _busy = true;
-      _entries
-        ..add(_Entry.user(text))
-        ..add(pending);
-    });
-    _toBottom();
-    try {
-      final reply = await ref.read(assistantApiProvider).send(text);
-      if (!mounted) return;
-      setState(() {
-        _entries.remove(pending);
-        _showReply(reply);
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _entries.remove(pending);
-        _showError(error);
-      });
-    } finally {
-      if (mounted) setState(() => _busy = false);
-      _toBottom();
-    }
+    await _chat.sendText(text);
   }
 
   Future<void> _toggleRecording() async {
@@ -161,7 +116,7 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
       await _finishRecording();
       return;
     }
-    if (_busy) return;
+    if (_chat.busy) return;
     if (!await _recorder.hasPermission()) {
       _snack('Ứng dụng cần quyền dùng micro. Hãy cho phép trong phần Cài đặt của máy.');
       return;
@@ -195,79 +150,30 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
       _snack(check.problem!);
       return;
     }
-    final heard = _Entry.user('Đang nghe…', spoken: true, working: true);
-    final pending = _Entry.assistant('')..working = true;
-    setState(() {
-      _busy = true;
-      _entries
-        ..add(heard)
-        ..add(pending);
-    });
-    _toBottom();
-    try {
-      final reply = await ref.read(assistantApiProvider).sendVoice(wavBytes(pcm));
-      if (!mounted) return;
-      setState(() {
-        heard
-          ..text = reply.transcript ?? reply.message
-          ..working = false;
-        _entries.remove(pending);
-        _showReply(reply);
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _entries
-          ..remove(heard)
-          ..remove(pending);
-        _showError(error);
-      });
-    } finally {
-      if (mounted) setState(() => _busy = false);
-      _toBottom();
-    }
+    await _chat.sendVoice(wavBytes(pcm));
   }
 
-  Future<void> _confirm(_Entry entry, AssistantAction action) async {
-    try {
-      String? token;
-      if (action.needsPassword) {
-        final password = await requestAccountPassword(
-          context,
-          message: '"${action.kind == 'scene' ? action.target : action.label}" cần xác minh. Nhập mật khẩu tài khoản để tiếp tục.',
-        );
-        if (password == null) return;
+  Future<void> _confirm(ChatEntry entry, AssistantAction action) async {
+    String? token;
+    if (action.needsPassword) {
+      final password = await requestAccountPassword(
+        context,
+        message: '"${action.kind == 'scene' ? action.target : action.label}" cần xác minh. Nhập mật khẩu tài khoản để tiếp tục.',
+      );
+      if (password == null) return;
+      try {
         token = await ref.read(authRepositoryProvider).reauthenticate(password);
+      } catch (error) {
+        _snack(AppErrorMapper.mapError(error));
+        return;
       }
-      final result = await ref.read(assistantApiProvider).confirm(action.pendingId!, reauthToken: token);
-      if (!mounted) return;
-      setState(() {
-        final index = entry.actions.indexOf(action);
-        if (index >= 0) entry.actions[index] = result.action;
-        _entries.add(_Entry.assistant(result.reply));
-      });
-      _say(result.reply);
-      _toBottom();
-    } catch (error) {
-      if (!mounted) return;
-      if (AppErrorMapper.codeOf(error) == 'ASSISTANT_PENDING_NOT_FOUND') {
-        setState(() {
-          final index = entry.actions.indexOf(action);
-          if (index >= 0) entry.actions[index] = action.copyWith(status: 'failed', reason: 'hết hạn');
-        });
-      }
-      _snack(AppErrorMapper.mapError(error));
     }
+    await _chat.confirmAction(entry, action, reauthToken: token);
   }
 
   Future<void> _reset() async {
     unawaited(_tts.stop());
-    setState(_entries.clear);
-    try {
-      await ref.read(assistantApiProvider).reset();
-    } catch (_) {
-      // The server forgets the conversation after 15 minutes anyway.
-    }
+    await _chat.reset();
   }
 
   void _snack(String message) {
@@ -275,8 +181,58 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  Widget? _footer(ChatEntry entry) {
+    if (entry.offer != null) {
+      return OfferActions(
+        offer: entry.offer!,
+        state: entry.offerState,
+        onBuy: (months) {
+          unawaited(_tts.stop());
+          unawaited(_chat.buy(entry, months));
+        },
+        onDismiss: () => _chat.dismissOffer(entry),
+      );
+    }
+    if (entry.quota) return QuotaPlans(onPick: _chat.offerPlan);
+    return null;
+  }
+
+  Widget _entry(ChatEntry entry, bool busy) {
+    final bubble = ChatBubble(
+      fromUser: entry.role == ChatRole.user,
+      text: entry.text,
+      actions: entry.actions,
+      options: entry.options,
+      error: entry.role == ChatRole.error,
+      spoken: entry.spoken,
+      working: entry.working,
+      onConfirm: (action) => _confirm(entry, action),
+      onOption: busy ? null : _sendText,
+      footer: _footer(entry),
+    );
+    final order = entry.orderCode == null ? null : _chat.order(entry.orderCode!);
+    if (order == null) return bubble;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        bubble,
+        ChatOrderCard(
+          order: order,
+          replaced: _chat.isReplaced(order.code),
+          busy: busy,
+          onSimulate: () => _chat.simulate(order.code),
+          onCancel: () => _chat.cancelOrder(order.code),
+          onRenew: () => _chat.renew(order.code),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final chat = ref.watch(assistantChatProvider);
+    final entries = chat.entries;
+    final busy = chat.busy;
     final usage = ref.watch(assistantUsageProvider).valueOrNull;
     return Scaffold(
       appBar: AppBar(
@@ -293,7 +249,7 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
           IconButton(
             tooltip: 'Cuộc trò chuyện mới',
             icon: const Icon(LucideIcons.rotateCcw),
-            onPressed: _entries.isEmpty ? null : _reset,
+            onPressed: entries.isEmpty || busy ? null : _reset,
           ),
         ],
       ),
@@ -322,37 +278,18 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
                 ),
               ),
             Expanded(
-              child: _entries.isEmpty
+              child: entries.isEmpty
                   ? _Welcome(onPick: _sendText)
                   : ListView.builder(
                       controller: _scroll,
                       padding: const EdgeInsets.all(AppSpacing.md),
-                      itemCount: _entries.length,
-                      itemBuilder: (context, index) {
-                        final entry = _entries[index];
-                        return ChatBubble(
-                          fromUser: entry.fromUser,
-                          text: entry.text,
-                          actions: entry.actions,
-                          options: entry.options,
-                          error: entry.error,
-                          spoken: entry.spoken,
-                          working: entry.working,
-                          onConfirm: (action) => _confirm(entry, action),
-                          onOption: _busy ? null : _sendText,
-                          footer: entry.quota
-                              ? TextButton(
-                                  onPressed: () => context.push(AppRoutes.profilePlans),
-                                  child: const Text('Xem các gói'),
-                                )
-                              : null,
-                        );
-                      },
+                      itemCount: entries.length,
+                      itemBuilder: (context, index) => _entry(entries[index], busy),
                     ),
             ),
             _InputBar(
               controller: _input,
-              busy: _busy,
+              busy: busy,
               recording: _recording,
               elapsed: _stopwatch.elapsed,
               levels: _recorder.levels,
@@ -381,8 +318,8 @@ class _Welcome extends StatelessWidget {
         Text('Xin chào! Mình là trợ lý nhà.', style: context.textTheme.titleMedium, textAlign: TextAlign.center),
         const SizedBox(height: AppSpacing.xs),
         Text(
-          'Hỏi mình bất cứ điều gì, hoặc nhờ điều khiển thiết bị. Chạm micro để nói; '
-          'ra lệnh bằng giọng nói cần đăng ký giọng nói trong Cá nhân.',
+          'Gõ hoặc chạm micro để nói: hỏi bất cứ điều gì, nhờ điều khiển thiết bị, hay tư vấn và mua gói trợ lý. '
+          'Ra lệnh bằng giọng nói cần đăng ký giọng nói trong Cá nhân.',
           style: context.textTheme.bodyMedium?.copyWith(color: context.colorScheme.onSurfaceVariant),
           textAlign: TextAlign.center,
         ),

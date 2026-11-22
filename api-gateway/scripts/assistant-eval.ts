@@ -5,7 +5,8 @@
  *
  *   GEMINI_API_KEY=... npx tsx scripts/assistant-eval.ts [--delay 4000] [--only 1,5,9] [--out report.json]
  *
- * Exit code 1 when any sentence would run a wrong command.
+ * Exit code 1 when any sentence would run a wrong command. A wrong plan offer is
+ * counted too, but does not fail the run: the user still has to confirm it.
  */
 import '../test/setup-env';
 import fs from 'node:fs';
@@ -30,7 +31,7 @@ async function main() {
     const context = await fixtureContext();
     const gemini = geminiGenerate({ warn: (obj, msg) => console.warn(msg, obj) });
     const rows: Array<Record<string, unknown>> = [];
-    const counts: Record<Verdict, number> = { pass: 0, wrong_command: 0, missed: 0, not_asked: 0 };
+    const counts: Record<Verdict, number> = { pass: 0, wrong_command: 0, missed: 0, not_asked: 0, wrong_offer: 0 };
     let tokens = 0;
     let proposedButDropped = 0;
     console.log(`Model ${env.GEMINI_MODEL} (thinking ${env.GEMINI_THINKING_LEVEL || 'default'}), ${cases.length} sentences`);
@@ -48,11 +49,14 @@ async function main() {
             counts[verdict] += 1;
             tokens += plan.tokens;
             proposedButDropped += plan.dropped.length;
-            rows.push({ id: item.id, say: item.say, expect: item.expect, verdict, ran: planKeys(plan), model_calls: raw,
+            const offered = plan.offer ? `offer ${plan.offer.plan.code}/${plan.offer.months ?? '?'}` : null;
+            rows.push({ id: item.id, say: item.say, expect: item.expect, verdict, ran: planKeys(plan), offered, model_calls: raw,
                 dropped: plan.dropped, question: plan.clarification?.question, reply: plan.text, tokens: plan.tokens,
                 ms: Date.now() - started });
             const mark = verdict === 'pass' ? 'ok ' : verdict === 'wrong_command' ? 'SAI' : '-- ';
-            console.log(`${mark} #${item.id} [${item.expect}] ${item.say} → ${planKeys(plan).join(', ') || plan.clarification?.question || (plan.text ?? '').slice(0, 60)}`);
+            const shown = [...planKeys(plan), ...(offered ? [offered] : [])].join(', ')
+                || plan.clarification?.question || (plan.text ?? '').slice(0, 60);
+            console.log(`${mark} #${item.id} [${item.expect}] ${item.say} → ${shown}`);
         } catch (error: any) {
             rows.push({ id: item.id, say: item.say, error: error?.code ?? String(error) });
             console.log(`ERR #${item.id} ${item.say}: ${error?.code ?? error}`);

@@ -1,11 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../../core/core.dart';
 import '../../../core/utils/app_error_mapper.dart';
@@ -14,6 +12,7 @@ import '../../../core/widgets/widgets.dart';
 import '../../assistant/providers/assistant_providers.dart';
 import '../data/payment_models.dart';
 import '../providers/payments_providers.dart';
+import '../widgets/payment_widgets.dart';
 
 /// The order's VietQR and transfer details, a countdown, and its status kept
 /// up to date (polling) until the transfer arrives.
@@ -30,7 +29,6 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   PaymentOrder? _order;
   Object? _error;
   Timer? _poll;
-  Timer? _clock;
   bool _acting = false;
 
   @override
@@ -40,15 +38,11 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     _poll = Timer.periodic(const Duration(seconds: 4), (_) {
       if (_order?.open ?? true) _load();
     });
-    _clock = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted && (_order?.open ?? false)) setState(() {});
-    });
   }
 
   @override
   void dispose() {
     _poll?.cancel();
-    _clock?.cancel();
     super.dispose();
   }
 
@@ -80,11 +74,6 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     } finally {
       if (mounted) setState(() => _acting = false);
     }
-  }
-
-  void _copy(String label, String value) {
-    Clipboard.setData(ClipboardData(text: value));
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Đã chép $label')));
   }
 
   @override
@@ -126,13 +115,17 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                       text: 'Đã nhận ${formatVnd(order.received)}, còn thiếu ${formatVnd(order.amount - order.received)}. '
                           'Chuyển nốt phần còn lại với cùng nội dung.',
                     ),
-                  if (order.mock) _MockPanel(busy: _acting, onPay: () => _act(() async {
+                  if (order.mock)
+                    MockPaymentPanel(
+                      busy: _acting,
+                      onPay: () => _act(() async {
                         await ref.read(paymentsApiProvider).simulate(order.code);
-                      })),
-                  if (order.transfer != null) _Transfer(transfer: order.transfer!, onCopy: _copy),
+                      }),
+                    ),
+                  if (order.transfer != null) TransferDetails(transfer: order.transfer!),
                   if (order.expiresAt != null && order.status == 'pending') ...[
                     const SizedBox(height: AppSpacing.sm),
-                    _Countdown(until: order.expiresAt!),
+                    QrCountdown(until: order.expiresAt!),
                   ],
                   const SizedBox(height: AppSpacing.md),
                   Row(
@@ -191,107 +184,6 @@ class _Summary extends StatelessWidget {
         ],
       ),
     );
-  }
-}
-
-class _Transfer extends StatelessWidget {
-  const _Transfer({required this.transfer, required this.onCopy});
-
-  final PaymentTransfer transfer;
-  final void Function(String label, String value) onCopy;
-
-  @override
-  Widget build(BuildContext context) {
-    final rows = <(String, String, bool)>[
-      if (transfer.bankName != null) ('Ngân hàng', transfer.bankName!, false),
-      ('Số tài khoản', transfer.accountNumber, true),
-      if (transfer.accountName != null) ('Chủ tài khoản', transfer.accountName!, false),
-      ('Số tiền', formatVnd(transfer.amount), false),
-      ('Nội dung', transfer.note, true),
-    ];
-    return NeuCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text('Quét mã bằng ứng dụng ngân hàng', style: context.textTheme.titleSmall, textAlign: TextAlign.center),
-          const SizedBox(height: AppSpacing.sm),
-          Center(
-            child: Container(
-              padding: const EdgeInsets.all(AppSpacing.sm),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(AppRadius.sm)),
-              child: QrImageView(data: transfer.qr, size: 220, backgroundColor: Colors.white),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          for (final (label, value, copyable) in rows)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 2),
-              child: Row(
-                children: [
-                  SizedBox(width: 110, child: Text(label, style: context.textTheme.bodySmall)),
-                  Expanded(
-                    child: Text(value, style: context.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
-                  ),
-                  if (copyable)
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      tooltip: 'Chép',
-                      icon: const Icon(LucideIcons.copy, size: 16),
-                      onPressed: () => onCopy(label.toLowerCase(), value),
-                    ),
-                ],
-              ),
-            ),
-          const SizedBox(height: AppSpacing.xs),
-          Text(
-            'Chuyển khoản thủ công thì nhập đúng nội dung "${transfer.note}" để hệ thống nhận ra.',
-            style: context.textTheme.bodySmall?.copyWith(color: context.colorScheme.onSurfaceVariant),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MockPanel extends StatelessWidget {
-  const _MockPanel({required this.busy, required this.onPay});
-
-  final bool busy;
-  final VoidCallback onPay;
-
-  @override
-  Widget build(BuildContext context) {
-    return NeuCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Icon(LucideIcons.flaskConical, color: context.neu.warningColor),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(child: Text('Chế độ thử nghiệm: không chuyển tiền thật.', style: context.textTheme.bodyMedium)),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          FilledButton(onPressed: busy ? null : onPay, child: const Text('Giả lập đã thanh toán')),
-        ],
-      ),
-    );
-  }
-}
-
-class _Countdown extends StatelessWidget {
-  const _Countdown({required this.until});
-
-  final DateTime until;
-
-  @override
-  Widget build(BuildContext context) {
-    final left = until.difference(DateTime.now());
-    final text = left.isNegative
-        ? 'Mã QR đã hết hạn'
-        : 'Mã QR còn hiệu lực ${left.inMinutes.toString().padLeft(2, '0')}:${(left.inSeconds % 60).toString().padLeft(2, '0')}';
-    return Text(text, textAlign: TextAlign.center, style: context.textTheme.bodyMedium);
   }
 }
 

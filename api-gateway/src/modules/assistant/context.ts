@@ -38,9 +38,18 @@ export interface AssistantScene {
     protected: boolean;
 }
 
+/** A plan the account can buy in the chat (the server prices it again when the order is created). */
+export interface PurchasablePlan {
+    code: string;
+    name: string;
+    prices: Array<{ months: 1 | 12; amount_vnd: number }>;
+}
+
 export interface HomeContext {
     actions: AssistantAction[];
     scenes: AssistantScene[];
+    /** Plans offer_plan may propose; empty when payments are off. */
+    plans: PurchasablePlan[];
     /** The JSON the model reads. */
     data: Record<string, unknown>;
 }
@@ -154,12 +163,66 @@ export function buildHomeContext(input: {
     return {
         actions,
         scenes,
+        plans: [],
         data: {
             now: vietnamTime(input.now ?? new Date()),
             devices,
             scenes: scenes.map(scene => ({
                 id: scene.id, name: scene.name, ...(scene.protected ? { needs_confirmation: true } : {}),
             })),
+        },
+    };
+}
+
+/** What the account has and could buy, for advice and for checking offer_plan. */
+export interface AccountInfo {
+    plan: { code: string; name: string; monthly_tokens: number; expires_at: string | null };
+    used_tokens: number;
+    resets_at: string;
+    plans: Array<{ code: string; name: string; monthly_tokens: number; price_vnd: number; price_12m_vnd: number | null }>;
+    payments: boolean;
+}
+
+/** Roughly how many tokens one question and answer use (the app shows the same estimate). */
+const TOKENS_PER_TURN = 2500;
+
+/** Twelve months cost what the plan says, or twelve times the monthly price (as orders are priced). */
+const yearPrice = (plan: AccountInfo['plans'][number]) => plan.price_12m_vnd ?? plan.price_vnd * 12;
+
+const vietnamDay = (iso: string) => new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit',
+}).format(new Date(iso));
+
+export function withAccount(context: HomeContext, account: AccountInfo): HomeContext {
+    return {
+        ...context,
+        plans: account.plans.filter(plan => plan.price_vnd > 0).map(plan => ({
+            code: plan.code,
+            name: plan.name,
+            prices: [
+                { months: 1 as const, amount_vnd: plan.price_vnd },
+                { months: 12 as const, amount_vnd: yearPrice(plan) },
+            ],
+        })),
+        data: {
+            ...context.data,
+            account: {
+                plan: account.plan.code,
+                plan_name: account.plan.name,
+                plan_expires_on: account.plan.expires_at ? vietnamDay(account.plan.expires_at) : null,
+                used_tokens_this_month: account.used_tokens,
+                monthly_tokens: account.plan.monthly_tokens,
+                resets_on: vietnamDay(account.resets_at),
+                payments: account.payments,
+                plans: account.plans.map(plan => ({
+                    code: plan.code,
+                    name: plan.name,
+                    monthly_tokens: plan.monthly_tokens,
+                    about_questions_per_month: Math.floor(plan.monthly_tokens / TOKENS_PER_TURN),
+                    price_1_month_vnd: plan.price_vnd,
+                    price_12_months_vnd: plan.price_vnd > 0 ? yearPrice(plan) : null,
+                })),
+            },
         },
     };
 }

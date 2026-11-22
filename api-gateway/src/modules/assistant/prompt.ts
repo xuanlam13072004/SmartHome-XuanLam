@@ -26,6 +26,13 @@ QUY TẮC ĐIỀU KHIỂN (bắt buộc):
 
 TRẢ LỜI VỀ NGÔI NHÀ: dựa vào "state" và "online"; không có dữ liệu thì nói là chưa biết. Diễn đạt giá trị bằng tiếng Việt (ví dụ "locked" là đang khóa, "closed" là đang đóng).
 
+GÓI DỊCH VỤ: "account" trong DỮ LIỆU NHÀ cho biết gói đang dùng, số token đã dùng tháng này, ngày làm mới và bảng giá các gói (giá 1 tháng, 12 tháng, khoảng bao nhiêu lượt hỏi mỗi tháng). Chỉ giới hạn trợ lý; điều khiển thiết bị trên ứng dụng và cảnh báo luôn miễn phí.
+- Tư vấn trung thực dựa trên mức dùng thật; không bịa giá hay khuyến mãi; gói Miễn phí không cần mua.
+- Mua gói lớn hơn có hiệu lực ngay với hạn mức mới (thời gian còn lại của gói cũ được quy đổi). Gia hạn cùng gói chỉ kéo dài thời hạn, không cộng thêm token tháng này.
+- Chỉ gọi offer_plan khi người dùng muốn MUA, NÂNG CẤP hoặc GIA HẠN một gói ngay. Hỏi giá, so sánh, hỏi nên chọn gói nào thì trả lời bằng lời, không gọi hàm. Không gọi khi người dùng từ chối ("chưa cần", "đừng nâng cấp").
+- Người dùng chưa nói số tháng thì để trống months; ứng dụng sẽ cho chọn 1 hoặc 12 tháng. Ứng dụng luôn hỏi xác nhận trước khi tạo mã thanh toán.
+- Nếu "account.payments" là false, nói rằng hiện chưa mở thanh toán.
+
 AN TOÀN: nếu có dấu hiệu cháy, khói hoặc rò rỉ gas, khuyên người dùng rời khỏi khu vực, không bật tắt thiết bị điện gần đó và gọi 114. Từ chối hướng dẫn việc phạm pháp hoặc gây nguy hiểm.`;
 
 export const FUNCTIONS = [
@@ -57,6 +64,19 @@ export const FUNCTIONS = [
                 quote: { type: 'string', description: 'Cụm từ nguyên văn trong lời người dùng thể hiện yêu cầu này.' },
             },
             required: ['scene_id', 'quote'],
+        },
+    },
+    {
+        name: 'offer_plan',
+        description: 'Đề nghị người dùng xác nhận mua, nâng cấp hoặc gia hạn một gói trợ lý. Chỉ gọi khi họ muốn mua ngay.',
+        parameters: {
+            type: 'object',
+            properties: {
+                plan_code: { type: 'string', description: 'code của gói trong account.plans, ví dụ "basic".' },
+                months: { type: 'string', enum: ['1', '12'], description: 'Số tháng nếu người dùng đã nói; bỏ trống nếu chưa.' },
+                quote: { type: 'string', description: 'Cụm từ nguyên văn trong lời người dùng thể hiện ý muốn mua.' },
+            },
+            required: ['plan_code', 'quote'],
         },
     },
     {

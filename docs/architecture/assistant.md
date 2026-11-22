@@ -1,8 +1,9 @@
 # Assistant ("Trợ lý")
 
-Status: phase B implemented 2026-11-21 (schema **209**). Builds on voice
-verification (docs/architecture/voice.md). Plans are bought with payments
-(phase C, docs/architecture/payments.md), which write `account_plans`.
+Status: phase B implemented 2026-11-21 (schema **209**); plan advice and
+selling in the chat added 2026-11-22. Builds on voice verification
+(docs/architecture/voice.md). Plans are bought with payments (phase C,
+docs/architecture/payments.md), which write `account_plans`.
 
 ## Decisions (with the user)
 
@@ -15,6 +16,10 @@ verification (docs/architecture/voice.md). Plans are bought with payments
 - **PhoWhisper-small, original form** (transformers + PyTorch in voice-service).
 - **Gemini** (REST `generateContent`, default `gemini-3.8-flash`, thinking `low`)
   understands; it can only *propose* commands through functions.
+- **Typed or spoken, like a chatbot**; it also **advises on plans and sells
+  them in the chat**: the user confirms first (a tap), then the order's QR
+  appears in the conversation and the result (paid, part paid, expired,
+  cancelled) is announced there.
 
 ## A turn
 
@@ -31,7 +36,7 @@ app ── WAV ─▶ POST /assistant/voice ─▶ voice-service /v1/listen/{acc
      run: createDeviceOperation / startRun (normal paths, permissions, idempotency)
      confirm-type operations and protected scenes → pending → POST /assistant/confirm
                     │
-     reply written by the server for commands; Gemini's own text for chat
+     reply written by the server for commands and plan offers; Gemini's own text for chat
 ```
 
 ## Why it does not run wrong commands
@@ -70,6 +75,28 @@ Layers, each sufficient to stop a different failure:
 The reply of a turn that runs commands is written by the server ("Đã gửi
 lệnh …", "… cần bạn xác nhận"), so the model can never claim something ran.
 
+## Plans in the chat
+
+- The home data carries `account`: current plan and its end date, tokens used
+  this month, the reset day, whether payments are on, and every plan with its
+  allowance, about how many questions it gives (tokens / 2,500) and its 1- and
+  12-month prices. The model advises from these numbers only.
+- `offer_plan(plan_code, months?, quote)` is for "buy / upgrade / renew now";
+  price questions and comparisons get words. Server checks: the quote is
+  grounded and not negated; the message asks to buy (`asksToBuy`: buying
+  words such as mua, nâng cấp, gia hạn, đăng ký — or, right after the
+  assistant asked whether or how long to buy, a "có / ok / đồng ý" or a
+  duration like "12 tháng"); the plan is a paid one;
+  months are 1, 12 or missing. A question back withdraws the offer.
+- The turn returns `offer {plan, months|null, prices}` and a server-written
+  reply ("Bạn xác nhận mua gói Cơ bản 1 tháng, giá 49.000đ nhé? …", or both
+  durations when months are missing); outcome `confirm`. Payments off: a
+  plain explanation, no offer. **No order exists until the user taps**; the
+  app then calls `POST /payments/orders`, so the price is the server's.
+- When an order is paid or part paid, payments add a line to the assistant's
+  Redis memory ("Đã nhận 49.000đ cho đơn … Gói Cơ bản đã kích hoạt đến …"),
+  so the next question already knows.
+
 ## Tokens and plans (`quota.ts`, migration 209)
 
 - Usage = `usageMetadata.totalTokenCount` reported by Gemini (thinking
@@ -102,7 +129,8 @@ for debugging and the report; no audio.
 Turn response: `reply`, `outcome` (`chat` · `action` · `clarify` · `confirm` ·
 `refused` · `error`), `actions[]` (`label`, `target`, `status` sent · pending ·
 failed · refused, `pending_id`, `confirmation`), `clarification` (`question`,
-`options`), `usage`.
+`options`), `offer` (`plan {code, name}`, `months` 1 · 12 · null, `prices[]`)
+or null, `usage`.
 
 Config (root `.env`): `GEMINI_API_KEY` (empty = assistant off, 503),
 `GEMINI_MODEL`, `GEMINI_THINKING_LEVEL`. Free-tier keys: Google may use prompts
@@ -110,12 +138,15 @@ to improve its products.
 
 ## Prompt test set
 
-`api-gateway/test/assistant/cases.json`: 103 sentences on a sample home
+`api-gateway/test/assistant/cases.json`: 115 sentences on a sample home
 (`test/assistant/fixture.ts`: front and back door — the back door's name tries
-to give orders —, awning, kitchen hazard unit, irrigation, camera, two scenes):
+to give orders —, awning, kitchen hazard unit, irrigation, camera, two scenes;
+the account is on the free plan with 82k of 100k tokens used):
 clear commands (incl. values, several at once, no tone marks, polite
 requests), ambiguous ones that must be asked back, state questions,
-negations, hypotheticals, schedules, injections, general chat and multi-turn.
+negations, hypotheticals, schedules, injections, general chat, multi-turn,
+and plans (buy with and without months, a "yes" to an offer, price questions,
+comparisons, refusals, the free plan).
 
 ```powershell
 cd api-gateway
@@ -124,17 +155,31 @@ $env:GEMINI_API_KEY="..."; npm run assistant:eval -- --out assistant-report.json
 
 Uses the real planner and checks, sends nothing to devices, prints each
 sentence and a summary: `wrong_command` must be 0 (exit code 1 otherwise);
-`missed`/`not_asked` show where the prompt can improve; `dropped_by_checks`
+`missed`/`not_asked` show where the prompt can improve; `wrong_offer` counts
+plan offers nobody asked for or with the wrong plan/months (the user would
+still have to confirm, so it does not fail the run); `dropped_by_checks`
 counts proposals the server checks stopped. `--delay` (default 4 s) respects
 free-tier request limits; `--only 1,5` reruns some.
 
 ## App
 
-Dashboard → ✨ or Cá nhân → Trợ lý nhà: chat, mic button (tap to talk, tap
-to send, 10 s max, checked on the phone first), confirm/password buttons on
-pending commands, choices as chips, replies read aloud (`flutter_tts`,
-vi-VN, toggle in the app bar), allowance bar. Cá nhân → Gói dịch vụ shows the
-plan, usage, plans to buy or renew and the payment history.
+Dashboard → ✨ or Cá nhân → Trợ lý nhà: a chat to type in, mic button (tap
+to talk, tap to send, 10 s max, checked on the phone first), confirm/password
+buttons on pending commands, choices as chips, replies read aloud
+(`flutter_tts`, vi-VN, toggle in the app bar), allowance bar. Cá nhân → Gói
+dịch vụ shows the plan, usage, plans to buy or renew and the payment history.
+
+The conversation lives in `assistantChatProvider` (`providers/assistant_chat.dart`),
+so it survives leaving the screen and is cleared on sign-out. Plan offers show
+"Xác nhận · 49.000đ" (or one button per duration) and "Thôi"; the order card
+(`widgets/chat_order_card.dart`) shows the QR and transfer details (shared with
+the checkout screen, `payments/widgets/payment_widgets.dart`), a countdown,
+"Hủy đơn", "Giả lập đã thanh toán" in mock mode and "Tạo mã mới" once expired.
+Open orders are polled every 4 s while the chat is on screen; the realtime
+`payment_updated` event updates them anywhere. Each change is announced (and
+read aloud) in the chat: paid with the new end date, the amount still missing,
+expired, cancelled. When the allowance is used up, the error shows the bigger
+plans as buttons that open an offer without calling Gemini.
 
 ## Tests
 
@@ -142,4 +187,6 @@ plan, usage, plans to buy or renew and the payment history.
   question back, Gemini parsing (no database).
 - `test/assistant-cases.test.ts`: the test set is valid for the sample home; scoring.
 - `test/assistant.test.ts`: full turns with a stand-in Gemini and voice-service
-  (device operations, confirmation, password, voice gate, quota, failures).
+  (device operations, confirmation, password, voice gate, plan offers, quota, failures).
+- `test/payments.test.ts` also checks the payment line in the assistant memory.
+- App: `test/assistant_models_test.dart` (offers, the chat's order messages).

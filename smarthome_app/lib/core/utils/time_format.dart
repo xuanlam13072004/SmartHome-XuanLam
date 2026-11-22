@@ -8,6 +8,12 @@ abstract final class TimeFormat {
     return '${_two(t.day)}/${_two(t.month)}/${t.year} ${_two(t.hour)}:${_two(t.minute)}';
   }
 
+  /// 08/11/2026
+  static String date(DateTime time) {
+    final t = time.toLocal();
+    return '${_two(t.day)}/${_two(t.month)}/${t.year}';
+  }
+
   /// 17:05
   static String clock(DateTime time) {
     final t = time.toLocal();

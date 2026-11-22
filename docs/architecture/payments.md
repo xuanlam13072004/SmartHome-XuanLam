@@ -12,7 +12,13 @@ user's banking app ── transfer (note = code) ──▶ receiving bank accoun
 SePay (watches that account) ── POST /payments/sepay/webhook (HMAC or API key) ─▶ Gateway
 Gateway: transaction stored once (SePay id) → order found by code → paid → account_plans extended
          → `payment_updated` to the open apps; the app also polls the order every 4 s
+         → a line in the assistant's memory, so the next chat knows the plan changed
 ```
+
+Two places start an order: Cá nhân → Gói dịch vụ (sheet, then the checkout
+screen) and the assistant chat (after the user taps "Xác nhận" on a plan
+offer; the QR and every status change appear in the conversation, see
+docs/architecture/assistant.md → Plans in the chat). Both call the same API.
 
 No payment gateway, no fee: VietQR (NAPAS 247 EMVCo payload, CRC-16) is
 generated locally (`modules/payments/vietqr.ts`, tested byte for byte against
@@ -96,5 +102,5 @@ pays like the webhook (default amount: what is left).
 - `test/payments.test.ts`: server pricing, QR content, HMAC (forged, replayed,
   valid), retried webhook, part and late payments, unmatched / other account /
   outgoing, renew and upgrade time, mock mode, manual confirmation, cancel,
-  API key, disabled webhook.
-- App: `test/payment_models_test.dart`.
+  API key, disabled webhook, the payment line in the assistant memory.
+- App: `test/payment_models_test.dart`, `test/assistant_models_test.dart` (chat messages).
