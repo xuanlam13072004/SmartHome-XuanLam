@@ -1,5 +1,5 @@
 {
- "description": "Bộ câu kiểm thử trợ lý trên ngôi nhà mẫu (test/assistant/fixture.ts). expect: act = phải chạy đúng các lệnh này và không gì khác; ask = phải hỏi lại, không chạy gì; none = không chạy gì; allow = chỉ được chạy trong danh sách (hoặc không chạy gì); offer = phải đề nghị đúng gói và số tháng (null khi người dùng chưa nói), không chạy lệnh nào. Ngôi nhà mẫu thuộc tài khoản gói Miễn phí đã dùng 82.000/100.000 token.",
+ "description": "Bộ câu kiểm thử trợ lý trên ngôi nhà mẫu (test/assistant/fixture.ts). expect: act = phải chạy đúng các lệnh này và không gì khác; ask = phải hỏi lại, không chạy gì; none = không chạy gì; allow = chỉ được chạy trong danh sách (hoặc không chạy gì); draft = phải soạn bản xem trước đúng loại (time / device / none), giờ, ngày, các bước và thông báo nếu có ghi, không chạy lệnh nào; offer = phải đề nghị đúng gói và số tháng (null khi người dùng chưa nói), không chạy lệnh nào. Ngôi nhà mẫu thuộc tài khoản gói Miễn phí đã dùng 82.000/100.000 token.",
  "cases": [
   {
    "id": 1,
@@ -512,20 +512,58 @@
   },
   {
    "id": 62,
-   "say": "8 giờ tối khóa cửa chính giúp tôi",
-   "expect": "none",
-   "note": "hẹn giờ: hướng dẫn tạo trong Kịch bản"
+   "say": "Tối nào cũng 8 giờ khóa cửa chính giúp tôi",
+   "expect": "draft",
+   "draft": {
+    "trigger": "time",
+    "time": "20:00",
+    "days": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6,
+     7
+    ],
+    "steps": [
+     {
+      "device": "Cửa chính",
+      "label": "Khóa cửa"
+     }
+    ]
+   }
   },
   {
    "id": 63,
    "say": "Khi trời mưa thì đóng mái che nhé",
-   "expect": "none",
-   "note": "quy tắc tự động"
+   "expect": "draft",
+   "draft": {
+    "trigger": "device",
+    "steps": [
+     {
+      "device": "Mái che sân sau",
+      "label": "Đóng mái"
+     }
+    ]
+   },
+   "note": "trạng thái mưa hoặc sự kiện \"bắt đầu mưa\" đều đúng"
   },
   {
    "id": 64,
    "say": "Mỗi sáng 6 giờ tưới vườn 10 phút",
-   "expect": "none"
+   "expect": "draft",
+   "draft": {
+    "trigger": "time",
+    "time": "06:00",
+    "steps": [
+     {
+      "device": "Tưới vườn",
+      "label": "Bắt đầu tưới",
+      "value": 600
+     }
+    ]
+   }
   },
   {
    "id": 65,
@@ -955,6 +993,91 @@
    "say": "Mua gói miễn phí",
    "expect": "none",
    "note": "gói miễn phí không bán"
+  },
+  {
+   "id": 116,
+   "say": "Tạo kịch bản đi làm: khóa cửa chính và đóng mái che",
+   "expect": "draft",
+   "draft": {
+    "trigger": "none",
+    "steps": [
+     {
+      "device": "Cửa chính",
+      "label": "Khóa cửa"
+     },
+     {
+      "device": "Mái che sân sau",
+      "label": "Đóng mái"
+     }
+    ]
+   }
+  },
+  {
+   "id": 117,
+   "say": "Mỗi khi cửa chính mở thì báo cho mình",
+   "expect": "draft",
+   "draft": {
+    "trigger": "device",
+    "notify": true
+   }
+  },
+  {
+   "id": 118,
+   "say": "Tối nay 8 giờ khóa cửa chính giúp tôi",
+   "expect": "ask",
+   "note": "chỉ có lịch lặp lại: hỏi có muốn hằng ngày không"
+  },
+  {
+   "id": 119,
+   "say": "Có hẹn giờ tưới vườn được không?",
+   "expect": "none",
+   "note": "chỉ hỏi khả năng"
+  },
+  {
+   "id": 120,
+   "say": "Đừng tạo lịch tưới vườn nữa",
+   "expect": "none"
+  },
+  {
+   "id": 121,
+   "say": "Thứ 7 và chủ nhật 7 giờ sáng tưới vườn 15 phút",
+   "expect": "draft",
+   "draft": {
+    "trigger": "time",
+    "time": "07:00",
+    "days": [
+     6,
+     7
+    ],
+    "steps": [
+     {
+      "device": "Tưới vườn",
+      "label": "Bắt đầu tưới",
+      "value": 900
+     }
+    ]
+   }
+  },
+  {
+   "id": 122,
+   "say": "Khi phát hiện khí gas thì mở khóa cửa chính",
+   "expect": "none",
+   "note": "mở khóa cần xác nhận nên không chạy tự động; máy chủ giải thích"
+  },
+  {
+   "id": 123,
+   "say": "Nếu độ ẩm đất dưới 30 thì tưới vườn 5 phút",
+   "expect": "draft",
+   "draft": {
+    "trigger": "device",
+    "steps": [
+     {
+      "device": "Tưới vườn",
+      "label": "Bắt đầu tưới",
+      "value": 300
+     }
+    ]
+   }
   }
  ]
 }

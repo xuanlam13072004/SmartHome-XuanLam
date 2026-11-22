@@ -92,6 +92,17 @@ export function asksToBuy(message: string, previousReply: string | null): boolea
     return yes || words.includes('thang') || words.includes('nam');
 }
 
+/** Words of schedules and rules ("mỗi tối", "khi trời mưa", "tạo kịch bản"), tone marks ignored. */
+const AUTOMATION_PHRASES = [
+    'khi', 'neu', 'moi', 'hang ngay', 'hang tuan', 'tu dong', 'hen', 'luc', 'gio', 'kich ban', 'lich',
+    'sang', 'trua', 'chieu', 'toi', 'dem', 'cuoi tuan', 'thu', 'chu nhat', 'tao', 'thiet lap', 'cai dat', 'quy tac',
+];
+
+/** Whether [texts] may be about a scene or an automation (then the model also gets what may be watched). */
+export function mayBeAutomation(...texts: string[]): boolean {
+    return texts.some(text => hasPhrase(tokens(text, true), AUTOMATION_PHRASES));
+}
+
 export function clip(text: string, max: number): string {
     const value = text.replace(/\s+/g, ' ').trim();
     return value.length <= max ? value : `${value.slice(0, max - 1)}…`;

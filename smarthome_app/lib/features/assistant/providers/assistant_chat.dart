@@ -4,11 +4,14 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/config/app_config.dart';
 import '../../../core/utils/app_error_mapper.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../automations/providers/automations_providers.dart';
 import '../../payments/data/payment_models.dart';
 import '../../payments/data/payments_api.dart';
 import '../../payments/providers/payments_providers.dart';
+import '../../scenes/providers/scenes_providers.dart';
 import '../data/assistant_api.dart';
 import '../data/assistant_models.dart';
 import '../data/chat_texts.dart';
@@ -19,6 +22,9 @@ enum ChatRole { user, assistant, error }
 /// A plan offer in the chat: waiting for a tap, creating the order, done, or turned down.
 enum OfferState { open, ordering, ordered, dismissed }
 
+/// A drafted scene/automation: waiting for "Lưu", saving, saved, or turned down.
+enum DraftState { open, saving, saved, dismissed }
+
 /// One message of the conversation.
 class ChatEntry {
   ChatEntry.user(this.text, {this.spoken = false, this.working = false})
@@ -27,6 +33,7 @@ class ChatEntry {
         options = const [],
         quota = false,
         offer = null,
+        draft = null,
         orderCode = null;
 
   ChatEntry.assistant(
@@ -34,6 +41,7 @@ class ChatEntry {
     List<AssistantAction> actions = const [],
     this.options = const [],
     this.offer,
+    this.draft,
     this.orderCode,
     this.working = false,
   })  : role = ChatRole.assistant,
@@ -48,6 +56,7 @@ class ChatEntry {
         spoken = false,
         working = false,
         offer = null,
+        draft = null,
         orderCode = null;
 
   final ChatRole role;
@@ -71,6 +80,14 @@ class ChatEntry {
   /// A plan to buy, and what happened to the offer.
   final PlanOffer? offer;
   OfferState offerState = OfferState.open;
+
+  /// A scene/automation to save, and what happened to it.
+  final AssistantDraft? draft;
+  DraftState draftState = DraftState.open;
+
+  /// What saving the draft created (to open it).
+  String? savedSceneId;
+  String? savedAutomationId;
 
   /// The order this message shows (QR, then its result).
   final String? orderCode;
@@ -126,7 +143,13 @@ class AssistantChat extends ChangeNotifier {
   }
 
   void _showReply(AssistantReply reply) {
-    _say(ChatEntry.assistant(reply.reply, actions: reply.actions, options: reply.options, offer: reply.offer));
+    _say(ChatEntry.assistant(
+      reply.reply,
+      actions: reply.actions,
+      options: reply.options,
+      offer: reply.offer,
+      draft: reply.draft,
+    ));
     _ref.invalidate(assistantUsageProvider);
   }
 
@@ -193,6 +216,35 @@ class AssistantChat extends ChangeNotifier {
       }
       _error(error);
     }
+    _changed();
+  }
+
+  /// The user saved a draft: the scene/automation is created now.
+  Future<void> saveDraft(ChatEntry entry) async {
+    final draft = entry.draft;
+    if (draft == null || entry.draftState != DraftState.open) return;
+    entry.draftState = DraftState.saving;
+    _changed();
+    try {
+      final saved = await _api.saveDraft(draft.id, timezone: AppConfig.timeZone);
+      entry
+        ..draftState = DraftState.saved
+        ..savedSceneId = saved.sceneId
+        ..savedAutomationId = saved.automationId;
+      _ref
+        ..invalidate(scenesProvider)
+        ..invalidate(automationsProvider);
+      _say(ChatEntry.assistant(saved.reply));
+    } catch (error) {
+      entry.draftState = AppErrorMapper.codeOf(error) == 'ASSISTANT_DRAFT_NOT_FOUND' ? DraftState.dismissed : DraftState.open;
+      _error(error);
+    }
+    _changed();
+  }
+
+  void dismissDraft(ChatEntry entry) {
+    if (entry.draftState != DraftState.open) return;
+    entry.draftState = DraftState.dismissed;
     _changed();
   }
 

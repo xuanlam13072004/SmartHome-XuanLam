@@ -7,6 +7,8 @@ import { startRun } from '../scenes/runs';
 import { paymentsAvailable } from '../payments/service';
 import { clearVoiceFailures, recordVoiceFailure, voiceLockState } from '../voice/lockout';
 import { loadHomeContext, withAccount } from './context';
+import { draftProblemReply, draftReply } from './drafts';
+import { storeDraft } from './draftStore';
 import { type GenerateFn, geminiGenerate } from './gemini';
 import { appendHistory, type PendingAction, peekPending, readHistory, savePending, takePending } from './memory';
 import { type PlanOffer, planTurn, type ProposedAction } from './planner';
@@ -177,6 +179,11 @@ export async function runAssistantTurn(
     const voiceVerified = input.voice?.verification ? input.voice.verification.accepted : null;
     const offer = !plan.blocked && plan.offer && payments ? offerView(plan.offer) : null;
     const offerText = plan.blocked || !plan.offer ? null : offer ? offerLine(offer, quota.plan.code) : PAYMENTS_CLOSED;
+    // A draft is only shown; the user saves it (POST /assistant/drafts/:id/save).
+    const draft = !plan.blocked && plan.draft ? await storeDraft(app, accountId, plan.draft) : null;
+    const extras = [offerText, draft ? draftReply(draft) : null].filter((item): item is string => Boolean(item));
+    const confirms = Boolean(offer || draft);
+    const failedDraft = draft || plan.blocked ? undefined : plan.dropped.find(item => item.name === 'draft_automation');
 
     if (plan.blocked) {
         reply = 'Xin lỗi, mình không thể trả lời yêu cầu này.';
@@ -211,13 +218,18 @@ export async function runAssistantTurn(
             outcome = results.some(item => item.status === 'pending') ? 'confirm'
                 : results.some(item => item.status === 'sent') ? 'action' : 'error';
         }
-        if (offerText) reply = `${reply} ${offerText}`;
-        if (offer) outcome = 'confirm';
-    } else if (offerText) {
-        reply = offerText;
-        outcome = offer ? 'confirm' : 'chat';
+        if (extras.length > 0) reply = [reply, ...extras].join(' ');
+        if (confirms) outcome = 'confirm';
+    } else if (extras.length > 0) {
+        reply = extras.join(' ');
+        outcome = confirms ? 'confirm' : 'chat';
     } else if (plan.clarification) {
         reply = plan.clarification.question;
+        outcome = 'clarify';
+    } else if (failedDraft) {
+        // Never the model's own words here: it might claim something was set up.
+        reply = draftProblemReply(failedDraft.reason, failedDraft.detail)
+            ?? 'Mình chưa soạn được việc này. Bạn nói rõ thiết bị, thời gian và việc cần làm giúp mình nhé.';
         outcome = 'clarify';
     } else if (plan.text) {
         reply = clip(plan.text, 2000);
@@ -240,6 +252,7 @@ export async function runAssistantTurn(
             JSON.stringify([
                 ...results.map(({ pending_id: _, ...rest }) => rest),
                 ...(offer ? [{ kind: 'offer', plan: offer.plan.code, months: offer.months }] : []),
+                ...(draft ? [{ kind: 'draft', draft: draft.kind, name: draft.name }] : []),
             ]), plan.tokens, voiceVerified],
     );
     const usage = await usageSummary(app, accountId);
@@ -251,6 +264,7 @@ export async function runAssistantTurn(
         actions: results,
         clarification: outcome === 'clarify' && plan.clarification ? plan.clarification : null,
         offer,
+        draft,
         usage: { used_tokens: usage.used_tokens, monthly_tokens: usage.plan.monthly_tokens, plan: usage.plan.code },
     };
 }

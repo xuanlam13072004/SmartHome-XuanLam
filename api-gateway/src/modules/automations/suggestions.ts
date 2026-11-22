@@ -217,7 +217,7 @@ export async function listSuggestions(app: FastifyInstance, accountId: string) {
 }
 
 /** `base`, or `base 2`, `base 3`… when the account already uses the name. */
-async function freeName(client: PoolClient, table: 'scenes' | 'automations', accountId: string, base: string) {
+export async function freeName(client: PoolClient, table: 'scenes' | 'automations', accountId: string, base: string) {
     const taken = new Set((await client.query(
         `SELECT lower(btrim(name)) AS name FROM ${table} WHERE account_id = $1`,
         [accountId],

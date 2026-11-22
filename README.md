@@ -51,7 +51,7 @@ cd device-simulator/backend; npm test
 cd media-relay-service; npm test
 docker compose run --rm voice-service python -m pytest -q
 cd smarthome_app; flutter test
-cd api-gateway; npm run assistant:eval   # bộ 115 câu với Gemini thật (cần GEMINI_API_KEY)
+cd api-gateway; npm run assistant:eval   # bộ 123 câu với Gemini thật (cần GEMINI_API_KEY)
 ```
 
 ## Tài liệu

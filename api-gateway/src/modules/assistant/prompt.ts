@@ -14,7 +14,7 @@ DỮ LIỆU NHÀ là JSON do hệ thống gửi kèm mỗi tin nhắn: thiết b
 
 QUY TẮC ĐIỀU KHIỂN (bắt buộc):
 - Chỉ gọi control_device hoặc run_scene khi tin nhắn mới nhất của người dùng là yêu cầu LÀM NGAY, hoặc là câu trả lời cho câu hỏi lại ngay trước đó của bạn.
-- KHÔNG gọi hàm khi người dùng chỉ hỏi ("cửa đã khóa chưa?", "mái che đang mở à?"), kể chuyện, giả định ("nếu tôi mở khóa cửa thì sao?"), phủ định hoặc ngăn lại ("đừng mở khóa cửa", "khoan đã", "thôi khỏi"), hay nhờ hẹn giờ/đặt quy tắc cho tương lai ("8 giờ tối khóa cửa nhé", "khi trời mưa thì đóng mái"). Với hẹn giờ và quy tắc tự động, hướng dẫn người dùng tạo trong mục Kịch bản (hẹn giờ hoặc Tự động).
+- KHÔNG gọi control_device/run_scene khi người dùng chỉ hỏi ("cửa đã khóa chưa?", "mái che đang mở à?"), kể chuyện, giả định ("nếu tôi mở khóa cửa thì sao?"), phủ định hoặc ngăn lại ("đừng mở khóa cửa", "khoan đã", "thôi khỏi"), hay nhờ làm việc trong tương lai hoặc lặp lại ("mỗi tối 10 giờ khóa cửa", "khi trời mưa thì đóng mái"): việc tương lai dùng draft_automation (xem dưới).
 - Lời nhờ lịch sự vẫn là lệnh: "khóa cửa giúp tôi", "bạn đóng mái che được không" khi rõ là đang nhờ làm.
 - Chỉ dùng action_id và scene_id có trong DỮ LIỆU NHÀ của tin nhắn này. Không đoán, không tự đặt id. Nếu không có thiết bị hoặc thao tác phù hợp, nói rõ là không làm được và không gọi hàm.
 - Nếu một lệnh có thể ứng với nhiều thiết bị và người dùng không nói rõ (ví dụ "khóa cửa" mà nhà có hai thiết bị cửa), gọi ask_clarification với các lựa chọn cụ thể. Nếu người dùng nói "tất cả" hoặc "hết", gọi cho từng thiết bị phù hợp.
@@ -23,6 +23,15 @@ QUY TẮC ĐIỀU KHIỂN (bắt buộc):
 - Thao tác hoặc kịch bản có "needs_confirmation": vẫn gọi hàm bình thường; ứng dụng sẽ hỏi người dùng xác nhận.
 - Khi đã gọi hàm thì không cần viết câu trả lời; hệ thống tự báo kết quả. Không bao giờ nói đã làm xong một việc mà bạn không gọi hàm.
 - Thiết bị có "online": false vẫn có thể gọi hàm, nhưng nhắc rằng thiết bị đang mất kết nối.
+
+TẠO KỊCH BẢN VÀ TỰ ĐỘNG HÓA (draft_automation): khi người dùng muốn thiết lập việc chạy theo giờ lặp lại, chạy khi có chuyện xảy ra ("mỗi khi", "khi… thì…", "nếu… thì…"), hoặc muốn tạo một kịch bản để chạy sau ("tạo kịch bản đi làm gồm…"). Ứng dụng hiện bản xem trước, chỉ lưu khi người dùng bấm Lưu.
+- trigger: "time" (giờ lặp lại, time "HH:MM" 24 giờ; days 1 = Thứ 2 … 7 = Chủ nhật, bỏ trống = hằng ngày), "watch" (khi một trạng thái thành giá trị: watch_id + operator + value), "event" (khi thiết bị báo một sự kiện: event_id), hoặc "none" (kịch bản chạy bằng tay).
+- "automation" trong DỮ LIỆU NHÀ liệt kê theo thiết bị: watch (trạng thái có id w…, values = các giá trị cho phép kèm nghĩa, hoặc number = [min, max]; only "khi"/"nếu" = chỉ dùng được ở đó) và events (sự kiện có id e…). Toán tử: eq (là), ne (không phải) cho values; gt (trên), lt (dưới) cho number. value ghi đúng khóa trong values (ví dụ "open", "true").
+- conditions (tối đa 3, "Nếu…") và only_from/only_to (chỉ chạy trong khung giờ) chỉ thêm khi người dùng nói.
+- steps: các thao tác theo thứ tự, action_id và value như control_device; delay_seconds là thời gian chờ trước bước đó. notify_message: khi người dùng muốn được báo (không cần bước nào).
+- Hẹn một lần ("tối nay 8 giờ") chưa hỗ trợ: hỏi lại xem có muốn lặp lại hằng ngày không. Chỉ hỏi "có làm được không" thì trả lời bằng lời, không gọi hàm.
+- Thao tác có "needs_confirmation" (ví dụ mở khóa cửa) không chạy tự động được, chỉ đặt vào kịch bản chạy bằng tay.
+- name: tên ngắn tiếng Việt; icon: một trong play, leave_home, arrive_home, sleep, wake_up, water, lock, shield, sun, moon, rain, party.
 
 TRẢ LỜI VỀ NGÔI NHÀ: dựa vào "state" và "online"; không có dữ liệu thì nói là chưa biết. Diễn đạt giá trị bằng tiếng Việt (ví dụ "locked" là đang khóa, "closed" là đang đóng).
 
@@ -77,6 +86,56 @@ export const FUNCTIONS = [
                 quote: { type: 'string', description: 'Cụm từ nguyên văn trong lời người dùng thể hiện ý muốn mua.' },
             },
             required: ['plan_code', 'quote'],
+        },
+    },
+    {
+        name: 'draft_automation',
+        description: 'Soạn một tự động hóa (chạy theo giờ hoặc khi có chuyện xảy ra) hoặc một kịch bản chạy bằng tay. '
+            + 'Ứng dụng hiện bản xem trước để người dùng bấm Lưu; không có gì chạy ngay.',
+        parameters: {
+            type: 'object',
+            properties: {
+                name: { type: 'string', description: 'Tên ngắn, tiếng Việt, ví dụ "Khóa cửa buổi tối".' },
+                icon: { type: 'string', enum: ['play', 'leave_home', 'arrive_home', 'sleep', 'wake_up', 'water', 'lock', 'shield', 'sun', 'moon', 'rain', 'party'] },
+                trigger: { type: 'string', enum: ['time', 'watch', 'event', 'none'], description: 'Khi nào chạy; none = kịch bản chạy bằng tay.' },
+                time: { type: 'string', description: 'trigger = time: giờ "HH:MM" (24 giờ).' },
+                days: { type: 'array', items: { type: 'integer' }, description: 'trigger = time: 1 = Thứ 2 … 7 = Chủ nhật; bỏ trống = hằng ngày.' },
+                watch_id: { type: 'string', description: 'trigger = watch: id trạng thái (w…) trong automation.' },
+                operator: { type: 'string', enum: ['eq', 'ne', 'gt', 'lt'] },
+                value: { type: 'string', description: 'Giá trị so sánh: một khóa trong values, hoặc một số.' },
+                event_id: { type: 'string', description: 'trigger = event: id sự kiện (e…) trong automation.' },
+                conditions: {
+                    type: 'array',
+                    description: 'Điều kiện "Nếu…" (tối đa 3), chỉ khi người dùng nói.',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            watch_id: { type: 'string' },
+                            operator: { type: 'string', enum: ['eq', 'ne', 'gt', 'lt'] },
+                            value: { type: 'string' },
+                        },
+                        required: ['watch_id', 'operator', 'value'],
+                    },
+                },
+                only_from: { type: 'string', description: 'Chỉ chạy từ giờ này ("HH:MM"), cùng only_to.' },
+                only_to: { type: 'string', description: 'Chỉ chạy đến giờ này ("HH:MM").' },
+                steps: {
+                    type: 'array',
+                    description: 'Các thao tác theo thứ tự.',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            action_id: { type: 'string' },
+                            value: { type: 'string' },
+                            delay_seconds: { type: 'integer', description: 'Chờ bao nhiêu giây trước bước này.' },
+                        },
+                        required: ['action_id'],
+                    },
+                },
+                notify_message: { type: 'string', description: 'Nội dung thông báo gửi cho người dùng, nếu họ muốn được báo.' },
+                quote: { type: 'string', description: 'Cụm từ nguyên văn trong lời người dùng thể hiện yêu cầu này.' },
+            },
+            required: ['name', 'trigger', 'quote'],
         },
     },
     {

@@ -20,6 +20,7 @@ import '../providers/assistant_chat.dart';
 import '../providers/assistant_providers.dart';
 import '../widgets/chat_bubble.dart';
 import '../widgets/chat_order_card.dart';
+import '../widgets/draft_card.dart';
 import '../widgets/offer_actions.dart';
 
 const _maxRecording = Duration(seconds: 10);
@@ -27,6 +28,7 @@ const _suggestions = [
   'Bạn làm được những gì?',
   'Cửa chính đã khóa chưa?',
   'Đóng mái che',
+  'Mỗi tối 10 giờ khóa cửa chính',
   'Mình nên dùng gói trợ lý nào?',
 ];
 
@@ -214,6 +216,24 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
         onDismiss: () => _chat.dismissOffer(entry),
       );
     }
+    if (entry.draft != null) {
+      final sceneId = entry.savedSceneId;
+      final automationId = entry.savedAutomationId;
+      return DraftCard(
+        draft: entry.draft!,
+        state: entry.draftState,
+        onSave: () {
+          unawaited(_tts.stop());
+          unawaited(_chat.saveDraft(entry));
+        },
+        onDismiss: () => _chat.dismissDraft(entry),
+        onOpen: automationId != null
+            ? () => context.push(AppRoutes.automationEditOf(automationId))
+            : sceneId != null
+                ? () => context.push(AppRoutes.sceneEditOf(sceneId))
+                : null,
+      );
+    }
     if (entry.quota) return QuotaPlans(onPick: _chat.offerPlan);
     return null;
   }
@@ -348,7 +368,8 @@ class _Welcome extends StatelessWidget {
         Text('Xin chào! Mình là trợ lý nhà.', style: context.textTheme.titleMedium, textAlign: TextAlign.center),
         const SizedBox(height: AppSpacing.xs),
         Text(
-          'Gõ hoặc chạm micro để nói: hỏi bất cứ điều gì, nhờ điều khiển thiết bị, hay tư vấn và mua gói trợ lý. '
+          'Gõ hoặc chạm micro để nói: hỏi bất cứ điều gì, nhờ điều khiển thiết bị, tạo kịch bản và tự động hóa, '
+          'hay tư vấn và mua gói trợ lý. '
           'Ra lệnh bằng giọng nói cần đăng ký giọng nói trong Cá nhân.',
           style: context.textTheme.bodyMedium?.copyWith(color: context.colorScheme.onSurfaceVariant),
           textAlign: TextAlign.center,

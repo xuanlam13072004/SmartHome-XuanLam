@@ -1,15 +1,17 @@
 import type { FastifyInstance } from 'fastify';
 import { env } from '../../config/env';
-import { automationProperties, shadowValue } from '../automations/catalog';
+import { type AutomationProperty, automationEvents, automationProperties, shadowValue } from '../automations/catalog';
+import { eventLabel, stateName, valueLabel } from '../automations/labels';
 import { instanceLabel, isProtectedOperation, mayRun, operationLabel, sceneActionProblem } from '../scenes/actions';
 import { listScenes } from '../scenes/service';
 
 /**
  * What the assistant knows about the home for one turn: the devices the
  * account can see with their current state, the operations it may run
- * (the same rule as scene steps) and its scenes. The model sees short ids
- * (a1, s1); only the server maps them back, so it can never address
- * anything outside this list.
+ * (the same rule as scene steps), what an automation may watch on them
+ * (states and events, the same rule as the automation pickers) and its
+ * scenes. The model sees short ids (a1, w1, e1, s1); only the server maps
+ * them back, so it can never address anything outside this list.
  */
 
 type Schema = Record<string, any>;
@@ -31,6 +33,26 @@ export interface AssistantAction {
     input: ActionInput | null;
 }
 
+/** A state an automation may watch ("Khi" and/or "Nếu"). */
+export interface AssistantWatch extends AutomationProperty {
+    id: string;
+    mac: string;
+    device: string;
+    trigger: boolean;
+    condition: boolean;
+}
+
+/** An event an automation may start on. */
+export interface AssistantEvent {
+    id: string;
+    mac: string;
+    device: string;
+    /** '<instance>.<event>', as automations store it. */
+    event: string;
+    event_name: string;
+    label: string;
+}
+
 export interface AssistantScene {
     id: string;
     scene_id: string;
@@ -47,11 +69,19 @@ export interface PurchasablePlan {
 
 export interface HomeContext {
     actions: AssistantAction[];
+    watches: AssistantWatch[];
+    events: AssistantEvent[];
     scenes: AssistantScene[];
     /** Plans offer_plan may propose; empty when payments are off. */
     plans: PurchasablePlan[];
     /** The JSON the model reads. */
     data: Record<string, unknown>;
+    /**
+     * What automations may watch, per device; added to [data] only for
+     * messages that may be about automations (planner.ts), to keep ordinary
+     * turns small.
+     */
+    automationData: Array<Record<string, unknown>>;
 }
 
 export interface DeviceRow {
@@ -91,6 +121,35 @@ function describeInput(schema: Schema) {
     };
 }
 
+/**
+ * States worth offering: connectivity but not other diagnostics (signal,
+ * firmware, uptime), and no unbounded counters (bytes, seconds running).
+ */
+function worthWatching(property: AutomationProperty): boolean {
+    if (property.property.startsWith('diagnostics.')) return property.property.endsWith('.online');
+    return property.kind !== 'number' || property.maximum !== undefined;
+}
+
+/** How the model sees a watchable state: allowed values (with their words) or a range. */
+function describeWatch(watch: AssistantWatch) {
+    const name = stateName(watch.property);
+    const use = watch.trigger && watch.condition ? undefined : watch.trigger ? 'khi' : 'nếu';
+    const values = watch.kind === 'boolean'
+        ? { true: valueLabel(name, true), false: valueLabel(name, false) }
+        : watch.kind === 'enum'
+            ? Object.fromEntries(watch.enum!.map(value => [value, valueLabel(name, value)]))
+            : undefined;
+    return {
+        id: watch.id,
+        what: watch.instance_label === watch.label ? watch.label : `${watch.instance_label} · ${watch.label}`,
+        ...(values ? { values } : {
+            number: [watch.minimum ?? null, watch.maximum ?? null],
+            ...(watch.unit ? { unit: UNITS[watch.unit] ?? watch.unit } : {}),
+        }),
+        ...(use ? { only: use } : {}),
+    };
+}
+
 function vietnamTime(now: Date): string {
     return new Intl.DateTimeFormat('vi-VN', {
         timeZone: 'Asia/Ho_Chi_Minh', weekday: 'long', year: 'numeric', month: '2-digit', day: '2-digit',
@@ -108,6 +167,8 @@ export function buildHomeContext(input: {
     now?: Date;
 }): HomeContext {
     const actions: AssistantAction[] = [];
+    const watches: AssistantWatch[] = [];
+    const events: AssistantEvent[] = [];
     const devices = input.devices.map(device => {
         const product = input.catalog.getProduct(device.product_id) as any;
         const current = product && product.catalog_revision === device.catalog_revision;
@@ -149,24 +210,65 @@ export function buildHomeContext(input: {
                     ...(action.confirmation ? { needs_confirmation: true } : {}),
                 }];
             });
+        const deviceWatches: AssistantWatch[] = [];
+        if (current) {
+            const triggers = automationProperties(product, 'trigger');
+            const conditions = automationProperties(product, 'condition');
+            for (const property of [...triggers, ...conditions]) {
+                if (!worthWatching(property) || deviceWatches.some(item => item.property === property.property)) continue;
+                const watch: AssistantWatch = {
+                    ...property,
+                    id: `w${watches.length + 1}`,
+                    mac: device.mac,
+                    device: device.name,
+                    trigger: triggers.some(item => item.property === property.property),
+                    condition: conditions.some(item => item.property === property.property),
+                };
+                watches.push(watch);
+                deviceWatches.push(watch);
+            }
+        }
+        const deviceEvents = !current ? [] : automationEvents(product).map(item => {
+            const event: AssistantEvent = {
+                id: `e${events.length + 1}`,
+                mac: device.mac,
+                device: device.name,
+                event: item.event,
+                event_name: item.event_name,
+                label: eventLabel(item.event_name),
+            };
+            events.push(event);
+            return { id: event.id, what: event.label };
+        });
         return {
             name: device.name,
             room: device.room_id ? input.rooms.get(device.room_id) ?? null : null,
             online: shadow ? shadow.is_online === true : null,
             ...(Object.keys(state).length ? { state } : {}),
             ...(deviceActions.length ? { actions: deviceActions } : {}),
+            automation: {
+                device: device.name,
+                ...(deviceWatches.length ? { watch: deviceWatches.map(describeWatch) } : {}),
+                ...(deviceEvents.length ? { events: deviceEvents } : {}),
+            },
         };
     });
+    const automationData = devices
+        .map(device => device.automation)
+        .filter(item => item.watch !== undefined || item.events !== undefined);
     const scenes = input.scenes.map((scene, index) => ({
         id: `s${index + 1}`, scene_id: scene.id, name: scene.name, protected: scene.protected,
     }));
     return {
         actions,
+        watches,
+        events,
         scenes,
         plans: [],
+        automationData,
         data: {
             now: vietnamTime(input.now ?? new Date()),
-            devices,
+            devices: devices.map(({ automation: _, ...device }) => device),
             scenes: scenes.map(scene => ({
                 id: scene.id, name: scene.name, ...(scene.protected ? { needs_confirmation: true } : {}),
             })),

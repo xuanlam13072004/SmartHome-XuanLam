@@ -16,7 +16,8 @@ test('the prompt test set has about 100 sentences, each valid for the sample hom
     assert.ok(cases.length >= 100);
     assert.deepEqual(cases.map(item => item.id), cases.map((_, index) => index + 1));
     for (const item of cases) {
-        assert.ok(['act', 'ask', 'none', 'allow', 'offer'].includes(item.expect), `case ${item.id}`);
+        assert.ok(['act', 'ask', 'none', 'allow', 'offer', 'draft'].includes(item.expect), `case ${item.id}`);
+        assert.equal(item.expect === 'draft', item.draft !== undefined, `case ${item.id}: draft goes with expect "draft"`);
         if (item.expect === 'act') assert.ok((item.actions?.length ?? 0) + (item.scenes?.length ?? 0) > 0, `case ${item.id}`);
         assert.equal(item.expect === 'offer', item.offer !== undefined, `case ${item.id}: offer goes with expect "offer"`);
         if (item.offer) {
@@ -24,7 +25,7 @@ test('the prompt test set has about 100 sentences, each valid for the sample hom
             assert.ok(offered, `case ${item.id}: plan ${item.offer.plan} cannot be bought`);
             assert.ok(item.offer.months === null || offered.prices.some(price => price.months === item.offer!.months), `case ${item.id}`);
         }
-        for (const expected of item.actions ?? []) {
+        for (const expected of [...(item.actions ?? []), ...(item.draft?.steps ?? [])]) {
             const action = context.actions.find(entry => entry.device === expected.device && entry.label === expected.label);
             assert.ok(action, `case ${item.id}: no "${expected.label}" on "${expected.device}"`);
             if (action.input) {
@@ -44,7 +45,7 @@ test('scoring: anything run that was not expected is a wrong command', async () 
     const context = await fixtureContext();
     const close = context.actions.find(action => action.device === 'Mái che sân sau' && action.label === 'Đóng mái')!;
     const plan = (actions: Plan['actions'], extra: Partial<Plan> = {}): Plan =>
-        ({ text: null, actions, clarification: null, offer: null, dropped: [], tokens: 0, blocked: false, ...extra });
+        ({ text: null, actions, clarification: null, offer: null, draft: null, dropped: [], tokens: 0, blocked: false, ...extra });
     const closing = plan([{ kind: 'device', action: close, input: {}, quote: 'đóng mái' }]);
     const act: AssistantCase = { id: 1, say: 'đóng mái che', expect: 'act', actions: [{ device: 'Mái che sân sau', label: 'Đóng mái' }] };
     assert.equal(scoreCase(act, closing), 'pass');
@@ -63,6 +64,23 @@ test('scoring: anything run that was not expected is a wrong command', async () 
     assert.equal(scoreCase(buy, plan([])), 'missed');
     assert.equal(scoreCase(buy, plan(closing.actions, { offer: { plan: basic, months: 1 } })), 'wrong_command');
     assert.equal(scoreCase({ id: 7, say: 'gói cơ bản giá bao nhiêu', expect: 'none' }, offering(null)), 'wrong_offer');
+
+    const water = context.actions.find(action => action.device === 'Tưới vườn' && action.label === 'Bắt đầu tưới')!;
+    const drafted = (time: string, seconds: number) => plan([], {
+        draft: {
+            name: 'Tưới sáng', icon: 'water', trigger: { kind: 'time', time, days: [1, 2, 3, 4, 5, 6, 7] }, conditions: [],
+            window: null, steps: [{ action: water, input: { duration_seconds: seconds }, delay_seconds: 0 }], notify_message: null,
+        },
+    });
+    const morning: AssistantCase = {
+        id: 8, say: 'mỗi sáng 6 giờ tưới vườn 10 phút', expect: 'draft',
+        draft: { trigger: 'time', time: '06:00', steps: [{ device: 'Tưới vườn', label: 'Bắt đầu tưới', value: 600 }] },
+    };
+    assert.equal(scoreCase(morning, drafted('06:00', 600)), 'pass');
+    assert.equal(scoreCase(morning, drafted('18:00', 600)), 'wrong_draft');
+    assert.equal(scoreCase(morning, drafted('06:00', 300)), 'wrong_draft');
+    assert.equal(scoreCase(morning, plan([])), 'missed');
+    assert.equal(scoreCase({ id: 9, say: 'có hẹn giờ được không', expect: 'none' }, drafted('06:00', 600)), 'wrong_draft');
 });
 
 test('the sample account sees its plan, usage and prices; only paid plans can be offered', async () => {

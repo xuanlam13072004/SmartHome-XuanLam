@@ -111,4 +111,35 @@ void main() {
     expect(ChatTexts.orderChanged(pending, order('expired')), contains('đã hết hạn'));
     expect(ChatTexts.orderChanged(pending, order('cancelled')), 'Đã hủy đơn SHABCD2345.');
   });
+
+  test('a drafted automation, shown line by line until the user saves it', () {
+    final reply = AssistantReply.fromJson({
+      'reply': 'Mình soạn sẵn tự động hóa "Đóng mái buổi tối"…',
+      'outcome': 'confirm',
+      'actions': [],
+      'draft': {
+        'id': 'abcDEF123456',
+        'kind': 'automation',
+        'name': 'Đóng mái buổi tối',
+        'trigger': 'Hằng ngày lúc 22:00',
+        'conditions': ['Nếu Mái che: Trạng thái mưa: Không mưa'],
+        'window': null,
+        'steps': [
+          {'label': 'Đóng mái · Mái che', 'delay': null},
+          {'label': 'Khóa cửa · Cửa chính', 'delay': 'sau 30 giây'},
+        ],
+        'notify': null,
+      },
+      'usage': {},
+    });
+    final draft = reply.draft!;
+    expect(draft.automation, isTrue);
+    expect(draft.trigger, 'Hằng ngày lúc 22:00');
+    expect(draft.conditions.single, startsWith('Nếu Mái che'));
+    expect(draft.steps.last.delay, 'sau 30 giây');
+    expect(draft.window, isNull);
+    final scene = AssistantDraft.fromJson({'id': 'x', 'kind': 'scene', 'name': 'Về nhà', 'steps': []});
+    expect(scene.automation, isFalse);
+    expect(scene.trigger, isNull);
+  });
 }

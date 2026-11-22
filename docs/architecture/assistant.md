@@ -1,7 +1,8 @@
 # Assistant ("Trợ lý")
 
 Status: phase B implemented 2026-11-21 (schema **209**); plan advice and
-selling in the chat added 2026-11-22. Builds on voice verification
+selling in the chat added 2026-11-22; drafting scenes and automations by
+voice or text added 2026-11-22. Builds on voice verification
 (docs/architecture/voice.md). Plans are bought with payments (phase C,
 docs/architecture/payments.md), which write `account_plans`.
 
@@ -16,6 +17,9 @@ docs/architecture/payments.md), which write `account_plans`.
 - **PhoWhisper-small, original form** (transformers + PyTorch in voice-service).
 - **Gemini** (REST `generateContent`, default `gemini-3.8-flash`, thinking `low`)
   understands; it can only *propose* commands through functions.
+- **Creates scenes and automations from what the user says** ("mỗi tối 10 giờ
+  khóa cửa", "khi trời mưa thì đóng mái"): a preview card in the chat, nothing
+  is created until the user taps "Lưu".
 - **Typed or spoken, like a chatbot**; it also **advises on plans and sells
   them in the chat**: the user confirms first (a tap), then the order's QR
   appears in the conversation and the result (paid, part paid, expired,
@@ -75,6 +79,36 @@ Layers, each sufficient to stop a different failure:
 The reply of a turn that runs commands is written by the server ("Đã gửi
 lệnh …", "… cần bạn xác nhận"), so the model can never claim something ran.
 
+## Scenes and automations in the chat
+
+- `draft_automation(name, icon, trigger: time|watch|event|none, time, days,
+  watch_id, operator, value, event_id, conditions[], only_from, only_to,
+  steps[{action_id, value, delay_seconds}], notify_message, quote)`.
+  `none` makes a scene run by hand; the others an automation (with a new
+  scene for its steps, like automation suggestions).
+- What may be watched (`w…` states with allowed values and their Vietnamese
+  words, `e…` events; the automation pickers' rule, without signal/firmware
+  diagnostics and unbounded counters) is added to the home data **only when
+  the message may be about automations** (`mayBeAutomation`: mỗi, khi, nếu,
+  giờ, tạo, kịch bản…), keeping ordinary turns small.
+- Server checks (`drafts.ts`, pure): grounded, non-negated quote; ids from this
+  turn; `HH:MM` and weekdays 1–7 (none = every day); values parsed against
+  the state (boolean, enum key, number in range with gt/lt) and the
+  operation (like commands); ≤ 3 conditions, ≤ `MAX_SCENE_STEPS` steps,
+  delays 0–3600 s; an automation needs steps or a notification. Operations
+  that need a confirmation or the password (unlocking) are refused in an
+  automation (`protected_step`, the reply says why) but allowed in a scene run
+  by hand. One-time timers are not supported: the prompt asks back instead.
+- The turn returns `draft {id, kind, name, trigger, conditions[], window,
+  steps[{label, delay}], notify}` (all lines written by the server with the
+  app's words, `automations/labels.ts`) and a server-written reply; outcome
+  `confirm`. Drafts wait 30 minutes in Redis (`draftStore.ts`).
+- `POST /assistant/drafts/:id/save {timezone}` runs the normal checks again
+  (`resolveSteps`, `resolveAutomation`, limits, protected scenes), creates the
+  scene and/or automation in one transaction (taken names get a number),
+  announces the automation to every Gateway and returns the ids; the app then
+  offers "Mở" in the Kịch bản editor.
+
 ## Plans in the chat
 
 - The home data carries `account`: current plan and its end date, tokens used
@@ -123,6 +157,7 @@ for debugging and the report; no audio.
 | `POST /assistant/message` | `{text}` ≤ 500 chars | typed: acts like a tap, no voice check |
 | `POST /assistant/voice` | multipart `audio` (WAV ≤ 1 MB) | adds `transcript`, `voice_verified` |
 | `POST /assistant/confirm` | `{pending_id}` (+ `X-Reauth-Token`) | runs a pending command once |
+| `POST /assistant/drafts/:id/save` | `{timezone}` | creates a drafted scene/automation once |
 | `DELETE /assistant/conversation` | — | forgets the memory |
 | `GET /assistant/usage` | — | plan, used/remaining, `resets_at`, all plans |
 
@@ -130,7 +165,7 @@ Turn response: `reply`, `outcome` (`chat` · `action` · `clarify` · `confirm` 
 `refused` · `error`), `actions[]` (`label`, `target`, `status` sent · pending ·
 failed · refused, `pending_id`, `confirmation`), `clarification` (`question`,
 `options`), `offer` (`plan {code, name}`, `months` 1 · 12 · null, `prices[]`)
-or null, `usage`.
+or null, `draft` (see above) or null, `usage`.
 
 Config (root `.env`): `GEMINI_API_KEY` (empty = assistant off, 503),
 `GEMINI_MODEL`, `GEMINI_THINKING_LEVEL`. Free-tier keys: Google may use prompts
@@ -138,15 +173,18 @@ to improve its products.
 
 ## Prompt test set
 
-`api-gateway/test/assistant/cases.json`: 115 sentences on a sample home
+`api-gateway/test/assistant/cases.json`: 123 sentences on a sample home
 (`test/assistant/fixture.ts`: front and back door — the back door's name tries
 to give orders —, awning, kitchen hazard unit, irrigation, camera, two scenes;
 the account is on the free plan with 82k of 100k tokens used):
 clear commands (incl. values, several at once, no tone marks, polite
 requests), ambiguous ones that must be asked back, state questions,
 negations, hypotheticals, schedules, injections, general chat, multi-turn,
-and plans (buy with and without months, a "yes" to an offer, price questions,
-comparisons, refusals, the free plan).
+plans (buy with and without months, a "yes" to an offer, price questions,
+comparisons, refusals, the free plan), and scenes/automations (daily and
+weekend times, rain, a door opening with a notification, soil moisture, a
+scene by hand, a one-time timer that must be asked back, unlocking by itself
+that must be refused).
 
 ```powershell
 cd api-gateway
@@ -156,8 +194,9 @@ $env:GEMINI_API_KEY="..."; npm run assistant:eval -- --out assistant-report.json
 Uses the real planner and checks, sends nothing to devices, prints each
 sentence and a summary: `wrong_command` must be 0 (exit code 1 otherwise);
 `missed`/`not_asked` show where the prompt can improve; `wrong_offer` counts
-plan offers nobody asked for or with the wrong plan/months (the user would
-still have to confirm, so it does not fail the run); `dropped_by_checks`
+plan offers nobody asked for or with the wrong plan/months, `wrong_draft`
+drafts nobody asked for or wrong ones (the user would still have to confirm or
+save, so neither fails the run); `dropped_by_checks`
 counts proposals the server checks stopped. `--delay` (default 4 s) respects
 free-tier request limits; `--only 1,5` reruns some.
 
@@ -179,7 +218,10 @@ Open orders are polled every 4 s while the chat is on screen; the realtime
 `payment_updated` event updates them anywhere. Each change is announced (and
 read aloud) in the chat: paid with the new end date, the amount still missing,
 expired, cancelled. When the allowance is used up, the error shows the bigger
-plans as buttons that open an offer without calling Gemini.
+plans as buttons that open an offer without calling Gemini. A drafted scene or
+automation shows as a card (`widgets/draft_card.dart`): what starts it, the
+steps, "Lưu và bật" / "Lưu kịch bản" and "Thôi"; once saved, "Mở" opens it in
+the Kịch bản editor and the scene/automation lists refresh.
 
 ## Tests
 
@@ -187,6 +229,7 @@ plans as buttons that open an offer without calling Gemini.
   question back, Gemini parsing (no database).
 - `test/assistant-cases.test.ts`: the test set is valid for the sample home; scoring.
 - `test/assistant.test.ts`: full turns with a stand-in Gemini and voice-service
-  (device operations, confirmation, password, voice gate, plan offers, quota, failures).
+  (device operations, confirmation, password, voice gate, drafts saved into
+  scenes/automations, plan offers, quota, failures).
 - `test/payments.test.ts` also checks the payment line in the assistant memory.
 - App: `test/assistant_models_test.dart` (offers, the chat's order messages).

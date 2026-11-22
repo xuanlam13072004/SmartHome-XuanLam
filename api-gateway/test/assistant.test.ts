@@ -202,6 +202,89 @@ test.describe('assistant', { skip: skipWithoutMongo }, () => {
         assert.equal(unclear.json().error.code, 'VOICE_NOT_UNDERSTOOD');
     });
 
+    test('scenes and automations are drafted, shown, and created only when the user saves them', async () => {
+        const user = await signUp(app);
+        await createOwnedDevice(db.pool, user.id, { name: 'Mái che', productId: 'prod_roof_controller', catalogRevision: 2 });
+        await createOwnedDevice(db.pool, user.id, { name: 'Cửa chính', productId: 'prod_entrance_controller', catalogRevision: 6 });
+        const count = async (table: 'scenes' | 'automations') =>
+            (await db.pool.query(`SELECT count(*)::int AS n FROM ${table} WHERE account_id = $1`, [user.id])).rows[0].n as number;
+        const save = (id: string) => app.inject({
+            method: 'POST', url: `/assistant/drafts/${id}/save`, headers: user.headers, payload: { timezone: 'Asia/Ho_Chi_Minh' },
+        });
+
+        gemini = (said, home) => ({
+            body: call(user, 'draft_automation', {
+                name: 'Đóng mái buổi tối', icon: 'moon', trigger: 'time', time: '22:00',
+                steps: [{ action_id: findAction(home, 'Mái che', 'Đóng mái') }], quote: said,
+            }),
+        });
+        const drafted = await message(user, 'mỗi tối 10 giờ đóng mái che');
+        assert.equal(drafted.statusCode, 200, drafted.body);
+        const body = drafted.json();
+        assert.equal(body.outcome, 'confirm');
+        assert.equal(body.draft.kind, 'automation');
+        assert.equal(body.draft.trigger, 'Hằng ngày lúc 22:00');
+        assert.deepEqual(body.draft.steps, [{ label: 'Đóng mái · Mái che', delay: null }]);
+        assert.match(body.reply, /^Mình soạn sẵn tự động hóa "Đóng mái buổi tối": Hằng ngày lúc 22:00 → Đóng mái · Mái che\./);
+        assert.equal(await count('automations'), 0, 'nothing exists before "Lưu"');
+
+        const saved = await save(body.draft.id);
+        assert.equal(saved.statusCode, 200, saved.body);
+        assert.equal(saved.json().reply, 'Đã lưu và bật tự động hóa "Đóng mái buổi tối".');
+        const automation = (await db.pool.query(
+            `SELECT trigger_kind, to_char(trigger_time, 'HH24:MI') AS time, scene_id, enabled FROM automations WHERE id = $1`,
+            [saved.json().automation_id],
+        )).rows[0];
+        assert.deepEqual(automation, { trigger_kind: 'time', time: '22:00', scene_id: saved.json().scene_id, enabled: true });
+        assert.equal((await db.pool.query('SELECT count(*)::int AS n FROM scene_steps WHERE scene_id = $1', [saved.json().scene_id])).rows[0].n, 1);
+        assert.equal((await save(body.draft.id)).json().error.code, 'ASSISTANT_DRAFT_NOT_FOUND', 'a draft is saved once');
+
+        // "khi trời mưa": the model sees what may be watched and picks the rain state.
+        gemini = (said, home) => {
+            const roof = home.automation.find((item: any) => item.device === 'Mái che');
+            const rain = roof.watch.find((item: any) => item.values?.true === 'Có mưa');
+            return {
+                body: call(user, 'draft_automation', {
+                    name: 'Đóng mái khi mưa', trigger: 'watch', watch_id: rain.id, operator: 'eq', value: 'true',
+                    steps: [{ action_id: findAction(home, 'Mái che', 'Đóng mái') }], quote: said,
+                }),
+            };
+        };
+        const rainy = (await message(user, 'khi trời mưa thì đóng mái che')).json();
+        assert.equal(rainy.draft.trigger, 'Khi Mái che: Trạng thái mưa: Có mưa');
+        const rainSaved = await save(rainy.draft.id);
+        assert.equal(rainSaved.statusCode, 200, rainSaved.body);
+        assert.equal((await db.pool.query('SELECT trigger_kind FROM automations WHERE id = $1', [rainSaved.json().automation_id])).rows[0].trigger_kind, 'state');
+
+        // Unlocking needs a confirmation every time: never by itself, fine in a scene run by hand.
+        gemini = (said, home) => ({
+            body: call(user, 'draft_automation', {
+                name: 'Mưa thì mở cửa', trigger: 'watch', watch_id: home.automation[0].watch[0].id, operator: 'eq',
+                value: Object.keys(home.automation[0].watch[0].values ?? { open: 1 })[0],
+                steps: [{ action_id: findAction(home, 'Cửa chính', 'Mở khóa') }], quote: said,
+            }),
+        });
+        const refused = (await message(user, 'khi trời mưa thì mở khóa cửa chính')).json();
+        assert.equal(refused.draft, null);
+        assert.equal(refused.outcome, 'clarify');
+        assert.match(refused.reply, /^"Mở khóa" cần bạn xác nhận hoặc nhập mật khẩu mỗi lần, nên không thể chạy tự động\./);
+        gemini = (said, home) => ({
+            body: call(user, 'draft_automation', {
+                name: 'Về nhà', icon: 'arrive_home', trigger: 'none',
+                steps: [{ action_id: findAction(home, 'Cửa chính', 'Mở khóa') }], quote: said,
+            }),
+        });
+        const scene = (await message(user, 'tạo kịch bản về nhà để mở khóa cửa chính')).json();
+        assert.equal(scene.draft.kind, 'scene');
+        const before = await count('automations');
+        const sceneSaved = await save(scene.draft.id);
+        assert.equal(sceneSaved.statusCode, 200, sceneSaved.body);
+        assert.equal(sceneSaved.json().automation_id, null);
+        assert.match(sceneSaved.json().reply, /^Đã tạo kịch bản "Về nhà"/);
+        assert.equal(await count('automations'), before);
+        assert.equal(await count('scenes'), 3);
+    });
+
     test('the model reads the plan and usage; a plan offer waits for the user to confirm in the app', async () => {
         const user = await signUp(app);
         const mode = env.PAYMENT_MODE;

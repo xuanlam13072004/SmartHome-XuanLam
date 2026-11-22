@@ -50,6 +50,20 @@ class AssistantApi {
     );
   }
 
+  /// Creates a drafted scene/automation; returns the reply and what was created.
+  Future<({String reply, String? sceneId, String? automationId})> saveDraft(String draftId, {required String timezone}) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/assistant/drafts/${Uri.encodeComponent(draftId)}/save',
+      data: {'timezone': timezone},
+    );
+    final data = response.data!;
+    return (
+      reply: data['reply']?.toString() ?? '',
+      sceneId: data['scene_id']?.toString(),
+      automationId: data['automation_id']?.toString(),
+    );
+  }
+
   /// Forgets the conversation (the server keeps the last few messages for 15 minutes).
   Future<void> reset() async {
     await _dio.delete<void>('/assistant/conversation');

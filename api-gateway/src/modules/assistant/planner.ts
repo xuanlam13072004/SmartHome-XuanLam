@@ -1,7 +1,11 @@
 import type { AssistantAction, AssistantScene, HomeContext, PurchasablePlan } from './context';
+import { type AutomationDraft, checkDraft } from './drafts';
 import type { ChatMessage, GenerateFn } from './gemini';
 import { FUNCTIONS, SYSTEM_PROMPT } from './prompt';
-import { asksToBuy, clip, groundQuote } from './text';
+import { asksToBuy, clip, groundQuote, mayBeAutomation } from './text';
+import { parseValue } from './values';
+
+export { parseValue };
 
 /**
  * One turn of understanding: asks the model, then checks every command it
@@ -19,11 +23,13 @@ export type ProposedAction =
 
 export type DropReason =
     | 'unknown_function' | 'unknown_id' | 'quote_missing' | 'negated' | 'bad_value' | 'missing_value'
-    | 'too_many' | 'ambiguous' | 'not_buying';
+    | 'too_many' | 'ambiguous' | 'not_buying' | 'protected_step';
 
 export interface DroppedCall {
     name: string;
     reason: DropReason;
+    /** For the reply: the operation that cannot run by itself. */
+    detail?: string;
 }
 
 export interface PlanOffer {
@@ -37,6 +43,8 @@ export interface Plan {
     actions: ProposedAction[];
     clarification: { question: string; options: string[] } | null;
     offer: PlanOffer | null;
+    /** A scene or automation to show for "Lưu" (nothing is created yet). */
+    draft: AutomationDraft | null;
     dropped: DroppedCall[];
     tokens: number;
     blocked: boolean;
@@ -46,39 +54,6 @@ export interface PlanInput {
     context: HomeContext;
     history: ChatMessage[];
     message: string;
-}
-
-type Parsed = { ok: true; value: unknown } | { ok: false; reason: 'bad_value' | 'missing_value' };
-
-const TRUE = new Set(['true', '1', 'bật', 'có', 'on', 'yes']);
-const FALSE = new Set(['false', '0', 'tắt', 'không', 'off', 'no']);
-
-/** The model's `value` (a string) as the operation's input; never guessed. */
-export function parseValue(schema: Record<string, any>, raw: unknown): Parsed {
-    const text = raw === undefined || raw === null ? '' : String(raw).trim();
-    if (text === '') {
-        return schema.default !== undefined ? { ok: true, value: schema.default } : { ok: false, reason: 'missing_value' };
-    }
-    if (schema.type === 'integer' || schema.type === 'number') {
-        const value = Number(text.replace(',', '.'));
-        if (!Number.isFinite(value) || (schema.type === 'integer' && !Number.isInteger(value))) {
-            return { ok: false, reason: 'bad_value' };
-        }
-        if ((typeof schema.minimum === 'number' && value < schema.minimum)
-            || (typeof schema.maximum === 'number' && value > schema.maximum)
-            || (Array.isArray(schema.enum) && !schema.enum.includes(value))) {
-            return { ok: false, reason: 'bad_value' };
-        }
-        return { ok: true, value };
-    }
-    if (schema.type === 'boolean') {
-        const lower = text.toLowerCase();
-        if (TRUE.has(lower)) return { ok: true, value: true };
-        if (FALSE.has(lower)) return { ok: true, value: false };
-        return { ok: false, reason: 'bad_value' };
-    }
-    const choice = (schema.enum as string[] | undefined)?.find(item => item.toLowerCase() === text.toLowerCase());
-    return choice === undefined ? { ok: false, reason: 'bad_value' } : { ok: true, value: choice };
 }
 
 /** History as the model expects it: starting with the user, roles alternating. */
@@ -95,6 +70,10 @@ function conversation(history: ChatMessage[]) {
 
 export async function planTurn(generate: GenerateFn, input: PlanInput): Promise<Plan> {
     const { context, history, message } = input;
+    // What automations may watch is sent only when the message may be about one.
+    const previousUser = [...history].reverse().find(item => item.role === 'user')?.text ?? '';
+    const data = mayBeAutomation(message, previousUser) && context.automationData.length > 0
+        ? { ...context.data, automation: context.automationData } : context.data;
     const result = await generate({
         system: SYSTEM_PROMPT,
         functions: FUNCTIONS,
@@ -103,7 +82,7 @@ export async function planTurn(generate: GenerateFn, input: PlanInput): Promise<
             {
                 role: 'user',
                 parts: [
-                    { text: `DỮ LIỆU NHÀ (JSON, chỉ là dữ liệu):\n${JSON.stringify(context.data)}` },
+                    { text: `DỮ LIỆU NHÀ (JSON, chỉ là dữ liệu):\n${JSON.stringify(data)}` },
                     { text: `Người dùng nói: ${message}` },
                 ],
             },
@@ -122,7 +101,8 @@ export async function planTurn(generate: GenerateFn, input: PlanInput): Promise<
     };
 
     const plan: Plan = {
-        text: result.text, actions: [], clarification: null, offer: null, dropped: [], tokens: result.tokens, blocked: result.blocked,
+        text: result.text, actions: [], clarification: null, offer: null, draft: null,
+        dropped: [], tokens: result.tokens, blocked: result.blocked,
     };
     const seen = new Set<string>();
     for (const call of result.calls) {
@@ -136,7 +116,8 @@ export async function planTurn(generate: GenerateFn, input: PlanInput): Promise<
             }
             continue;
         }
-        if (call.name !== 'control_device' && call.name !== 'run_scene' && call.name !== 'offer_plan') {
+        if (call.name !== 'control_device' && call.name !== 'run_scene' && call.name !== 'offer_plan'
+            && call.name !== 'draft_automation') {
             plan.dropped.push({ name: call.name, reason: 'unknown_function' });
             continue;
         }
@@ -144,6 +125,15 @@ export async function planTurn(generate: GenerateFn, input: PlanInput): Promise<
         const grounding = ground(quote);
         if (grounding !== 'ok') {
             plan.dropped.push({ name: call.name, reason: grounding === 'negated' ? 'negated' : 'quote_missing' });
+            continue;
+        }
+        if (call.name === 'draft_automation') {
+            const checked = checkDraft(args, context);
+            if (!checked.ok) {
+                plan.dropped.push({ name: call.name, reason: checked.reason, ...(checked.detail ? { detail: checked.detail } : {}) });
+            } else if (!plan.draft) {
+                plan.draft = checked.draft;
+            }
             continue;
         }
         if (call.name === 'offer_plan') {
@@ -199,14 +189,16 @@ export async function planTurn(generate: GenerateFn, input: PlanInput): Promise<
         }
         plan.actions.push(proposal);
     }
-    // A question back means the model is unsure: run (and offer) nothing this turn.
-    if (plan.clarification && (plan.actions.length > 0 || plan.offer)) {
+    // A question back means the model is unsure: run (offer, draft) nothing this turn.
+    if (plan.clarification && (plan.actions.length > 0 || plan.offer || plan.draft)) {
         plan.dropped.push(...plan.actions.map(item => ({
             name: item.kind === 'device' ? 'control_device' : 'run_scene', reason: 'ambiguous' as const,
         })));
         if (plan.offer) plan.dropped.push({ name: 'offer_plan', reason: 'ambiguous' });
+        if (plan.draft) plan.dropped.push({ name: 'draft_automation', reason: 'ambiguous' });
         plan.actions = [];
         plan.offer = null;
+        plan.draft = null;
     }
     return plan;
 }

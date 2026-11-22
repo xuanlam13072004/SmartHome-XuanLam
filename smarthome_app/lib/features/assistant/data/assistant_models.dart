@@ -90,6 +90,50 @@ class PlanOffer {
   }
 }
 
+/// A scene or automation the assistant drafted; created only when the user saves it.
+/// Every line is written by the server in Vietnamese.
+class AssistantDraft {
+  const AssistantDraft({
+    required this.id,
+    required this.kind,
+    required this.name,
+    required this.conditions,
+    required this.steps,
+    this.trigger,
+    this.window,
+    this.notify,
+  });
+
+  final String id;
+
+  /// automation (runs by itself) · scene (run by hand)
+  final String kind;
+  final String name;
+
+  /// "Hằng ngày lúc 22:00", "Khi Mái che: Trạng thái mưa: Có mưa".
+  final String? trigger;
+  final List<String> conditions;
+  final String? window;
+  final List<({String label, String? delay})> steps;
+  final String? notify;
+
+  bool get automation => kind == 'automation';
+
+  factory AssistantDraft.fromJson(Map<String, dynamic> json) => AssistantDraft(
+        id: json['id']?.toString() ?? '',
+        kind: json['kind']?.toString() ?? 'scene',
+        name: json['name']?.toString() ?? '',
+        trigger: json['trigger']?.toString(),
+        conditions: [for (final item in json['conditions'] as List? ?? const []) item.toString()],
+        window: json['window']?.toString(),
+        steps: [
+          for (final item in json['steps'] as List? ?? const [])
+            (label: _map(item)['label']?.toString() ?? '', delay: _map(item)['delay']?.toString()),
+        ],
+        notify: json['notify']?.toString(),
+      );
+}
+
 class AssistantReply {
   const AssistantReply({
     required this.message,
@@ -100,6 +144,7 @@ class AssistantReply {
     required this.usedTokens,
     required this.monthlyTokens,
     this.offer,
+    this.draft,
     this.transcript,
     this.voiceVerified,
   });
@@ -116,6 +161,9 @@ class AssistantReply {
 
   /// A plan to buy, waiting for the user's tap.
   final PlanOffer? offer;
+
+  /// A scene or automation to save, waiting for the user's tap.
+  final AssistantDraft? draft;
   final int usedTokens;
   final int monthlyTokens;
 
@@ -135,6 +183,7 @@ class AssistantReply {
       ],
       options: [for (final item in clarification['options'] as List? ?? const []) item.toString()],
       offer: json['offer'] is Map ? PlanOffer.fromJson(_map(json['offer'])) : null,
+      draft: json['draft'] is Map ? AssistantDraft.fromJson(_map(json['draft'])) : null,
       usedTokens: _int(usage['used_tokens']),
       monthlyTokens: _int(usage['monthly_tokens']),
       transcript: json['transcript']?.toString(),

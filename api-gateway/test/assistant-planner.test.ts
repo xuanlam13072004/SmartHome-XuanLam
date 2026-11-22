@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { GeminiCall, GeminiRequest, GenerateFn } from '../src/modules/assistant/gemini';
 import { parseGeminiResponse } from '../src/modules/assistant/gemini';
+import { draftReply, draftView } from '../src/modules/assistant/drafts';
 import { parseValue, planTurn } from '../src/modules/assistant/planner';
 import { asksToBuy, groundQuote } from '../src/modules/assistant/text';
 import { actionId, fixtureContext } from './assistant/fixture';
@@ -184,6 +185,82 @@ test('plan offers: only paid plans, 1 or 12 months, grounded and not refused', a
         })()).replace(/^DỮ LIỆU NHÀ \(JSON, chỉ là dữ liệu\):\s*/, ''),
     ));
     assert.equal(data.account.plan, 'free', 'the model reads the plan and usage');
+});
+
+test('drafts: time, state and event triggers, steps, and every part checked', async () => {
+    const context = await fixtureContext();
+    const water = actionId(context, 'Tưới vườn', 'Bắt đầu tưới');
+    const closeRoof = actionId(context, 'Mái che sân sau', 'Đóng mái');
+    const unlock = actionId(context, 'Cửa chính', 'Mở khóa');
+    const rain = context.watches.find(item => item.device === 'Mái che sân sau' && item.property.endsWith('.rain_detected'))!;
+    const doorOpened = context.events.find(item => item.device === 'Cửa chính' && item.label === 'Cửa được mở')!;
+    const draft = (args: Record<string, unknown>, message: string) =>
+        planTurn(fake([{ name: 'draft_automation', args: { quote: message, ...args } }]), { context, history: [], message });
+
+    const morning = await draft({
+        name: 'Tưới sáng', icon: 'water', trigger: 'time', time: '6:00', steps: [{ action_id: water, value: '600' }],
+    }, 'Mỗi sáng 6 giờ tưới vườn 10 phút');
+    assert.deepEqual(morning.draft!.trigger, { kind: 'time', time: '06:00', days: [1, 2, 3, 4, 5, 6, 7] });
+    assert.deepEqual(morning.draft!.steps[0].input, { duration_seconds: 600 });
+    assert.deepEqual(morning.actions, [], 'a draft runs nothing');
+    const view = draftView('d1', morning.draft!);
+    assert.equal(view.kind, 'automation');
+    assert.equal(view.trigger, 'Hằng ngày lúc 06:00');
+    assert.equal(view.steps[0].label, 'Bắt đầu tưới · Tưới vườn (10 phút)');
+    assert.equal(draftReply(view),
+        'Mình soạn sẵn tự động hóa "Tưới sáng": Hằng ngày lúc 06:00 → Bắt đầu tưới · Tưới vườn (10 phút). Bạn xem lại rồi bấm Lưu để bật nhé.');
+
+    const rainy = await draft({
+        name: 'Mưa thì đóng mái', trigger: 'watch', watch_id: rain.id, operator: 'eq', value: 'true',
+        steps: [{ action_id: closeRoof }], only_from: '06:00', only_to: '22:00',
+    }, 'Khi trời mưa thì đóng mái che');
+    const rainyView = draftView('d2', rainy.draft!);
+    assert.equal(rainyView.trigger, 'Khi Mái che sân sau: Trạng thái mưa: Có mưa');
+    assert.equal(rainyView.window, 'Chỉ từ 06:00 đến 22:00');
+
+    const told = await draft({ name: 'Báo cửa mở', trigger: 'event', event_id: doorOpened.id, notify_message: 'Cửa chính vừa mở' },
+        'Mỗi khi cửa chính mở thì báo cho mình');
+    assert.equal(draftView('d3', told.draft!).trigger, 'Khi Cửa chính: Cửa được mở');
+    assert.equal(told.draft!.notify_message, 'Cửa chính vừa mở');
+
+    // By hand, an operation that needs confirmation is fine; by itself it is not.
+    const manual = await draft({ name: 'Về nhà', trigger: 'none', steps: [{ action_id: unlock }, { action_id: closeRoof, delay_seconds: 30 }] },
+        'Tạo kịch bản về nhà: mở khóa cửa chính rồi đóng mái che');
+    const manualView = draftView('d4', manual.draft!);
+    assert.equal(manualView.kind, 'scene');
+    assert.deepEqual(manualView.steps.map(step => step.delay), [null, 'sau 30 giây']);
+    const guarded = await draft({ name: 'Gas', trigger: 'watch', watch_id: rain.id, operator: 'eq', value: 'true', steps: [{ action_id: unlock }] },
+        'Khi trời mưa thì mở khóa cửa chính');
+    assert.equal(guarded.draft, null);
+    assert.deepEqual(guarded.dropped, [{ name: 'draft_automation', reason: 'protected_step', detail: 'Mở khóa' }]);
+
+    for (const [args, reason] of [
+        [{ trigger: 'time', time: '25:00', steps: [{ action_id: water, value: '600' }] }, 'bad_value'],
+        [{ trigger: 'time', time: '06:00', days: [8], steps: [{ action_id: water, value: '600' }] }, 'bad_value'],
+        [{ trigger: 'watch', watch_id: 'w999', operator: 'eq', value: 'true', steps: [{ action_id: closeRoof }] }, 'unknown_id'],
+        [{ trigger: 'watch', watch_id: rain.id, operator: 'gt', value: 'true', steps: [{ action_id: closeRoof }] }, 'bad_value'],
+        [{ trigger: 'time', time: '06:00' }, 'missing_value'],
+        [{ trigger: 'none', notify_message: 'x' }, 'missing_value'],
+        [{ trigger: 'time', time: '06:00', steps: [{ action_id: water, value: '600' }, { action_id: closeRoof, delay_seconds: 5000 }] }, 'bad_value'],
+        [{ trigger: 'time', time: '06:00', steps: [{ action_id: 'a999' }] }, 'unknown_id'],
+        [{ trigger: 'time', time: '06:00', steps: [{ action_id: closeRoof }],
+            conditions: Array.from({ length: 4 }, () => ({ watch_id: rain.id, operator: 'eq', value: 'false' })) }, 'too_many'],
+    ] as const) {
+        const dropped = await draft({ name: 'x', ...args }, 'Mỗi sáng 6 giờ làm việc này');
+        assert.equal(dropped.draft, null, JSON.stringify(args));
+        assert.equal(dropped.dropped[0]?.reason, reason, JSON.stringify(args));
+    }
+    const refused = await draft({ name: 'x', trigger: 'time', time: '06:00', steps: [{ action_id: water, value: '600' }], quote: 'tạo lịch tưới' },
+        'Đừng tạo lịch tưới vườn nữa');
+    assert.deepEqual(refused.dropped, [{ name: 'draft_automation', reason: 'negated' }]);
+
+    // What may be watched goes to the model only when the message may be about automations.
+    const seen: GeminiRequest[] = [];
+    await planTurn(fake([], 'Chào bạn', seen), { context, history: [], message: 'chào bạn' });
+    await planTurn(fake([], 'Được', seen), { context, history: [], message: 'mỗi tối khóa cửa nhé' });
+    const sent = seen.map(request => JSON.parse(request.contents.at(-1)!.parts[0].text.replace(/^[^\n]*\n/, '')));
+    assert.equal(sent[0].automation, undefined);
+    assert.ok(Array.isArray(sent[1].automation) && sent[1].automation.length > 0);
 });
 
 test('gemini responses: text, calls, tokens and blocking', () => {
