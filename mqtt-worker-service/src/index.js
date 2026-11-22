@@ -21,7 +21,7 @@ const { TelemetrySanitizer } = require('./services/telemetrySanitizer');
 const { RealtimePublisher } = require('./services/realtimePublisher');
 const { ensureDeviceEventIndexes } = require('./services/deviceEventProcessor');
 const http = require('http');
-const { getPrometheusMetrics } = require('./monitoring/metrics');
+const { getPrometheusMetrics, getProcessMetrics } = require('./monitoring/metrics');
 
 const logger = pino({
     name: config.SERVICE_NAME,
@@ -261,10 +261,11 @@ async function start() {
 
     // Khởi chạy Prometheus Metrics server (port 9100 mặc định hoặc từ METRICS_PORT)
     const metricsPort = process.env.METRICS_PORT || 9100;
-    state.metricsServer = http.createServer((req, res) => {
+    state.metricsServer = http.createServer(async (req, res) => {
         if (req.url === '/metrics') {
+            const processMetrics = await getProcessMetrics().catch(() => '');
             res.writeHead(200, { 'Content-Type': 'text/plain; version=0.0.4; charset=utf-8' });
-            res.end(getPrometheusMetrics(state.telemetryWriter, state.shadowWriter));
+            res.end(getPrometheusMetrics(state.telemetryWriter, state.shadowWriter) + processMetrics);
         } else {
             res.writeHead(404, { 'Content-Type': 'text/plain' });
             res.end('Not Found');

@@ -18,6 +18,7 @@ import jwtPlugin from './plugins/jwt';
 import errorHandlerPlugin from './plugins/errorHandler';
 import validationPlugin from './plugins/validation';
 import rateLimitPlugin from './plugins/rateLimit';
+import metricsPlugin from './plugins/metrics';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import { corsOptions } from './config/cors';
@@ -38,6 +39,7 @@ export function buildApp(): FastifyInstance {
     });
 
     // Security plugins
+    app.register(metricsPlugin);
     app.register(helmet);
     app.register(cors, corsOptions);
 

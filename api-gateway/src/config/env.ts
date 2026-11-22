@@ -57,6 +57,8 @@ const envSchema = z.object({
     FCM_API_URL: z.string().url().default('https://fcm.googleapis.com'),
     // The same alert of the same device is pushed at most once in this window.
     PUSH_EVENT_THROTTLE_SECONDS: z.coerce.number().int().min(0).max(3600).default(60),
+    // Prometheus metrics, inside the Docker network only (docs/architecture/load-testing.md); 0 = off.
+    METRICS_PORT: z.coerce.number().int().min(0).max(65535).default(9101),
 
     PG_HOST: z.string(),
     PG_PORT: z.coerce.number().int().positive().default(5432),

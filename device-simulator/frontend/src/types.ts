@@ -440,3 +440,47 @@ export interface Overview {
     max_telemetry_messages_per_second: number
   }
 }
+
+// ── End-to-end probes (docs/architecture/load-testing.md) ──────────────────
+
+export type ProbeKind = 'commands' | 'app_reads'
+
+export interface ProbeParams {
+  kind: ProbeKind
+  users: number
+  per_user: number
+  concurrency: number
+}
+
+export interface LatencyStats {
+  count: number
+  mean_ms: number
+  p50_ms: number
+  p90_ms: number
+  p95_ms: number
+  p99_ms: number
+  max_ms: number
+}
+
+export interface ProbeResult {
+  id: string
+  params: ProbeParams
+  status: 'preparing' | 'running' | 'completed' | 'stopped' | 'failed'
+  started_at: string
+  finished_at: string | null
+  context: Record<string, number>
+  machine: { cpus: number; cpu_model: string; memory_gb: number; platform: string }
+  users_used: number
+  totals: { requests: number; ok: number; failed: number }
+  latency: LatencyStats | null
+  server: LatencyStats | null
+  throughput_per_second: number
+  errors: Record<string, number>
+  note: string | null
+}
+
+export interface ProbeList {
+  current: ProbeResult | null
+  results: ProbeResult[]
+  limits: { users: number; per_user: number; concurrency: number }
+}

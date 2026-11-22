@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import type { Pool } from 'pg';
 import { NOTIFICATION_SEVERITIES, notificationCategory } from '../../../../shared/notification-categories';
+import { pushSent } from '../../metrics/registry';
 import { type PushMessage, pushConfigured, sendToToken } from './fcm';
 import { eventTitle, vietnamDate, vnd } from './labels';
 
@@ -95,6 +96,7 @@ export async function sendToTokens(deps: PushDeps, tokens: string[], message: Pu
     const worker = async () => {
         for (let token = queue.shift(); token !== undefined; token = queue.shift()) {
             const result = await sendToToken(token, message);
+            pushSent.inc({ result });
             if (result === 'sent') stats.sent += 1;
             else if (result === 'invalid_token') invalid.push(token);
             else stats.failed += 1;

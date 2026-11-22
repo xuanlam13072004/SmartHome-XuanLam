@@ -4,6 +4,7 @@ import type { CatalogProduct, Overview, SimulationRun } from '../../types'
 import { EmptyState } from '../EmptyState'
 import { readError } from '../format'
 import { LiveBoard, type OverviewSample } from './LiveBoard'
+import { ProbePanel } from './ProbePanel'
 import { RunsTable } from './RunsTable'
 import { ScenarioForm } from './ScenarioForm'
 
@@ -127,6 +128,8 @@ export function LoadTestPage({
           runs={runs}
         />
       </div>
+
+      <ProbePanel />
     </section>
   )
 }

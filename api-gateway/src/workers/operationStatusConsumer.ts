@@ -2,6 +2,7 @@ import type { Pool, PoolClient } from 'pg';
 import type Redis from 'ioredis';
 import type { Db } from 'mongodb';
 import { env } from '../config/env';
+import { operationDuration } from '../metrics/registry';
 // @ts-ignore - shared CommonJS module
 import { OPERATION_STATUS, REDIS_CHANNELS, TERMINAL_OPERATION_STATUSES } from '../../../shared/constants';
 import {
@@ -106,15 +107,19 @@ export class OperationStatusConsumer {
         // Bounded device ACK details (for example list_recordings ranges) are
         // kept as the operation result and returned to the actor (contract B1).
         const operationResult = terminal ? boundOperationResult(metadata?.details) : null;
-        await client.query(
+        const updated = await client.query(
             `UPDATE device_operations
              SET status = $2, reason_code = $3,
                  completed_at = CASE WHEN $4 THEN NOW() ELSE NULL END,
                  result = CASE WHEN $4 THEN $5::jsonb ELSE result END
-             WHERE id = $1`,
+             WHERE id = $1
+             RETURNING EXTRACT(EPOCH FROM (completed_at - accepted_at))::float8 AS seconds`,
             [operationId, nextStatus, reasonCode, terminal,
                 operationResult ? JSON.stringify(operationResult) : null],
         );
+        if (terminal && updated.rows[0]?.seconds !== null && updated.rows[0]?.seconds !== undefined) {
+            operationDuration.observe({ result: nextStatus }, Math.max(0, Number(updated.rows[0].seconds)));
+        }
         await client.query(
             `INSERT INTO device_operation_transitions
                 (operation_id, from_status, to_status, reason_code, metadata)

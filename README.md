@@ -37,7 +37,10 @@ App và backend không phân biệt thiết bị thật hay ảo.
 3. `docker compose up -d --build` (lần đầu lâu: voice-service tải PyTorch, ECAPA,
    PhoWhisper ~1,5 GB; cần khoảng 1,5 GB RAM cho riêng dịch vụ này).
 4. Simulator: xem `device-simulator/README.md`.
-5. App: xem `smarthome_app/README.md`
+5. Kiểm thử tải (không bắt buộc): `docker compose --profile monitoring up -d` thêm
+   Prometheus + Grafana (http://localhost:3005); cách đo và số liệu cho báo cáo:
+   `docs/architecture/load-testing.md`.
+6. App: xem `smarthome_app/README.md`
    (`flutter run --dart-define-from-file=config/cloudflare.json` khi dùng tunnel).
 
 ## Kiểm thử

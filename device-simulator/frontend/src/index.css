@@ -3646,3 +3646,74 @@ dd {
   width: 2rem;
   height: 2rem;
 }
+
+/* End-to-end probes (Kiểm thử tải → Đo độ trễ đầu-cuối) */
+.probe {
+  display: grid;
+  gap: var(--space-md);
+  margin-block-start: var(--space-xl);
+  padding-block-start: var(--space-md);
+  border-top: var(--rule-thin) solid var(--color-rule-2);
+}
+
+.probe .notice {
+  margin-block: 0;
+}
+
+.probe__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-md);
+}
+
+.probe__results {
+  display: grid;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.probe-card {
+  display: grid;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border: var(--rule-thin) solid var(--color-rule-2);
+}
+
+.probe-card--live {
+  border-color: var(--color-accent);
+}
+
+.probe-card header {
+  display: grid;
+  gap: var(--space-3xs, 2px);
+}
+
+.probe-card header small {
+  color: var(--color-muted);
+}
+
+.probe-card__facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
+  gap: var(--space-sm);
+  margin: 0;
+}
+
+.probe-card__facts dt {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+
+.probe-card__facts dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+@media (max-width: 720px) {
+  .probe__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

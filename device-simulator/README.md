@@ -38,7 +38,11 @@ Open `http://localhost:4000`. The dashboard has five pages:
   p50/p95 over the last 30 s), and the simulator's own CPU, memory and
   event-loop delay, so you can tell whether the backend or the simulator is the
   bottleneck. Runs are listed with their actions (pause, resume, stop devices,
-  keep data, clean up).
+  keep data, clean up). Below them, **Đo độ trễ đầu-cuối** measures what users
+  feel while the load runs: simulated users send harmless commands to their
+  online devices (latency until the device's result is recorded) or open the
+  app's lists; results with p50/p95/p99, errors and the machine, downloadable
+  as CSV/JSON (docs/architecture/load-testing.md).
 - **Thiết bị**: server-paged registry of devices (filter by run, product,
   status; search name, MAC, serial or owner email).
 - **Người dùng**: simulated accounts; the selected account's app login (email,

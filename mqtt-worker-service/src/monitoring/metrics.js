@@ -5,6 +5,19 @@
  * Hỗ trợ đầy đủ Operational Metrics & Business Metrics.
  */
 
+const client = require('prom-client');
+
+// CPU, memory, event loop lag and GC of this process, in the same format as the
+// Gateway and the realtime service (docs/architecture/load-testing.md).
+const processRegistry = new client.Registry();
+processRegistry.setDefaultLabels({ service: 'mqtt-worker-service' });
+client.collectDefaultMetrics({ register: processRegistry });
+
+/** Process metrics in Prometheus text format, appended to the worker's own. */
+function getProcessMetrics() {
+    return processRegistry.metrics();
+}
+
 const metrics = {
     telemetry_processed: 0,
     telemetry_accepted: 0,
@@ -183,4 +196,5 @@ module.exports = {
     recordTelemetryRetry,
     recordShadowRetry,
     getPrometheusMetrics,
+    getProcessMetrics,
 };

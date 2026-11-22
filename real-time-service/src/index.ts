@@ -2,6 +2,9 @@ import { connectMongo, closeMongo } from './loaders/mongo.js';
 import { initRedis, closeRedis } from './loaders/redis.js';
 import { startRedisPubSubListener } from './services/redisPubSub.js';
 import { startServer, stopServer } from './server.js';
+import { env } from './config/env.js';
+import { connectionStats } from './services/connectionManager.js';
+import { startMetricsServer, trackConnections } from './services/metrics.js';
 
 async function bootstrap() {
     console.log('⚡ Bootstrapping Realtime WebSocket Service...');
@@ -17,6 +20,10 @@ async function bootstrap() {
 
         // 4. Start HTTP/WS server
         await startServer();
+
+        // 5. Prometheus metrics on their own port (not published, not tunnelled)
+        trackConnections(connectionStats);
+        startMetricsServer(env.METRICS_PORT);
 
         console.log('✅ Realtime WebSocket Service successfully started.');
     } catch (err) {

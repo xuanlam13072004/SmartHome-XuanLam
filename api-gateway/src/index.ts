@@ -19,6 +19,7 @@ import { CredentialStatusConsumer } from './workers/credentialStatusConsumer';
 import { SceneRunner } from './workers/sceneRunner';
 import { AutomationEngine } from './workers/automationEngine';
 import { PushNotifier } from './workers/pushNotifier';
+import { startMetricsServer } from './metrics/registry';
 
 const app = buildApp();
 
@@ -133,6 +134,9 @@ const start = async () => {
         // Push notifications for phones where the app is closed (docs/architecture/push.md).
         pushNotifier = new PushNotifier(app);
         await pushNotifier.start();
+
+        // Prometheus metrics on their own port, not reachable through the public API.
+        startMetricsServer(env.METRICS_PORT, app.log);
 
         // Start listening
         await app.listen({ port, host });

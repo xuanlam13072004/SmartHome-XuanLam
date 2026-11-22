@@ -2,6 +2,7 @@ import { WebSocket } from 'ws';
 import { getDb } from '../loaders/mongo.js';
 import { env } from '../config/env.js';
 import { safeSend } from '../utils/safeSend.js';
+import { eventLabel, messagesSent } from './metrics.js';
 
 const activeConnections = new Map<string, Set<WebSocket>>();
 /** Login session (access-token `sid`) of each socket, to close it when that session is signed out. */
@@ -116,8 +117,18 @@ export function getConnections(accountId: string): Set<WebSocket> | undefined {
 }
 
 export function sendToUser(accountId: string, data: any): void {
+    const sockets = activeConnections.get(accountId);
+    if (!sockets || sockets.size === 0) return;
     const payload = JSON.stringify(data);
-    for (const socket of activeConnections.get(accountId) || []) safeSend(socket, payload);
+    for (const socket of sockets) safeSend(socket, payload);
+    messagesSent.inc({ event: eventLabel(data?.event) }, sockets.size);
+}
+
+/** Open sockets and connected accounts on this instance (metrics). */
+export function connectionStats(): { sockets: number; accounts: number } {
+    let sockets = 0;
+    for (const set of activeConnections.values()) sockets += set.size;
+    return { sockets, accounts: activeConnections.size };
 }
 
 export async function sendInitialState(accountId: string, socket: WebSocket): Promise<void> {

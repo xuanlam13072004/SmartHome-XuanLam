@@ -14,6 +14,7 @@ import { appendHistory, type PendingAction, peekPending, readHistory, savePendin
 import { type PlanOffer, planTurn, type ProposedAction } from './planner';
 import { addUsage, assertQuota, listPlans, usageSummary } from './quota';
 import { clip } from './text';
+import { assistantTurns } from '../../metrics/registry';
 
 /**
  * One assistant turn: quota → home context → the model's plan (checked) →
@@ -255,6 +256,7 @@ export async function runAssistantTurn(
                 ...(draft ? [{ kind: 'draft', draft: draft.kind, name: draft.name }] : []),
             ]), plan.tokens, voiceVerified],
     );
+    assistantTurns.inc({ channel: input.channel, outcome });
     const usage = await usageSummary(app, accountId);
     return {
         turn_id: turnId,

@@ -12,6 +12,9 @@ import type {
   Overview,
   Page,
   Preflight,
+  ProbeList,
+  ProbeParams,
+  ProbeResult,
   RunConfig,
   SimulatedDevice,
   SimulatedUser,
@@ -396,3 +399,30 @@ export const subscribeStream = (
 }
 
 type RunStatus = SimulationRun['status']
+
+// ── End-to-end probes ──────────────────────────────────────────────────────
+
+export const fetchProbes = () => request<ProbeList>('/probes')
+
+export const startProbe = async (params: ProbeParams): Promise<ProbeResult> =>
+  (await request<{ probe: ProbeResult }>('/probes', { method: 'POST', body: JSON.stringify(params) })).probe
+
+export const stopProbe = (id: string) =>
+  request<{ success: boolean }>(`/probes/${encodeURIComponent(id)}/stop`, { method: 'POST' })
+
+/** Saves a probe's samples (CSV) or full result (JSON) as a file. */
+export const downloadProbe = async (id: string, format: 'csv' | 'json'): Promise<void> => {
+  const token = getAdminToken()
+  const path = format === 'csv' ? `/probes/${encodeURIComponent(id)}/csv` : `/probes/${encodeURIComponent(id)}`
+  const response = await fetch(`${API_BASE}${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+  if (!response.ok) throw new ApiError(`Simulator API returned HTTP ${response.status}`, response.status)
+  const blob = format === 'csv'
+    ? await response.blob()
+    : new Blob([JSON.stringify((await response.json()).probe, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `probe-${id.slice(0, 8)}.${format}`
+  link.click()
+  URL.revokeObjectURL(url)
+}

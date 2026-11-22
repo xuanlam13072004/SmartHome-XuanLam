@@ -57,6 +57,10 @@ state, event or time → scene and/or notification) and suggestions:
 - Push notifications: alerts, automation and security notices, payments,
   sharing and plan reminders reach phones with the app closed (FCM HTTP v1,
   tokens tied to sessions, one sender across Gateways): [push.md](push.md).
+- Load testing and measurements: Prometheus metrics on internal ports,
+  optional Prometheus + Grafana with a ready dashboard, and the simulator's
+  end-to-end probes (commands app → device → result, app reads):
+  [load-testing.md](load-testing.md).
 
 ## Security camera (proposal)
 
