@@ -82,6 +82,11 @@ class DeviceDetailScreen extends ConsumerWidget {
             ),
             title: Text(device.name),
             actions: [
+              IconButton(
+                tooltip: 'Biểu đồ hoạt động',
+                icon: const Icon(Icons.insights_rounded),
+                onPressed: () => context.push(AppRoutes.deviceStatsOf(device.mac)),
+              ),
               PopupMenuButton<String>(
                 icon: const Icon(Icons.more_vert),
                 onSelected: (value) {

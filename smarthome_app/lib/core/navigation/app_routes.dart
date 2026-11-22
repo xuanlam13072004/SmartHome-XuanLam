@@ -47,6 +47,9 @@ abstract final class AppRoutes {
   static const String deviceMembers = '/device/:mac/members';
 
   static String deviceMembersOf(String mac) => '/device/$mac/members';
+  static const String deviceStats = '/device/:mac/stats';
+
+  static String deviceStatsOf(String mac) => '/device/$mac/stats';
 
   // Debug Routes
   static const String debugWidgets = '/debug/widgets';

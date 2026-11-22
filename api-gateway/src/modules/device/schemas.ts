@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { STATS_RANGES } from './stats';
 
 const macRegex = /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/;
 const macSchema = z.string().trim().transform(value => value.toUpperCase()).pipe(
@@ -95,6 +96,15 @@ export const deviceEventsSchema = z.object({
         limit: z.coerce.number().int().min(1).max(200).default(50),
         cursor: z.string().min(1).max(512).optional(),
         event_name: z.string().regex(/^[a-z][a-z0-9_]{1,63}$/).optional(),
+    }),
+});
+
+export const deviceStatsSchema = z.object({
+    params: z.object({
+        mac: macSchema,
+    }),
+    query: z.object({
+        range: z.enum(STATS_RANGES).default('24h'),
     }),
 });
 

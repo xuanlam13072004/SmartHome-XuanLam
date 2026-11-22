@@ -34,6 +34,12 @@ Profile, login sessions, device sharing, notifications and activity history:
 Personal rooms per account, device placement, live room summaries and quick
 controls: [rooms.md](rooms.md).
 
+## Device charts
+
+"Biểu đồ hoạt động" of a device: hourly or daily readings, events and
+commands for 24 hours, 7 or 30 days, from the moment the viewer got the
+device: [device-stats.md](device-stats.md).
+
 ## Scenes
 
 Personal scenes ("Kịch bản"): ordered device operations run by the Gateway's

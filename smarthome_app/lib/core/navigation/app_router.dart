@@ -23,6 +23,7 @@ import '../../features/notifications/presentation/notifications_screen.dart';
 import '../../features/profile/presentation/delete_account_screen.dart';
 import '../../features/profile/presentation/help_screen.dart';
 import '../../features/profile/presentation/sessions_screen.dart';
+import '../../features/device_stats/presentation/device_stats_screen.dart';
 import '../../features/sharing/presentation/device_members_screen.dart';
 import '../../features/sharing/presentation/sharing_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
@@ -302,6 +303,16 @@ GoRouter router(Ref ref) {
           context,
           state,
           DeviceMembersScreen(mac: state.pathParameters['mac']!),
+        ),
+      ),
+
+      GoRoute(
+        path: AppRoutes.deviceStats,
+        parentNavigatorKey: _rootNavigatorKey,
+        pageBuilder: (context, state) => _buildPageWithSlideTransition(
+          context,
+          state,
+          DeviceStatsScreen(mac: state.pathParameters['mac']!),
         ),
       ),
 

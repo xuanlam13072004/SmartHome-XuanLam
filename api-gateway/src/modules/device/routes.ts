@@ -6,6 +6,7 @@ import {
     credentialListSchema,
     deviceStateSchema,
     deviceEventsSchema,
+    deviceStatsSchema,
     operationSchema,
     operationStatusSchema,
     replaceCredentialSchema,
@@ -31,6 +32,7 @@ import {
     updateDeviceName,
 } from './service';
 import { hasRecentReauthentication } from '../auth/reauth';
+import { getDeviceStats } from './stats';
 
 /**
  * Device routes
@@ -241,6 +243,18 @@ const deviceRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
             },
         );
         return { success: true, ...result };
+    });
+
+    app.get('/devices/:mac/stats', {
+        preHandler: [app.authenticate],
+        config: typedRouteConfig({
+            zodSchema: deviceStatsSchema,
+        }),
+    }, async (request) => {
+        const params = request.params as any;
+        const query = request.query as any;
+        const stats = await getDeviceStats(app, params.mac, (request.user as any).userId, query.range);
+        return { success: true, stats };
     });
 
     app.patch('/devices/:mac', {
