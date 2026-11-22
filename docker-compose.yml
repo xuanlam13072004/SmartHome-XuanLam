@@ -153,6 +153,15 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
       GEMINI_THINKING_LEVEL: ${GEMINI_THINKING_LEVEL-low}
+      # Payments (docs/architecture/payments.md). mock = no real money (testing);
+      # bank = VietQR to the account below, confirmed by the SePay webhook or by hand.
+      PAYMENT_MODE: ${PAYMENT_MODE:-mock}
+      PAYMENT_BANK_BIN: ${PAYMENT_BANK_BIN:-}
+      PAYMENT_BANK_ACCOUNT: ${PAYMENT_BANK_ACCOUNT:-}
+      PAYMENT_ACCOUNT_NAME: ${PAYMENT_ACCOUNT_NAME:-}
+      PAYMENT_BANK_NAME: ${PAYMENT_BANK_NAME:-}
+      SEPAY_WEBHOOK_SECRET: ${SEPAY_WEBHOOK_SECRET:-}
+      SEPAY_API_KEY: ${SEPAY_API_KEY:-}
     ports:
       # 127.0.0.1: reached through Cloudflare Tunnel (cloudflared on this computer)
       # and the Android emulator; PUBLISH_HOST=0.0.0.0 opens it to the LAN.

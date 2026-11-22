@@ -29,6 +29,7 @@ import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/voice/presentation/voice_screen.dart';
 import '../../features/assistant/presentation/assistant_screen.dart';
 import '../../features/assistant/presentation/plans_screen.dart';
+import '../../features/payments/presentation/checkout_screen.dart';
 import '../../features/voice/presentation/voice_session_screen.dart';
 import '../../features/debug/presentation/debug_screen.dart';
 
@@ -248,6 +249,12 @@ GoRouter router(Ref ref) {
                   GoRoute(
                     path: 'plans',
                     builder: (context, state) => const PlansScreen(),
+                    routes: [
+                      GoRoute(
+                        path: 'checkout/:code',
+                        builder: (context, state) => CheckoutScreen(code: state.pathParameters['code']!),
+                      ),
+                    ],
                   ),
                   GoRoute(
                     path: 'voice',

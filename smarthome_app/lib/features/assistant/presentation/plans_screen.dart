@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 import '../../../core/core.dart';
+import '../../../core/navigation/app_routes.dart';
 import '../../../core/utils/app_error_mapper.dart';
 import '../../../core/utils/time_format.dart';
 import '../../../core/widgets/widgets.dart';
+import '../../payments/data/payment_models.dart';
+import '../../payments/presentation/buy_plan_sheet.dart';
+import '../../payments/providers/payments_providers.dart';
 import '../data/assistant_models.dart';
 import '../providers/assistant_providers.dart';
 
@@ -19,21 +24,27 @@ String _number(int value) {
   return buffer.toString();
 }
 
-/// "Gói dịch vụ": the assistant's monthly allowance and the plans. Only the
-/// assistant is limited; controlling devices and alerts are always free.
+/// "Gói dịch vụ": the assistant's monthly allowance, the plans to buy and the
+/// payment history. Only the assistant is limited; controlling devices and
+/// alerts are always free.
 class PlansScreen extends ConsumerWidget {
   const PlansScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final usage = ref.watch(assistantUsageProvider);
+    final options = ref.watch(paymentOptionsProvider).valueOrNull;
+    final orders = ref.watch(paymentOrdersProvider).valueOrNull ?? const <PaymentOrder>[];
     return PageScaffold(
       scrollable: false,
       appBar: AppBar(title: const Text('Gói dịch vụ')),
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
       child: RefreshIndicator(
         onRefresh: () async {
-          ref.invalidate(assistantUsageProvider);
+          ref
+            ..invalidate(assistantUsageProvider)
+            ..invalidate(paymentOptionsProvider)
+            ..invalidate(paymentOrdersProvider);
           try {
             await ref.read(assistantUsageProvider.future);
           } catch (_) {}
@@ -55,14 +66,82 @@ class PlansScreen extends ConsumerWidget {
             data: (data) => [
               _UsageCard(usage: data),
               const SizedBox(height: AppSpacing.lg),
-              for (final plan in data.plans) _PlanCard(plan: plan, current: plan.code == data.plan.code),
+              if (options?.mock ?? false)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  child: Text(
+                    'Thanh toán đang ở chế độ thử nghiệm: không chuyển tiền thật.',
+                    style: context.textTheme.bodySmall?.copyWith(color: context.neu.warningColor),
+                  ),
+                ),
+              for (final plan in data.plans)
+                _PlanCard(
+                  plan: plan,
+                  current: plan.code == data.plan.code,
+                  onBuy: _purchasable(options, plan.code) == null
+                      ? null
+                      : () => showBuyPlanSheet(context, _purchasable(options, plan.code)!, currentPlan: data.plan.code),
+                ),
               const SizedBox(height: AppSpacing.sm),
               Text(
                 'Giới hạn chỉ áp dụng cho trợ lý. Điều khiển thiết bị trên ứng dụng và cảnh báo an toàn luôn miễn phí.',
                 style: context.textTheme.bodySmall?.copyWith(color: context.colorScheme.onSurfaceVariant),
               ),
+              if (orders.isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.lg),
+                Text('Lịch sử thanh toán', style: context.textTheme.titleSmall),
+                const SizedBox(height: AppSpacing.sm),
+                for (final order in orders) _OrderTile(order: order),
+              ],
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+PaymentPlan? _purchasable(PaymentOptions? options, String code) {
+  if (options == null || !options.available) return null;
+  for (final plan in options.plans) {
+    if (plan.code == code) return plan;
+  }
+  return null;
+}
+
+class _OrderTile extends StatelessWidget {
+  const _OrderTile({required this.order});
+
+  final PaymentOrder order;
+
+  static const _labels = {
+    'pending': 'Chờ thanh toán',
+    'review': 'Thiếu tiền',
+    'expired': 'Hết hạn',
+    'paid': 'Đã thanh toán',
+    'cancelled': 'Đã hủy',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final color = order.paid
+        ? context.neu.successColor
+        : order.open
+            ? context.neu.warningColor
+            : context.colorScheme.onSurfaceVariant;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: NeuCard(
+        padding: EdgeInsets.zero,
+        child: ListTile(
+          leading: Icon(LucideIcons.receipt, color: color),
+          title: Text('Gói ${order.planName} · ${order.months} tháng · ${formatVnd(order.amount)}'),
+          subtitle: Text([
+            _labels[order.status] ?? order.status,
+            if (order.createdAt != null) TimeFormat.dateTime(order.createdAt!),
+          ].join(' · ')),
+          trailing: order.open || order.status == 'expired' ? const Icon(LucideIcons.chevronRight) : null,
+          onTap: order.open || order.status == 'expired' ? () => context.push(AppRoutes.paymentCheckoutOf(order.code)) : null,
         ),
       ),
     );
@@ -106,10 +185,13 @@ class _UsageCard extends StatelessWidget {
 }
 
 class _PlanCard extends StatelessWidget {
-  const _PlanCard({required this.plan, required this.current});
+  const _PlanCard({required this.plan, required this.current, this.onBuy});
 
   final AssistantPlan plan;
   final bool current;
+
+  /// Buy (or renew) this plan; null when it cannot be bought here.
+  final VoidCallback? onBuy;
 
   @override
   Widget build(BuildContext context) {
@@ -133,13 +215,20 @@ class _PlanCard extends StatelessWidget {
               ),
             ),
             const SizedBox(width: AppSpacing.sm),
-            if (current)
-              Chip(label: const Text('Đang dùng'), visualDensity: VisualDensity.compact)
-            else
-              Text(
-                plan.priceVnd == 0 ? 'Miễn phí' : '${_number(plan.priceVnd)}đ/tháng',
-                style: context.textTheme.labelLarge,
-              ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                if (current)
+                  Chip(label: const Text('Đang dùng'), visualDensity: VisualDensity.compact)
+                else
+                  Text(
+                    plan.priceVnd == 0 ? 'Miễn phí' : '${_number(plan.priceVnd)}đ/tháng',
+                    style: context.textTheme.labelLarge,
+                  ),
+                if (onBuy != null)
+                  TextButton(onPressed: onBuy, child: Text(current ? 'Gia hạn' : 'Mua')),
+              ],
+            ),
           ],
         ),
       ),

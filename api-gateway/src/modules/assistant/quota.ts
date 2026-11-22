@@ -14,6 +14,8 @@ export interface PlanView {
     name: string;
     monthly_tokens: number;
     price_vnd: number;
+    /** Twelve months at once (null for the free plan). */
+    price_12m_vnd: number | null;
 }
 
 const ZONE = 'Asia/Ho_Chi_Minh';
@@ -32,12 +34,18 @@ export function usagePeriod(now = new Date()): { period: string; resetsAt: Date 
 const dayKey = (now = new Date()) => `assistant:tokens:${now.toISOString().slice(0, 10)}`;
 
 function toPlan(row: any): PlanView {
-    return { code: row.code, name: row.name, monthly_tokens: Number(row.monthly_tokens), price_vnd: Number(row.price_vnd) };
+    return {
+        code: row.code,
+        name: row.name,
+        monthly_tokens: Number(row.monthly_tokens),
+        price_vnd: Number(row.price_vnd),
+        price_12m_vnd: row.price_12m_vnd === null || row.price_12m_vnd === undefined ? null : Number(row.price_12m_vnd),
+    };
 }
 
 export async function listPlans(app: FastifyInstance): Promise<PlanView[]> {
     const result = await app.pg.query(
-        'SELECT code, name, monthly_tokens, price_vnd FROM assistant_plans WHERE is_active ORDER BY position',
+        'SELECT code, name, monthly_tokens, price_vnd, price_12m_vnd FROM assistant_plans WHERE is_active ORDER BY position',
     );
     return result.rows.map(toPlan);
 }
@@ -45,7 +53,7 @@ export async function listPlans(app: FastifyInstance): Promise<PlanView[]> {
 /** The account's current plan: a paid plan until it expires, otherwise the free plan. */
 export async function effectivePlan(app: FastifyInstance, accountId: string): Promise<PlanView & { expires_at: string | null }> {
     const result = await app.pg.query(
-        `SELECT plan.code, plan.name, plan.monthly_tokens, plan.price_vnd, paid.expires_at
+        `SELECT plan.code, plan.name, plan.monthly_tokens, plan.price_vnd, plan.price_12m_vnd, paid.expires_at
          FROM assistant_plans AS plan
          LEFT JOIN account_plans AS paid
            ON paid.account_id = $1 AND paid.plan_code = plan.code AND paid.expires_at > NOW()

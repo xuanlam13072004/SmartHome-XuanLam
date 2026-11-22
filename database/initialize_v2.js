@@ -35,6 +35,8 @@ const REQUIRED_POSTGRES_TABLES = [
     'account_plans',
     'assistant_usage',
     'assistant_turns',
+    'payment_orders',
+    'payment_transactions',
     'factory_devices',
     'device_networks',
     'device_metadata',

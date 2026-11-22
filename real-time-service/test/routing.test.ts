@@ -80,7 +80,7 @@ test('signing out a session closes only that session\'s sockets', () => {
 });
 
 test('only known personal event families are forwarded to an account', () => {
-    for (const name of ['sharing_invite_received', 'notification_created', 'scene_run_updated', 'automation_fired']) {
+    for (const name of ['sharing_invite_received', 'notification_created', 'scene_run_updated', 'automation_fired', 'payment_updated']) {
         assert.ok(ACCOUNT_EVENT_NAME.test(name), name);
     }
     for (const name of ['device_status', 'session_revoked', 'scene_', 'Scene_run', 'scene_run_updated;x']) {

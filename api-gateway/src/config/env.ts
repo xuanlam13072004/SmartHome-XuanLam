@@ -39,6 +39,18 @@ const envSchema = z.object({
     // Tokens per day for the whole system (protects the shared API key), assistant log retention.
     ASSISTANT_DAILY_TOKEN_CAP: z.coerce.number().int().positive().default(3000000),
     ASSISTANT_TURN_RETENTION_DAYS: z.coerce.number().int().min(1).max(365).default(30),
+    // Payments (docs/architecture/payments.md): off · mock (no real money, for testing) · bank (VietQR).
+    PAYMENT_MODE: z.enum(['off', 'mock', 'bank']).default('off'),
+    // Receiving account: NAPAS BIN of the bank (6 digits), account number, holder, bank name to show.
+    PAYMENT_BANK_BIN: z.string().regex(/^(\d{6})?$/).default(''),
+    PAYMENT_BANK_ACCOUNT: z.string().regex(/^[0-9A-Za-z]{0,19}$/).default(''),
+    PAYMENT_ACCOUNT_NAME: z.string().max(50).default(''),
+    PAYMENT_BANK_NAME: z.string().max(40).default(''),
+    PAYMENT_ORDER_TTL_MINUTES: z.coerce.number().int().min(5).max(60).default(15),
+    // SePay webhook authentication: HMAC secret (preferred) or API key; SePay FREE allows 50 transactions/month.
+    SEPAY_WEBHOOK_SECRET: z.string().default(''),
+    SEPAY_API_KEY: z.string().default(''),
+    SEPAY_MONTHLY_LIMIT: z.coerce.number().int().positive().default(50),
 
     PG_HOST: z.string(),
     PG_PORT: z.coerce.number().int().positive().default(5432),

@@ -1,8 +1,8 @@
 # Assistant ("Trợ lý")
 
 Status: phase B implemented 2026-11-21 (schema **209**). Builds on voice
-verification (docs/architecture/voice.md). Payments (phase C) will write
-`account_plans`.
+verification (docs/architecture/voice.md). Plans are bought with payments
+(phase C, docs/architecture/payments.md), which write `account_plans`.
 
 ## Decisions (with the user)
 
@@ -134,7 +134,7 @@ Dashboard → ✨ or Cá nhân → Trợ lý nhà: chat, mic button (tap to talk
 to send, 10 s max, checked on the phone first), confirm/password buttons on
 pending commands, choices as chips, replies read aloud (`flutter_tts`,
 vi-VN, toggle in the app bar), allowance bar. Cá nhân → Gói dịch vụ shows the
-plan, usage and plans (upgrading arrives with payments).
+plan, usage, plans to buy or renew and the payment history.
 
 ## Tests
 

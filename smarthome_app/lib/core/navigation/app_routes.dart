@@ -32,6 +32,8 @@ abstract final class AppRoutes {
   static const String profileVoice = '/profile/voice';
   static const String profilePlans = '/profile/plans';
 
+  static String paymentCheckoutOf(String code) => '/profile/plans/checkout/$code';
+
   // Assistant ("Trợ lý"), full screen above the tabs.
   static const String assistant = '/assistant';
 

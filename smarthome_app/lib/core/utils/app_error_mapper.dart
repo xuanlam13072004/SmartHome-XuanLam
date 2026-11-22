@@ -30,7 +30,7 @@ class AppErrorMapper {
 
       // Voice and assistant errors already carry a Vietnamese message meant for the user.
       if (errorCode != null &&
-          (errorCode.startsWith('VOICE_') || errorCode.startsWith('ASSISTANT_')) &&
+          (errorCode.startsWith('VOICE_') || errorCode.startsWith('ASSISTANT_') || errorCode.startsWith('PAYMENT_')) &&
           message != null &&
           message.isNotEmpty) {
         return message;

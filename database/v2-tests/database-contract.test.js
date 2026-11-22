@@ -222,4 +222,8 @@ test('PostgreSQL upgrade steps are numbered after the baseline, additive and tra
     // Plans are data; a paid plan always has an end.
     assert.match(assistant, /INSERT INTO public\.assistant_plans/);
     assert.match(assistant, /expires_at timestamp with time zone NOT NULL/);
+    const payments = fs.readFileSync(migrations.find(item => item.name === 'payments').file, 'utf8');
+    // A retried webhook can never pay twice; amounts come from the server.
+    assert.match(payments, /UNIQUE \(provider, provider_ref\)/);
+    assert.match(payments, /code text NOT NULL UNIQUE/);
 });
