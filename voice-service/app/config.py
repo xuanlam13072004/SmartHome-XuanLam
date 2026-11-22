@@ -15,6 +15,7 @@ class Settings:
     torch_threads: int
     attempt_retention_days: int
     max_upload_bytes: int
+    asr_model: str
 
 
 def _database_url(env: dict[str, str]) -> str:
@@ -42,4 +43,5 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         torch_threads=max(0, int(env.get("VOICE_TORCH_THREADS", "0"))),
         attempt_retention_days=max(1, int(env.get("VOICE_ATTEMPT_RETENTION_DAYS", "30"))),
         max_upload_bytes=max(64_000, int(env.get("VOICE_MAX_UPLOAD_BYTES", "1048576"))),
+        asr_model=env.get("VOICE_ASR_MODEL", "vinai/PhoWhisper-small"),
     )

@@ -28,8 +28,11 @@ class AppErrorMapper {
       }
       message ??= data['message']?.toString();
 
-      // Voice errors already carry a Vietnamese message meant for the user.
-      if (errorCode != null && errorCode.startsWith('VOICE_') && message != null && message.isNotEmpty) {
+      // Voice and assistant errors already carry a Vietnamese message meant for the user.
+      if (errorCode != null &&
+          (errorCode.startsWith('VOICE_') || errorCode.startsWith('ASSISTANT_')) &&
+          message != null &&
+          message.isNotEmpty) {
         return message;
       }
       if (errorCode != null) {

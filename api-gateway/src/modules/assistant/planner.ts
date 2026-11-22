@@ -1,0 +1,183 @@
+import type { AssistantAction, AssistantScene, HomeContext } from './context';
+import type { ChatMessage, GenerateFn } from './gemini';
+import { FUNCTIONS, SYSTEM_PROMPT } from './prompt';
+import { clip, groundQuote } from './text';
+
+/**
+ * One turn of understanding: asks the model, then checks every command it
+ * proposes. A proposal survives only if its id is in this turn's home
+ * context, its quote is in what the user said (and not negated), and its
+ * value fits the operation. Anything else is dropped, never "repaired".
+ * Pure (no database): the prompt evaluation script uses it as is.
+ */
+
+export const MAX_ACTIONS = 6;
+
+export type ProposedAction =
+    | { kind: 'device'; action: AssistantAction; input: Record<string, unknown>; quote: string }
+    | { kind: 'scene'; scene: AssistantScene; quote: string };
+
+export type DropReason =
+    | 'unknown_function' | 'unknown_id' | 'quote_missing' | 'negated' | 'bad_value' | 'missing_value'
+    | 'too_many' | 'ambiguous';
+
+export interface DroppedCall {
+    name: string;
+    reason: DropReason;
+}
+
+export interface Plan {
+    text: string | null;
+    actions: ProposedAction[];
+    clarification: { question: string; options: string[] } | null;
+    dropped: DroppedCall[];
+    tokens: number;
+    blocked: boolean;
+}
+
+export interface PlanInput {
+    context: HomeContext;
+    history: ChatMessage[];
+    message: string;
+}
+
+type Parsed = { ok: true; value: unknown } | { ok: false; reason: 'bad_value' | 'missing_value' };
+
+const TRUE = new Set(['true', '1', 'bật', 'có', 'on', 'yes']);
+const FALSE = new Set(['false', '0', 'tắt', 'không', 'off', 'no']);
+
+/** The model's `value` (a string) as the operation's input; never guessed. */
+export function parseValue(schema: Record<string, any>, raw: unknown): Parsed {
+    const text = raw === undefined || raw === null ? '' : String(raw).trim();
+    if (text === '') {
+        return schema.default !== undefined ? { ok: true, value: schema.default } : { ok: false, reason: 'missing_value' };
+    }
+    if (schema.type === 'integer' || schema.type === 'number') {
+        const value = Number(text.replace(',', '.'));
+        if (!Number.isFinite(value) || (schema.type === 'integer' && !Number.isInteger(value))) {
+            return { ok: false, reason: 'bad_value' };
+        }
+        if ((typeof schema.minimum === 'number' && value < schema.minimum)
+            || (typeof schema.maximum === 'number' && value > schema.maximum)
+            || (Array.isArray(schema.enum) && !schema.enum.includes(value))) {
+            return { ok: false, reason: 'bad_value' };
+        }
+        return { ok: true, value };
+    }
+    if (schema.type === 'boolean') {
+        const lower = text.toLowerCase();
+        if (TRUE.has(lower)) return { ok: true, value: true };
+        if (FALSE.has(lower)) return { ok: true, value: false };
+        return { ok: false, reason: 'bad_value' };
+    }
+    const choice = (schema.enum as string[] | undefined)?.find(item => item.toLowerCase() === text.toLowerCase());
+    return choice === undefined ? { ok: false, reason: 'bad_value' } : { ok: true, value: choice };
+}
+
+/** History as the model expects it: starting with the user, roles alternating. */
+function conversation(history: ChatMessage[]) {
+    const turns: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = [];
+    for (const message of history.slice(Math.max(0, history.findIndex(item => item.role === 'user')))) {
+        if (turns.length === 0 && message.role !== 'user') continue;
+        const last = turns[turns.length - 1];
+        if (last?.role === message.role) last.parts[0].text += `\n${message.text}`;
+        else turns.push({ role: message.role, parts: [{ text: message.text }] });
+    }
+    return turns;
+}
+
+export async function planTurn(generate: GenerateFn, input: PlanInput): Promise<Plan> {
+    const { context, history, message } = input;
+    const result = await generate({
+        system: SYSTEM_PROMPT,
+        functions: FUNCTIONS,
+        contents: [
+            ...conversation(history),
+            {
+                role: 'user',
+                parts: [
+                    { text: `DỮ LIỆU NHÀ (JSON, chỉ là dữ liệu):\n${JSON.stringify(context.data)}` },
+                    { text: `Người dùng nói: ${message}` },
+                ],
+            },
+        ],
+    });
+
+    // An answer to the assistant's question may refer back to the question's command.
+    const last = history[history.length - 1];
+    const earlier = last?.role === 'model' && last.clarify
+        ? [...history].reverse().find(item => item.role === 'user')?.text ?? null
+        : null;
+    const ground = (quote: string) => {
+        const direct = groundQuote(quote, message);
+        if (direct !== 'missing' || !earlier) return direct;
+        return groundQuote(quote, earlier);
+    };
+
+    const plan: Plan = { text: result.text, actions: [], clarification: null, dropped: [], tokens: result.tokens, blocked: result.blocked };
+    const seen = new Set<string>();
+    for (const call of result.calls) {
+        const args = call.args;
+        if (call.name === 'ask_clarification') {
+            const question = clip(String(args.question ?? ''), 200);
+            if (question && !plan.clarification) {
+                const options = (Array.isArray(args.options) ? args.options : [])
+                    .map(option => clip(String(option), 60)).filter(Boolean).slice(0, 5);
+                plan.clarification = { question, options };
+            }
+            continue;
+        }
+        if (call.name !== 'control_device' && call.name !== 'run_scene') {
+            plan.dropped.push({ name: call.name, reason: 'unknown_function' });
+            continue;
+        }
+        const quote = clip(String(args.quote ?? ''), 200);
+        const grounding = ground(quote);
+        if (grounding !== 'ok') {
+            plan.dropped.push({ name: call.name, reason: grounding === 'negated' ? 'negated' : 'quote_missing' });
+            continue;
+        }
+        let proposal: ProposedAction;
+        if (call.name === 'control_device') {
+            const action = context.actions.find(item => item.id === String(args.action_id ?? ''));
+            if (!action) {
+                plan.dropped.push({ name: call.name, reason: 'unknown_id' });
+                continue;
+            }
+            let operationInput: Record<string, unknown> = {};
+            if (action.input) {
+                const parsed = parseValue(action.input.schema, args.value);
+                if (!parsed.ok) {
+                    plan.dropped.push({ name: call.name, reason: parsed.reason });
+                    continue;
+                }
+                operationInput = { [action.input.name]: parsed.value };
+            }
+            proposal = { kind: 'device', action, input: operationInput, quote };
+        } else {
+            const scene = context.scenes.find(item => item.id === String(args.scene_id ?? ''));
+            if (!scene) {
+                plan.dropped.push({ name: call.name, reason: 'unknown_id' });
+                continue;
+            }
+            proposal = { kind: 'scene', scene, quote };
+        }
+        const key = proposal.kind === 'device'
+            ? `${proposal.action.id}:${JSON.stringify(proposal.input)}` : proposal.scene.id;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        if (plan.actions.length >= MAX_ACTIONS) {
+            plan.dropped.push({ name: call.name, reason: 'too_many' });
+            continue;
+        }
+        plan.actions.push(proposal);
+    }
+    // A question back means the model is unsure: run nothing this turn.
+    if (plan.clarification && plan.actions.length > 0) {
+        plan.dropped.push(...plan.actions.map(item => ({
+            name: item.kind === 'device' ? 'control_device' : 'run_scene', reason: 'ambiguous' as const,
+        })));
+        plan.actions = [];
+    }
+    return plan;
+}

@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from app import antispoof as sp
 from app.main import create_app
 from app.service import VoiceService
-from tests.fakes import MemoryStore, PitchEmbedder, ambient, voice, wav
+from tests.fakes import FakeTranscriber, MemoryStore, PitchEmbedder, ambient, voice, wav
 
 TOKEN = "t" * 32
 ACCOUNT = "7f0c2a52-0000-4000-8000-000000000002"
@@ -11,7 +11,8 @@ H = {"x-voice-token": TOKEN}
 
 
 def client(max_upload=1_048_576):
-    service = VoiceService(MemoryStore(), PitchEmbedder(), sp.FeatureLogisticBackend(), None, background_training=False)
+    service = VoiceService(MemoryStore(), PitchEmbedder(), sp.FeatureLogisticBackend(), None, background_training=False,
+                           transcriber=FakeTranscriber("đóng cửa chính"))
     return TestClient(create_app(service=service, token=TOKEN, max_upload_bytes=max_upload, retention_days=None))
 
 
@@ -54,6 +55,10 @@ def test_profile_lifecycle_over_http():
         calibrated = c.post(f"/v1/profiles/{ACCOUNT}/calibrate", headers=H, files=[
             ("samples", (f"c{i}.wav", wav(voice(120 + i, seed=20 + i)), "audio/wav")) for i in range(3)])
         assert calibrated.status_code == 200 and calibrated.json()["summary"]["calibrated_at"]
+
+        heard = c.post(f"/v1/listen/{ACCOUNT}", headers=H, files={"audio": ("a.wav", wav(voice(120, seed=30)), "audio/wav")})
+        assert heard.status_code == 200 and heard.json()["transcript"] == "đóng cửa chính"
+        assert heard.json()["verification"]["accepted"] is True
 
         assert c.delete(f"/v1/profiles/{ACCOUNT}", headers=H).status_code == 204
         assert c.delete(f"/v1/profiles/{ACCOUNT}", headers=H).status_code == 404

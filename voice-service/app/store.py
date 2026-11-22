@@ -115,7 +115,8 @@ class PostgresStore:
                 """SELECT count(*) FILTER (WHERE accepted)::int, count(*) FILTER (WHERE NOT accepted)::int,
                           max(created_at)
                    FROM voice_attempts
-                   WHERE account_id = %s AND kind = 'verify' AND created_at > now() - interval '30 days'""",
+                   WHERE account_id = %s AND kind = 'verify' AND NOT for_command
+                     AND created_at > now() - interval '30 days'""",
                 (account_id,)).fetchone()
         return {"templates": templates, "clips": clips, "model": model, "attempts": attempts}
 
@@ -208,14 +209,14 @@ class PostgresStore:
                 (thresholds.speaker, thresholds.norm, thresholds.fusion, account_id))
 
     def record_attempt(self, account_id: str, kind: str, accepted: bool, reason: str | None,
-                       scores: Scores, duration_ms: int) -> None:
+                       scores: Scores, duration_ms: int, for_command: bool = False) -> None:
         with self.pool.connection() as conn:
             conn.execute(
                 """INSERT INTO voice_attempts (account_id, kind, accepted, reason, similarity, normalized,
-                                               anti_spoof, fusion, snr_db, duration_ms)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                                               anti_spoof, fusion, snr_db, duration_ms, for_command)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (account_id, kind, accepted, reason, scores.similarity, scores.normalized, scores.anti_spoof,
-                 scores.fusion, scores.snr_db, duration_ms))
+                 scores.fusion, scores.snr_db, duration_ms, for_command))
 
     def purge_attempts(self, days: int) -> int:
         with self.pool.connection() as conn:

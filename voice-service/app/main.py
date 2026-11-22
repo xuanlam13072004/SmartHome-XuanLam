@@ -26,6 +26,7 @@ def build_service(settings) -> tuple[VoiceService, Callable[[], None]]:
     """The production wiring: PostgreSQL, ECAPA-TDNN, RawNet2 and the cohort file."""
     import torch
 
+    from .asr import PhoWhisperTranscriber
     from .cohort import load_cohort
     from .embedding import EcapaEmbedder
     from .rawnet import RawNetBackend
@@ -35,7 +36,8 @@ def build_service(settings) -> tuple[VoiceService, Callable[[], None]]:
         torch.set_num_threads(settings.torch_threads)
     store = PostgresStore(settings.database_url, max_size=settings.max_concurrency + 2)
     store.open()
-    service = VoiceService(store, EcapaEmbedder(settings.model_dir), RawNetBackend(), load_cohort(settings.cohort_path))
+    service = VoiceService(store, EcapaEmbedder(settings.model_dir), RawNetBackend(), load_cohort(settings.cohort_path),
+                           transcriber=PhoWhisperTranscriber(settings.asr_model))
     return service, store.close
 
 
@@ -124,6 +126,11 @@ def create_app(settings=None, service: VoiceService | None = None, token: str | 
     @app.post("/v1/profiles/{account_id}/verify", dependencies=guarded)
     async def verify(account_id: uuid.UUID, audio: UploadFile = File(...)):
         return await run("verify", str(account_id), await read(audio))
+
+    # A spoken command for the assistant: text + verification (when the account has a profile).
+    @app.post("/v1/listen/{account_id}", dependencies=guarded)
+    async def listen(account_id: uuid.UUID, audio: UploadFile = File(...)):
+        return await run("listen", str(account_id), await read(audio))
 
     @app.post("/v1/profiles/{account_id}/calibrate", dependencies=guarded)
     async def calibrate(account_id: uuid.UUID, samples: list[UploadFile] = File(...)):

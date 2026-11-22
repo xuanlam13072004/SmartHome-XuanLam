@@ -70,8 +70,10 @@ def test_profile_round_trip_and_limits(store, account):
 
     store.record_attempt(account, "verify", True, None, Scores(0.9, 4.2, 0.8, 0.86, 30.0), 2100)
     store.record_attempt(account, "verify", False, "not_matched", Scores(0.3, None, 0.8, 0.5, 30.0), 1800)
+    store.record_attempt(account, "verify", False, "not_matched", Scores(0.3, None, 0.8, 0.5, 30.0), 1800,
+                         for_command=True)
     accepted, rejected, last = store.counts(account)["attempts"]
-    assert (accepted, rejected) == (1, 1) and last is not None
+    assert (accepted, rejected) == (1, 1) and last is not None  # spoken commands are counted apart
     assert store.purge_attempts(30) == 0
 
     assert store.delete(account) is True

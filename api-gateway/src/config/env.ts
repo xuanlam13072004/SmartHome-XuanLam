@@ -30,6 +30,15 @@ const envSchema = z.object({
     // voice endpoints answer 503 VOICE_UNAVAILABLE.
     VOICE_SERVICE_URL: z.string().url().default('http://voice-service:8000'),
     VOICE_SERVICE_TOKEN: z.string().default(''),
+    // Assistant (docs/architecture/assistant.md). Without a key the assistant answers 503.
+    GEMINI_API_KEY: z.string().default(''),
+    GEMINI_MODEL: z.string().regex(/^[a-z0-9.-]+$/).default('gemini-3.8-flash'),
+    GEMINI_API_URL: z.string().url().default('https://generativelanguage.googleapis.com/v1beta'),
+    // minimal | low | medium | high; empty sends no thinking setting (models without levels).
+    GEMINI_THINKING_LEVEL: z.enum(['', 'minimal', 'low', 'medium', 'high']).default('low'),
+    // Tokens per day for the whole system (protects the shared API key), assistant log retention.
+    ASSISTANT_DAILY_TOKEN_CAP: z.coerce.number().int().positive().default(3000000),
+    ASSISTANT_TURN_RETENTION_DAYS: z.coerce.number().int().min(1).max(365).default(30),
 
     PG_HOST: z.string(),
     PG_PORT: z.coerce.number().int().positive().default(5432),

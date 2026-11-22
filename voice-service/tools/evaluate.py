@@ -156,8 +156,8 @@ def from_database(url: str, days: int = 30) -> dict:
 
     with psycopg.connect(url) as conn:
         rows = conn.execute(
-            """SELECT kind, accepted, coalesce(reason, 'accepted'), count(*)::int,
-                      avg(similarity)::real, avg(anti_spoof)::real, avg(fusion)::real, avg(snr_db)::real
+            """SELECT CASE WHEN for_command THEN 'command' ELSE kind END, accepted, coalesce(reason, 'accepted'),
+                      count(*)::int, avg(similarity)::real, avg(anti_spoof)::real, avg(fusion)::real, avg(snr_db)::real
                FROM voice_attempts WHERE created_at > now() - make_interval(days => %s)
                GROUP BY 1, 2, 3 ORDER BY 1, 2 DESC, 3""", (days,)).fetchall()
         profiles = conn.execute("SELECT count(*)::int, count(calibrated_at)::int FROM voice_profiles").fetchone()

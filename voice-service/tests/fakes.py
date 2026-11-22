@@ -76,6 +76,18 @@ def cohort(count: int = 120, seed: int = 5) -> np.ndarray:
     return np.stack([PitchEmbedder.vector_at(f) for f in rng.uniform(70, 380, count)])
 
 
+class FakeTranscriber:
+    """Returns the queued texts in order (default: one fixed command)."""
+
+    def __init__(self, *texts: str):
+        self.texts = list(texts) or ["mở mái che"]
+        self.calls = 0
+
+    def transcribe(self, audio):
+        self.calls += 1
+        return self.texts[min(self.calls - 1, len(self.texts) - 1)]
+
+
 class MemoryStore:
     def __init__(self):
         self.profiles: dict[str, Profile] = {}
@@ -112,7 +124,8 @@ class MemoryStore:
         for _, kind, _ in self.clip_rows.get(account_id, []):
             clips[kind] = clips.get(kind, 0) + 1
         model = self.models.get(account_id)
-        mine = [a for a in self.attempts if a["account_id"] == account_id and a["kind"] == "verify"]
+        mine = [a for a in self.attempts
+                if a["account_id"] == account_id and a["kind"] == "verify" and not a["for_command"]]
         return {
             "templates": templates, "clips": clips,
             "model": (model[0], model[1].stats, model[2]) if model else None,
@@ -167,9 +180,10 @@ class MemoryStore:
         self.profiles[account_id] = Profile(old.account_id, old.consent_at, old.noise_floor_rms, thresholds,
                                             datetime.now(timezone.utc), old.created_at)
 
-    def record_attempt(self, account_id, kind, accepted, reason, scores, duration_ms):
+    def record_attempt(self, account_id, kind, accepted, reason, scores, duration_ms, for_command=False):
         self.attempts.append({"account_id": account_id, "kind": kind, "accepted": accepted, "reason": reason,
-                              "scores": scores, "duration_ms": duration_ms, "at": datetime.now(timezone.utc)})
+                              "scores": scores, "duration_ms": duration_ms, "for_command": for_command,
+                              "at": datetime.now(timezone.utc)})
 
     def purge_attempts(self, days):
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)

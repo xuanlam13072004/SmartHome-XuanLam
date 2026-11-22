@@ -30,6 +30,8 @@ dependencies:
   video_player: ^2.9.2
   # Voice profile recordings: 16 kHz mono PCM stream (Cá nhân → Giọng nói).
   record: ^6.0.0
+  # Reads the assistant's replies aloud (Vietnamese voice of the phone).
+  flutter_tts: ^4.2.0
   web: ^1.1.0
 
 dev_dependencies:

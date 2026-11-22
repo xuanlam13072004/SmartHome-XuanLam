@@ -30,6 +30,10 @@ abstract final class AppRoutes {
   static const String profileNotificationSettings = '/profile/notifications/settings';
   static const String profileActivity = '/profile/activity';
   static const String profileVoice = '/profile/voice';
+  static const String profilePlans = '/profile/plans';
+
+  // Assistant ("Trợ lý"), full screen above the tabs.
+  static const String assistant = '/assistant';
 
   static String profileVoiceSessionOf(String mode) => '/profile/voice/session/$mode';
 

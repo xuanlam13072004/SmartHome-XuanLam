@@ -168,3 +168,27 @@ def test_background_queue_runs_one_training_per_profile():
     release.set()
     queue._executor.shutdown(wait=True)
     assert runs == ["a", "a"] and not queue.is_training("a")
+
+
+def test_listen_transcribes_and_verifies_spoken_commands():
+    from app.asr import clean_transcript
+    from tests.fakes import FakeTranscriber
+
+    service = make()
+    service.transcriber = FakeTranscriber("  Mở   mái che  ", "", "Hãy subscribe cho kênh nhé")
+    enroll(service)
+    heard = service.listen(ACCOUNT, wav(voice(121, seed=90)))
+    assert heard["transcript"] == "Mở mái che"
+    assert heard["verification"]["accepted"] is True
+    assert service.store.attempts[-1]["for_command"] is True
+    assert service.summary(ACCOUNT)["attempts_30d"]["accepted"] == 0  # "Thử giọng nói" statistics only
+    assert error(lambda: service.listen(ACCOUNT, wav(voice(121, seed=91)))).code == "VOICE_NOT_UNDERSTOOD"
+    assert error(lambda: service.listen(ACCOUNT, wav(voice(121, seed=92)))).code == "VOICE_NOT_UNDERSTOOD"
+    assert error(lambda: service.listen(ACCOUNT, wav(ambient()))).code == "VOICE_NO_SPEECH"
+    assert clean_transcript("Cảm ơn các bạn đã theo dõi") == ""
+
+    stranger = make()
+    stranger.transcriber = FakeTranscriber("thời tiết hôm nay thế nào")
+    heard = stranger.listen(ACCOUNT, wav(voice(150, seed=93)))
+    assert heard == {**heard, "transcript": "thời tiết hôm nay thế nào", "verification": None}
+    assert error(lambda: make().listen(ACCOUNT, wav(voice(150)))).code == "VOICE_ASR_UNAVAILABLE"

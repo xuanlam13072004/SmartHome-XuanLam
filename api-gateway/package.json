@@ -8,7 +8,8 @@
         "dev": "tsx watch src/index.ts",
         "build": "tsc -p tsconfig.json",
         "start": "node dist/index.js",
-        "test": "tsx --test test/*.test.ts"
+        "test": "tsx --test test/*.test.ts",
+        "assistant:eval": "tsx scripts/assistant-eval.ts"
     },
     "dependencies": {
         "@fastify/cors": "^11.3.0",

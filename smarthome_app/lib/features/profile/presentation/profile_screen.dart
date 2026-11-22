@@ -100,6 +100,23 @@ class ProfileScreen extends ConsumerWidget {
               ],
             ),
             ProfileSection(
+              title: 'Trợ lý',
+              children: [
+                ProfileTile(
+                  icon: LucideIcons.sparkles,
+                  title: 'Trợ lý nhà',
+                  subtitle: 'Hỏi đáp và điều khiển thiết bị bằng lời nói hoặc tin nhắn',
+                  onTap: () => context.push(AppRoutes.assistant),
+                ),
+                ProfileTile(
+                  icon: LucideIcons.crown,
+                  title: 'Gói dịch vụ',
+                  subtitle: 'Hạn mức trợ lý mỗi tháng',
+                  onTap: () => context.push(AppRoutes.profilePlans),
+                ),
+              ],
+            ),
+            ProfileSection(
               title: 'Cài đặt ứng dụng',
               children: [
                 ProfileTile(

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { runDueAutomations } from '../modules/automations/firing';
+import { purgeOldAssistantTurns } from '../modules/assistant/service';
 import { purgeOldAccountNotifications } from '../modules/notifications/accountNotifications';
 import { purgeOldRuns, reconcileRuns, runDueSteps } from '../modules/scenes/runs';
 import { runDueSchedules } from '../modules/scenes/schedules';
@@ -45,6 +46,7 @@ export class SceneRunner {
                 this.lastPurge = Date.now();
                 await purgeOldRuns(this.app);
                 await purgeOldAccountNotifications(this.app);
+                await purgeOldAssistantTurns(this.app);
             }
         } catch (error) {
             this.app.log.error({ error }, 'Scene runner tick failed');

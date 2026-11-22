@@ -27,6 +27,8 @@ import '../../features/sharing/presentation/device_members_screen.dart';
 import '../../features/sharing/presentation/sharing_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/voice/presentation/voice_screen.dart';
+import '../../features/assistant/presentation/assistant_screen.dart';
+import '../../features/assistant/presentation/plans_screen.dart';
 import '../../features/voice/presentation/voice_session_screen.dart';
 import '../../features/debug/presentation/debug_screen.dart';
 
@@ -244,6 +246,10 @@ GoRouter router(Ref ref) {
                     builder: (context, state) => const ActivityScreen(),
                   ),
                   GoRoute(
+                    path: 'plans',
+                    builder: (context, state) => const PlansScreen(),
+                  ),
+                  GoRoute(
                     path: 'voice',
                     builder: (context, state) => const VoiceScreen(),
                     routes: [
@@ -264,6 +270,11 @@ GoRouter router(Ref ref) {
       ),
 
       // ── Feature Routes ───────────────────────────────────────────────────
+      GoRoute(
+        path: AppRoutes.assistant,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const AssistantScreen(),
+      ),
       GoRoute(
         path: AppRoutes.deviceDetail,
         parentNavigatorKey: _rootNavigatorKey,

@@ -218,4 +218,8 @@ test('PostgreSQL upgrade steps are numbered after the baseline, additive and tra
     // Biometric data goes with the account; embeddings have a fixed size.
     assert.match(voice, /account_id uuid PRIMARY KEY REFERENCES public\.accounts\(id\) ON DELETE CASCADE/);
     assert.match(voice, /octet_length\(embedding\) = 768/);
+    const assistant = fs.readFileSync(migrations.find(item => item.name === 'assistant').file, 'utf8');
+    // Plans are data; a paid plan always has an end.
+    assert.match(assistant, /INSERT INTO public\.assistant_plans/);
+    assert.match(assistant, /expires_at timestamp with time zone NOT NULL/);
 });

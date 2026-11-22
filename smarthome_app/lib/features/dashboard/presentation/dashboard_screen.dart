@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../../core/core.dart';
+import '../../../core/navigation/app_routes.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/widgets/widgets.dart';
 import '../providers/devices_provider.dart';
@@ -65,6 +66,13 @@ class DashboardScreen extends ConsumerWidget {
               pinned: true,
               backgroundColor: Colors.transparent,
               elevation: 0,
+              actions: [
+                IconButton(
+                  tooltip: 'Trợ lý',
+                  icon: const Icon(LucideIcons.sparkles),
+                  onPressed: () => context.push(AppRoutes.assistant),
+                ),
+              ],
               flexibleSpace: FlexibleSpaceBar(
                 titlePadding: const EdgeInsets.symmetric(
                   horizontal: AppSpacing.md,

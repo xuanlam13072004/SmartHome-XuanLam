@@ -149,6 +149,10 @@ services:
       # Voice verification (docs/architecture/voice.md); shared with voice-service.
       VOICE_SERVICE_URL: http://voice-service:8000
       VOICE_SERVICE_TOKEN: ${VOICE_SERVICE_TOKEN:?Set VOICE_SERVICE_TOKEN in the root .env (see .env.example)}
+      # Assistant (docs/architecture/assistant.md). Empty key = assistant off (503).
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
+      GEMINI_THINKING_LEVEL: ${GEMINI_THINKING_LEVEL-low}
     ports:
       # 127.0.0.1: reached through Cloudflare Tunnel (cloudflared on this computer)
       # and the Android emulator; PUBLISH_HOST=0.0.0.0 opens it to the LAN.

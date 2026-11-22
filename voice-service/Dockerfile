@@ -1,6 +1,6 @@
-# voice-service: CPU only. PyTorch comes from its CPU wheel index and the
-# ECAPA-TDNN model is downloaded once at build time, so the running service
-# needs no internet access.
+# voice-service: CPU only. PyTorch comes from its CPU wheel index; the
+# ECAPA-TDNN (speaker) and PhoWhisper-small (speech to text, ~1 GB) models are
+# downloaded once at build time, so the running service needs no internet.
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -16,15 +16,17 @@ RUN pip install -r requirements.txt -r requirements-dev.txt
 
 RUN python -c "from speechbrain.inference.speaker import EncoderClassifier; \
 EncoderClassifier.from_hparams(source='speechbrain/spkrec-ecapa-voxceleb', savedir='/models/ecapa')"
+RUN python -c "from transformers import pipeline; pipeline('automatic-speech-recognition', model='vinai/PhoWhisper-small')"
 
 COPY app ./app
 COPY tools ./tools
 COPY tests ./tests
 
-# Fail the build now, not at the first request, if the model cannot load offline.
+# Fail the build now, not at the first request, if a model cannot load offline.
 RUN HF_HUB_OFFLINE=1 python -c "import numpy as np; from app.embedding import EcapaEmbedder; \
-v = EcapaEmbedder('/models/ecapa').embed_batch([np.random.default_rng(0).normal(0, 0.05, 32000).astype('float32')]); \
-assert v.shape == (1, 192), v.shape"
+from app.asr import PhoWhisperTranscriber; noise = np.random.default_rng(0).normal(0, 0.05, 32000).astype('float32'); \
+v = EcapaEmbedder('/models/ecapa').embed_batch([noise]); assert v.shape == (1, 192), v.shape; \
+assert isinstance(PhoWhisperTranscriber('vinai/PhoWhisper-small').transcribe(noise), str)"
 
 RUN useradd --system --uid 10001 voice && mkdir -p /data && chown -R voice /data /models
 USER voice

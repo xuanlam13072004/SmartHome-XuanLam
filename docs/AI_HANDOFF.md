@@ -325,7 +325,7 @@ backend), gọn còn ít trang. Đã làm:
 
 ## Cá nhân, Phòng, Kịch bản (2026-11-09 → 11-13)
 
-- Schema PostgreSQL = baseline 203 (`schema_v2.sql`) + bước nâng cấp trong `database/postgres/migrations` (`migrate.js`, giữ dữ liệu). Hiện là **208**.
+- Schema PostgreSQL = baseline 203 (`schema_v2.sql`) + bước nâng cấp trong `database/postgres/migrations` (`migrate.js`, giữ dữ liệu). Hiện là **209**.
 - Trang Cá nhân: `docs/architecture/account-center.md`. Phòng (204): `docs/architecture/rooms.md`. Kịch bản (205 + hẹn giờ 206 + tự động hóa 207): `docs/architecture/scenes.md`.
 - Kịch bản: đã xong cả 3 đợt — chạy tay + lịch sử, hẹn giờ, tự động hóa (Khi trạng thái/sự kiện/giờ → Nếu → Thì chạy kịch bản/gửi thông báo) + gợi ý. Bộ máy: `workers/automationEngine.ts` (nghe Redis `device.telemetry/event/status`, chỉ mục MAC trong bộ nhớ), `modules/automations/firing.ts` (khóa dòng → đúng 1 lần dù nhiều Gateway). Thông báo của tự động hóa nằm ở bảng `account_notifications`, gộp vào `GET /me/notifications`.
   Đã chốt: bước "được bảo vệ" (catalog `confirmation` khác `none`, vd mở khóa cửa) chỉ cho chạy tay và phải nhập mật khẩu mỗi lần; không cho trong hẹn giờ/tự động hóa.
@@ -334,7 +334,8 @@ backend), gọn còn ít trang. Đã làm:
   docker-compose công bố 3000/3001/8090 trên `PUBLISH_HOST` (mặc định 127.0.0.1), Postgres/Mongo chỉ 127.0.0.1, MQTT 1883 vẫn mở cho thiết bị. Gateway lấy IP thật từ X-Forwarded-For qua `TRUST_PROXY` (mặc định `loopback,linklocal,uniquelocal`, `src/config/trustProxy.ts`, `test/trust-proxy.test.ts`); mở LAN (`PUBLISH_HOST=0.0.0.0`) thì phải đặt `TRUST_PROXY=` rỗng. App: `flutter run --dart-define-from-file=config/cloudflare.json`.
 
 - Giọng nói — đợt A (2026-11-21, `docs/architecture/voice.md`): xác minh 1:1 "đúng giọng chủ tài khoản, giọng thật" cho trợ lý giọng nói sau này. Dịch vụ mới `voice-service/` (Python 3.12, FastAPI, ECAPA-TDNN + RawNet2 chống giả mạo theo từng người, AS-norm khi có cohort), chỉ Gateway gọi qua token `VOICE_SERVICE_TOKEN` (`.env` gốc, bắt buộc). Bảng 208: `voice_profiles/templates/clips/antispoof_models/attempts` + `account_notifications.kind`. Gateway `modules/voice` (multipart, rate limit, khóa tạm 15 phút sau 5 lần không khớp + thông báo `security`, xóa hồ sơ phải nhập mật khẩu). App: Cá nhân → Giọng nói (gói `record`, ghi 16 kHz mono, tắt AGC/khử ồn, kiểm tra chất lượng ngay trên máy giống hệt server). Công cụ: `tools/build_cohort.py`, `tools/evaluate.py` (EER/FAR/FRR cho báo cáo).
-  Tiếp theo: đợt B trợ lý (PhoWhisper + Gemini function calling, bộ ~100 câu kiểm thử prompt, giới hạn token), đợt C thanh toán (VietQR + SePay, xác nhận tay, mock).
+- Trợ lý — đợt B (2026-11-21, `docs/architecture/assistant.md`): chatbot hỏi đáp chung + điều khiển nhà. Gemini REST (`GEMINI_API_KEY` ở `.env` gốc, mặc định `gemini-3.8-flash`) chỉ *đề xuất* qua hàm `control_device`/`run_scene`/`ask_clarification` với id ngắn trong ngữ cảnh nhà; máy chủ kiểm id, cụm trích nguyên văn (bỏ dấu, chặn phủ định), giá trị theo schema; thao tác cần xác nhận/mật khẩu chờ `POST /assistant/confirm`; lệnh bằng giọng phải đúng giọng chủ (voice-service `/v1/listen`: PhoWhisper-small bản gốc + xác minh). Bảng 209: `assistant_plans` (3 gói), `account_plans`, `assistant_usage`, `assistant_turns`, `voice_attempts.for_command`. Bộ 103 câu `api-gateway/test/assistant/cases.json` + `npm run assistant:eval` (Gemini thật, `wrong_command` phải = 0). App: màn Trợ lý (chat, mic, đọc to `flutter_tts`), Cá nhân → Gói dịch vụ.
+  Tiếp theo: đợt C thanh toán (VietQR + SePay, xác nhận tay, mock) ghi `account_plans`.
 
 ## Mục tiêu và lộ trình tiếp theo
 

@@ -1,7 +1,7 @@
 # Voice verification ("Giọng nói")
 
-Status: phase A implemented 2026-11-21 (schema **208**). Phase B (voice
-assistant: PhoWhisper + Gemini function calling, token limits) builds on it.
+Status: phase A implemented 2026-11-21 (schema **208**). The assistant
+(phase B, docs/architecture/assistant.md, schema 209) uses it for spoken commands.
 Target scale: 7–8k accounts, 30k devices.
 
 ## What it does
@@ -96,6 +96,11 @@ also deletes its attempts. No full recordings are kept.
 | `POST /voice/samples` | 30/h | `POST …/samples` | `audio` |
 | `POST /voice/antispoof` | 10/h | `POST …/antispoof` | `samples` ×1–5 replays |
 | `DELETE /voice/profile` | 5/min | `DELETE …` | JSON `{password}`; clears the lock |
+| (assistant) `POST /assistant/voice` | 20/min | `POST /v1/listen/{id}` | text (PhoWhisper-small) + verification when a profile exists |
+
+`/v1/listen` records its verification with `for_command = true` (migration
+209), so "Thử giọng nói" statistics and command statistics stay apart; known
+Whisper hallucinations on noise ("hãy subscribe…") count as not understood.
 
 - **Enroll**: the 2 s silence gives the noise floor; each sentence must pass
   the profile rule and resemble the other sentences (cosine ≥ 0.55 to their

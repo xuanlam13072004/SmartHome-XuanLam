@@ -12,6 +12,7 @@ from typing import Callable
 import numpy as np
 
 from . import antispoof as spoof
+from .asr import Transcriber, clean_transcript
 from .audio import PROFILE_RULE, SPOOF_RULE, VERIFY_RULE, Speech, analyze, decode, noise_floor
 from .embedding import Embedder, embed_speech
 from .errors import VoiceError, not_found, quality
@@ -80,11 +81,12 @@ class TrainingQueue:
 
 class VoiceService:
     def __init__(self, store, embedder: Embedder, backend: spoof.Backend, cohort: np.ndarray | None,
-                 background_training: bool = True):
+                 background_training: bool = True, transcriber: Transcriber | None = None):
         self.store = store
         self.embedder = embedder
         self.backend = backend
         self.cohort = cohort
+        self.transcriber = transcriber
         self.queue = TrainingQueue(self.retrain) if background_training else None
 
     # --- helpers -------------------------------------------------------------
@@ -191,12 +193,31 @@ class VoiceService:
     # --- verification ----------------------------------------------------------
 
     def verify(self, account_id: str, audio: bytes) -> dict:
-        bundle = self._bundle(account_id)
+        return self._verify(self._bundle(account_id), _read(audio, VERIFY_RULE), for_command=False)
+
+    def listen(self, account_id: str, audio: bytes) -> dict:
+        """A spoken command: its text, and whether it is the owner's live voice
+        (null without a voice profile). The Gateway decides whether the
+        command needs that verification."""
+        if self.transcriber is None:
+            raise VoiceError(503, "VOICE_ASR_UNAVAILABLE", "Chưa nhận dạng được lời nói, hãy thử lại sau.")
         speech = _read(audio, VERIFY_RULE)
+        transcript = clean_transcript(self.transcriber.transcribe(speech.span))
+        if not transcript:
+            raise quality("VOICE_NOT_UNDERSTOOD", "Không nghe rõ lời nói, hãy nói lại.")
+        bundle = self.store.load(account_id)
+        verification = None
+        if bundle is not None and bundle.model is not None:
+            verification = self._verify(bundle, speech, for_command=True)
+        return {"transcript": transcript, "speech_ms": speech.speech_ms, "snr_db": round(speech.snr_db, 1),
+                "verification": verification}
+
+    def _verify(self, bundle: Bundle, speech: Speech, for_command: bool) -> dict:
+        account_id = bundle.profile.account_id
         probe, scores = self._score(bundle, speech)
         thresholds = self._thresholds(bundle)
         accepted, reason = decide(scores, bundle.profile.thresholds, thresholds["anti_spoof"])
-        self.store.record_attempt(account_id, "verify", accepted, reason, scores, speech.speech_ms)
+        self.store.record_attempt(account_id, "verify", accepted, reason, scores, speech.speech_ms, for_command)
         updated = False
         if (accepted and scores.similarity > AUTO_UPDATE_SIMILARITY and scores.anti_spoof > AUTO_UPDATE_ANTI_SPOOF
                 and scores.snr_db >= AUTO_UPDATE_SNR_DB

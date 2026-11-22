@@ -11,6 +11,7 @@ import roomRoutes from './modules/rooms/routes';
 import sceneRoutes from './modules/scenes/routes';
 import automationRoutes from './modules/automations/routes';
 import voiceRoutes from './modules/voice/routes';
+import assistantRoutes from './modules/assistant/routes';
 import jwtPlugin from './plugins/jwt';
 import errorHandlerPlugin from './plugins/errorHandler';
 import validationPlugin from './plugins/validation';
@@ -73,6 +74,7 @@ export function buildApp(): FastifyInstance {
     app.register(sceneRoutes);
     app.register(automationRoutes);
     app.register(voiceRoutes);
+    app.register(assistantRoutes);
 
     // Health check cho load balancer / k8s
     app.get('/health', async () => {

@@ -6,6 +6,7 @@ soundfile==0.13.1
 speechbrain==1.0.2
 huggingface_hub==0.36.2
 hyperpyyaml==1.2.3
+transformers==4.46.3
 fastapi==0.134.0
 python-multipart==0.0.22
 uvicorn==0.41.0

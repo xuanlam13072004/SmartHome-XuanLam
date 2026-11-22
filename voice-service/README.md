@@ -4,7 +4,8 @@ Confirms that a recording is the account owner's own, live voice (1:1).
 Design, rules and API: [docs/architecture/voice.md](../docs/architecture/voice.md).
 
 - Python 3.12, FastAPI, PyTorch 2.2 CPU, SpeechBrain ECAPA-TDNN, per-profile
-  RawNet2 anti-spoof, AS-norm.
+  RawNet2 anti-spoof, AS-norm; PhoWhisper-small speech to text for the assistant
+  (docs/architecture/assistant.md).
 - Called only by the API Gateway over the Docker network (`x-voice-token`).
 - Stores in PostgreSQL (migration 208); the schema is created by `db-initialize`.
 
@@ -16,8 +17,8 @@ docker compose up -d --build voice-service api-gateway
 docker compose logs -f voice-service
 ```
 
-The first build downloads PyTorch (CPU) and the ECAPA model (~100 MB), then
-the service runs offline.
+The first build downloads PyTorch (CPU), the ECAPA model (~100 MB) and
+PhoWhisper-small (~1 GB), then the service runs offline (about 1.5 GB of RAM).
 
 ## Optional: AS-norm cohort
 
