@@ -188,11 +188,47 @@ export async function cancelOrder(app: FastifyInstance, accountId: string, code:
 // ── Receiving money ────────────────────────────────────────────────────────
 
 /**
+ * Extends [accountId]'s plan by [period] (months bought, or days given by the
+ * administrator): the same active plan continues from its current end; another
+ * plan starts now and the unused time of the old one is converted at the two
+ * monthly prices. Returns the new end. The caller holds a transaction.
+ */
+export async function extendPlan(
+    client: PoolClient,
+    accountId: string,
+    planCode: string,
+    period: { months?: number; days?: number },
+): Promise<Date> {
+    const current = (await client.query(
+        `SELECT paid.plan_code, paid.expires_at, paid.expires_at > NOW() AS active, plan.price_vnd
+         FROM account_plans AS paid JOIN assistant_plans AS plan ON plan.code = paid.plan_code
+         WHERE paid.account_id = $1 FOR UPDATE OF paid`,
+        [accountId],
+    )).rows[0];
+    const newPrice = Number((await client.query('SELECT price_vnd FROM assistant_plans WHERE code = $1', [planCode])).rows[0].price_vnd);
+    const samePlan = current?.active && current.plan_code === planCode;
+    const creditSeconds = current?.active && !samePlan && Number(current.price_vnd) > 0 && newPrice > 0
+        ? Math.floor(((new Date(current.expires_at).getTime() - Date.now()) / 1000) * Number(current.price_vnd) / newPrice)
+        : 0;
+    const plan = (await client.query(
+        `INSERT INTO account_plans (account_id, plan_code, started_at, expires_at)
+         VALUES ($1, $2, NOW(), (CASE WHEN $3::boolean THEN $4::timestamptz ELSE NOW() END)
+                 + make_interval(months => $5, days => $7) + make_interval(secs => $6))
+         ON CONFLICT (account_id) DO UPDATE SET
+             started_at = CASE WHEN $3::boolean THEN account_plans.started_at ELSE NOW() END,
+             plan_code = EXCLUDED.plan_code,
+             expires_at = EXCLUDED.expires_at
+         RETURNING expires_at`,
+        [accountId, planCode, Boolean(samePlan), samePlan ? current.expires_at : null,
+            period.months ?? 0, creditSeconds, period.days ?? 0],
+    )).rows[0];
+    return new Date(plan.expires_at);
+}
+
+/**
  * Adds [amount] to a locked order. Once the order is fully paid the plan is
- * extended: the same plan continues from its current end; another plan starts
- * now and the unused time of the old one is converted at the two prices.
- * A late transfer (after the QR expired) or one for a replaced order is still
- * honoured: the money arrived.
+ * extended (extendPlan). A late transfer (after the QR expired) or one for a
+ * replaced order is still honoured: the money arrived.
  */
 async function applyPayment(client: PoolClient, order: any, amount: number, via: Via) {
     if (order.status === 'paid') return { outcome: 'already_paid' as const, changed: false };
@@ -201,32 +237,11 @@ async function applyPayment(client: PoolClient, order: any, amount: number, via:
         await client.query(`UPDATE payment_orders SET status = 'review', received_vnd = $2 WHERE id = $1`, [order.id, received]);
         return { outcome: 'partial' as const, changed: true };
     }
-    const current = (await client.query(
-        `SELECT paid.plan_code, paid.expires_at, paid.expires_at > NOW() AS active, plan.price_vnd
-         FROM account_plans AS paid JOIN assistant_plans AS plan ON plan.code = paid.plan_code
-         WHERE paid.account_id = $1 FOR UPDATE OF paid`,
-        [order.account_id],
-    )).rows[0];
-    const newPrice = Number((await client.query('SELECT price_vnd FROM assistant_plans WHERE code = $1', [order.plan_code])).rows[0].price_vnd);
-    const samePlan = current?.active && current.plan_code === order.plan_code;
-    const creditSeconds = current?.active && !samePlan && Number(current.price_vnd) > 0 && newPrice > 0
-        ? Math.floor(((new Date(current.expires_at).getTime() - Date.now()) / 1000) * Number(current.price_vnd) / newPrice)
-        : 0;
-    const plan = (await client.query(
-        `INSERT INTO account_plans (account_id, plan_code, started_at, expires_at)
-         VALUES ($1, $2, NOW(), (CASE WHEN $3::boolean THEN $4::timestamptz ELSE NOW() END)
-                 + make_interval(months => $5) + make_interval(secs => $6))
-         ON CONFLICT (account_id) DO UPDATE SET
-             started_at = CASE WHEN $3::boolean THEN account_plans.started_at ELSE NOW() END,
-             plan_code = EXCLUDED.plan_code,
-             expires_at = EXCLUDED.expires_at
-         RETURNING expires_at`,
-        [order.account_id, order.plan_code, Boolean(samePlan), samePlan ? current.expires_at : null, Number(order.months), creditSeconds],
-    )).rows[0];
+    const expiresAt = await extendPlan(client, order.account_id, order.plan_code, { months: Number(order.months) });
     await client.query(
         `UPDATE payment_orders SET status = 'paid', received_vnd = $2, paid_at = NOW(), paid_via = $3, plan_expires_at = $4
          WHERE id = $1`,
-        [order.id, received, via, plan.expires_at],
+        [order.id, received, via, expiresAt],
     );
     return { outcome: 'paid' as const, changed: true };
 }
@@ -271,8 +286,14 @@ export async function simulatePayment(app: FastifyInstance, accountId: string, c
     return settle(app, orderId);
 }
 
-/** Confirmation by hand (CLI): a transfer seen in the bank app that the webhook missed. */
-export async function confirmOrderManually(deps: PaymentDeps, code: string, amount?: number) {
+/** Written in the same transaction as a change made by staff (admin page or CLI). */
+export type StaffAudit = (client: PoolClient, order: { id: string; code: string; account_id: string }, outcome: string) => Promise<void>;
+
+/**
+ * Confirmation by hand (admin page or CLI): a transfer seen in the bank app
+ * that the webhook missed. [amount] defaults to what is still owed.
+ */
+export async function confirmOrderManually(deps: PaymentDeps, code: string, amount?: number, audit?: StaffAudit) {
     const result = await inTransaction(deps.pg, async (client) => {
         const order = isOrderCode(code) ? await loadOrder(client, 'o.code = $1', [code], true) : null;
         if (!order) throw httpError(404, 'PAYMENT_ORDER_NOT_FOUND', `No order ${code}`);
@@ -284,9 +305,25 @@ export async function confirmOrderManually(deps: PaymentDeps, code: string, amou
              VALUES ('manual', $1, $2, $3, $4, $5)`,
             [`manual:${crypto.randomUUID()}`, paid, code, order.id, applied.outcome],
         );
+        if (audit) await audit(client, order, applied.outcome);
         return { orderId: order.id as string, outcome: applied.outcome };
     });
     return { outcome: result.outcome, order: await settle(deps, result.orderId) };
+}
+
+/** Cancels an order still waiting for money (admin page or CLI); the customer's app is told. */
+export async function cancelOrderByStaff(deps: PaymentDeps, code: string, audit?: StaffAudit) {
+    const orderId = await inTransaction(deps.pg, async (client) => {
+        const order = isOrderCode(code) ? await loadOrder(client, 'o.code = $1', [code], true) : null;
+        if (!order) throw httpError(404, 'PAYMENT_ORDER_NOT_FOUND', `No order ${code}`);
+        if (order.status !== 'pending' && order.status !== 'review') {
+            throw httpError(409, 'PAYMENT_ORDER_NOT_OPEN', 'Đơn hàng không còn chờ thanh toán.');
+        }
+        await client.query(`UPDATE payment_orders SET status = 'cancelled' WHERE id = $1`, [order.id]);
+        if (audit) await audit(client, order, 'cancelled');
+        return order.id as string;
+    });
+    return settle(deps, orderId);
 }
 
 /** SePay's transactionDate is Vietnam local time ("2026-11-22 11:20:05"). */

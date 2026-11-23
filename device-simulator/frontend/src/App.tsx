@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { fetchPreflight, getAdminToken } from './api'
+import { AdminPage } from './components/admin/AdminPage'
 import { DeviceDetail } from './components/DeviceDetail'
 import { EventsLog } from './components/EventsLog'
 import { FactoryPage } from './components/factory/FactoryPage'
@@ -10,13 +11,14 @@ import { DevicesPage } from './components/registry/DevicesPage'
 import { emptyDeviceFilters, type DeviceFilters } from './components/registry/filters'
 import { UsersPage } from './components/registry/UsersPage'
 
-export type MainView = 'load' | 'devices' | 'users' | 'factory' | 'system'
+export type MainView = 'load' | 'devices' | 'users' | 'factory' | 'admin' | 'system'
 
 const navigation: Array<{ id: MainView; label: string; description: string; icon: IconName }> = [
   { id: 'load', label: 'Kiểm thử tải', description: 'Tạo người dùng, thiết bị và đo tải', icon: 'events' },
   { id: 'devices', label: 'Thiết bị', description: 'Điều khiển, dữ liệu, tem QR', icon: 'device' },
   { id: 'users', label: 'Người dùng', description: 'Tài khoản đăng nhập app', icon: 'user' },
   { id: 'factory', label: 'Xưởng sản xuất', description: 'Tạo thiết bị trắng có tem QR', icon: 'factory' },
+  { id: 'admin', label: 'Quản trị', description: 'Tài khoản, thanh toán, số liệu', icon: 'shield' },
   { id: 'system', label: 'Hệ thống', description: 'Token, hạ tầng, nhật ký', icon: 'settings' },
 ]
 
@@ -129,6 +131,7 @@ function App() {
                 <UsersPage enabled={infrastructureReady} onCreateRun={createRun} onSelectDevice={setDeviceMac} />
               )}
               {view === 'factory' && <FactoryPage enabled={infrastructureReady} onSelectDevice={setDeviceMac} />}
+              {view === 'admin' && <AdminPage enabled={infrastructureReady} />}
               {view === 'system' && (
                 <div className="system-page">
                   <PreflightPanel onReadyChange={setInfrastructureReady} />

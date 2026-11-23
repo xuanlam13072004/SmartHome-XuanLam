@@ -59,6 +59,12 @@ const envSchema = z.object({
     PUSH_EVENT_THROTTLE_SECONDS: z.coerce.number().int().min(0).max(3600).default(60),
     // Prometheus metrics, inside the Docker network only (docs/architecture/load-testing.md); 0 = off.
     METRICS_PORT: z.coerce.number().int().min(0).max(65535).default(9101),
+    // Administration API /admin/* (docs/architecture/admin.md), used by the Simulator's "Quản trị"
+    // page from inside the Docker network. Empty = the API does not exist; set a random key of
+    // 32+ characters (the same value as the Simulator's ADMIN_API_KEY).
+    ADMIN_API_KEY: z.string().refine(value => value === '' || value.length >= 32, {
+        message: 'must be empty (administration off) or at least 32 characters',
+    }).default(''),
 
     PG_HOST: z.string(),
     PG_PORT: z.coerce.number().int().positive().default(5432),

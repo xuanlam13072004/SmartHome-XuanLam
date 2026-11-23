@@ -68,6 +68,13 @@ state, event or time → scene and/or notification) and suggestions:
   end-to-end probes (commands app → device → result, app reads):
   [load-testing.md](load-testing.md).
 
+## Administration
+
+The company's "Quản trị" page inside the Simulator dashboard: system numbers,
+customer accounts (lock, sign out, give a plan), payments and assistant usage,
+every change with a reason in a log; reached only inside Docker with a
+server-held key: [admin.md](admin.md).
+
 ## Security camera (proposal)
 
 Camera Product, media profile, live/playback relay, recording and deletion

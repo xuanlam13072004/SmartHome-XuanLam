@@ -94,6 +94,11 @@ scene, and one scene cannot have the same time and days twice.
   (`SCENE_HAS_SCHEDULES`).
 - Load: one partial index on `next_run_at WHERE enabled`; a popular minute
   (06:00) is drained 50 schedules per transaction until nothing is due.
+- **Locked account** (docs/architecture/admin.md): while the company has
+  locked the account, its schedules and automations pause: the occurrence
+  passes (next time computed, state edge and event id recorded) without a run,
+  a notification or a `last_result`, so unlocking does not replay anything.
+  Devices themselves and the people they are shared with are not affected.
 
 ## Automations ("Tự động")
 

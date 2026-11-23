@@ -30,6 +30,7 @@ import catalogRoutes from './api/routes/catalog';
 import factoryRoutes from './api/routes/factory';
 import overviewRoutes from './api/routes/overview';
 import probeRoutes from './api/routes/probes';
+import adminRoutes from './api/routes/admin';
 import { getFactoryService } from './factory/service';
 import { CleanupCronjob } from './cleanup/cronjob';
 import { RecoveryService } from './recovery/service';
@@ -212,6 +213,7 @@ export const buildApp = async (): Promise<{
     await app.register(factoryRoutes);
     await app.register(overviewRoutes);
     await app.register(probeRoutes);
+    await app.register(adminRoutes);
 
     app.addHook('onClose', async () => {
         await cleanupJob.stop();

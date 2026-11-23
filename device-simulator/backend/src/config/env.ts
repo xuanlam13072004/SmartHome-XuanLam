@@ -31,6 +31,11 @@ const envSchema = z.object({
     CREDENTIAL_ENCRYPTION_KEY: z.string().regex(/^[a-fA-F0-9]{64}$/, 'must be a 32-byte hex key'),
 
     API_GATEWAY_URL: z.string().url(),
+    /**
+     * "Quản trị" page (docs/architecture/admin.md): the API Gateway's ADMIN_API_KEY.
+     * Kept on this server only; the browser never sees it. Unset = page not configured.
+     */
+    ADMIN_API_KEY: optionalString,
     API_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120000).default(15000),
     STARTUP_RETRY_ATTEMPTS: z.coerce.number().int().min(1).max(120).default(30),
     STARTUP_RETRY_DELAY_MS: z.coerce.number().int().min(100).max(60000).default(2000),

@@ -1,6 +1,7 @@
 import argon2 from 'argon2';
 import { FastifyInstance } from 'fastify';
 import { env } from '../../config/env';
+import { httpError } from '../../utils/httpError';
 import {
     generateRefreshToken,
     hashRefreshToken,
@@ -63,9 +64,13 @@ export async function loginUser(app: FastifyInstance, input: {
         [email],
     );
     const user = result.rows[0];
-    if (!user || user.status !== 'active' || !(await argon2.verify(user.password_hash, input.password))) {
+    const usable = user && (user.status === 'active' || user.status === 'disabled');
+    if (!usable || !(await argon2.verify(user.password_hash, input.password))) {
         throw authError('Invalid credentials', 'INVALID_CREDENTIALS');
     }
+    // Locked by the administrator (docs/architecture/admin.md). Said only to
+    // someone who knows the password, so it reveals nothing to a guesser.
+    if (user.status === 'disabled') throw httpError(403, 'ACCOUNT_LOCKED', 'Tài khoản đã bị khóa.');
 
     const refreshToken = generateRefreshToken();
     const session = await app.pg.query(

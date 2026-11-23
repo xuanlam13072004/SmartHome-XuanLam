@@ -55,6 +55,8 @@ Gateway ──── account.event ─┴─ Redis pub/sub ───────
   even with several Gateways; renewing moves the end date and starts a new
   round. Published as `plan_expiring` / `plan_expired` account events (open
   apps show a snackbar with "Gia hạn"; the push notifier sends them to phones).
+- A plan given by the company (`plan_gifted`, docs/architecture/admin.md):
+  "Bạn được tặng gói trợ lý", opens Gói dịch vụ.
 
 ## API
 

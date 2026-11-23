@@ -19,7 +19,8 @@ import { compare, type Operator, shadowValue } from './catalog';
  * - event trigger: acts only for an event id it has not handled;
  * - time trigger: the due row is claimed with FOR UPDATE SKIP LOCKED and its
  *   next_run_at moves on in the same transaction (like scene schedules).
- * Then: trigger device still accessible → cooldown over (device triggers) →
+ * Then: account not locked by the administrator → trigger device still
+ * accessible → cooldown over (device triggers) →
  * active window → conditions on the devices' current state → run the scene
  * (insertRun, trigger 'automation') and/or insert the notification. The
  * outcome is recorded in last_result; runs and notifications go out after COMMIT.
@@ -28,6 +29,8 @@ import { compare, type Operator, shadowValue } from './catalog';
 const MISSED_AFTER_MINUTES = 15;
 
 const FIRE_COLUMNS = `automation.id, automation.account_id, automation.name, automation.trigger_kind,
+    EXISTS (SELECT 1 FROM accounts AS account
+            WHERE account.id = automation.account_id AND account.status = 'active') AS account_active,
     automation.trigger_matched, automation.last_event_id, automation.conditions, automation.scene_id,
     automation.notify_message,
     automation_window_open(automation.active_from, automation.active_to, automation.timezone, NOW()) AS window_open,
@@ -45,6 +48,8 @@ const FIRE_COLUMNS = `automation.id, automation.account_id, automation.name, aut
 interface FireRow {
     id: string;
     account_id: string;
+    /** False while the administrator has locked the account: its smart features pause. */
+    account_active: boolean;
     name: string;
     trigger_kind: 'state' | 'event' | 'time';
     trigger_matched: boolean;
@@ -93,6 +98,10 @@ async function conditionsHold(app: FastifyInstance, client: PoolClient, row: Fir
 }
 
 async function act(app: FastifyInstance, client: PoolClient, row: FireRow, respectCooldown: boolean): Promise<Outcome> {
+    // Paused (account locked): nothing runs and nothing is shown; the trigger
+    // still moves on (next time, state edge, event id) so unlocking does not
+    // replay what happened meanwhile.
+    if (!row.account_active) return NOTHING;
     if (!row.available) return { ...NOTHING, result: 'unavailable' };
     if (respectCooldown && !row.cooled) return NOTHING;
     if (!row.window_open || !(await conditionsHold(app, client, row))) {

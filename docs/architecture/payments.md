@@ -77,7 +77,9 @@ docker compose exec api-gateway node dist/tools/payments.js cancel SHABCD2345
 
 `list`: open orders (7 days), transfers without a payable order (30 days),
 SePay transactions this month. `confirm` records a manual transaction and
-pays like the webhook (default amount: what is left).
+pays like the webhook (default amount: what is left). `confirm` and `cancel`
+are also buttons on the Simulator's "Quản trị" page (docs/architecture/admin.md);
+both ways write the change to `admin_audit_log` (actor `admin` or `cli`).
 
 ## API
 

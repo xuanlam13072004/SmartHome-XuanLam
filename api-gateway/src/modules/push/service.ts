@@ -218,6 +218,13 @@ export function accountPushFrom(parsed: any): { accountId: string; message: Push
                     route: `/assistant?renew=${encodeURIComponent(text(data.plan?.code, 20))}`, channel: 'general',
                     tag: `plan:${text(data.plan?.code, 20)}`,
                 };
+            case 'plan_gifted':
+                return {
+                    title: 'Bạn được tặng gói trợ lý',
+                    body: `Gói ${text(data.plan?.name, 40)} đã được kích hoạt đến ${vietnamDate(data.expires_at)}.`,
+                    route: '/profile/plans', channel: 'general',
+                    tag: `plan:${text(data.plan?.code, 20)}`,
+                };
             default:
                 return null;
         }

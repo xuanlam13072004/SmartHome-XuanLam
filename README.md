@@ -32,6 +32,8 @@ App và backend không phân biệt thiết bị thật hay ảo.
    - truy cập từ xa: `CLOUDFLARED_CREDENTIALS_FILE` (`docs/cloudflare-tunnel.md`).
    - thông báo đẩy (không bắt buộc): đặt `secrets/firebase-service-account.json`
      và `smarthome_app/android/app/google-services.json` (`docs/architecture/push.md`).
+   - trang Quản trị trong Simulator (không bắt buộc): `ADMIN_API_KEY` ngẫu nhiên, cùng giá trị
+     ở `.env` gốc và `device-simulator/.env.docker` (`docs/architecture/admin.md`).
    - `api-gateway/.env.docker`, `real-time-service/.env.docker`,
      `mqtt-worker-service/.env.docker` tạo từ các file `.env.docker.example`.
 3. `docker compose up -d --build` (lần đầu lâu: voice-service tải PyTorch, ECAPA,

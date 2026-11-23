@@ -29,7 +29,7 @@ docker compose up -d api-gateway real-time-service mqtt-worker-service
 docker compose -f device-simulator/docker-compose.yml up -d --build simulator-backend simulator-dashboard
 ```
 
-Open `http://localhost:4000`. The dashboard has five pages:
+Open `http://localhost:4000`. The dashboard has six pages:
 
 - **Kiểm thử tải**: pick a preset (5×2 devices up to 7 500 users × 3–5 devices ≈
   30 000) or set users, devices per user, telemetry period and products, then
@@ -48,6 +48,11 @@ Open `http://localhost:4000`. The dashboard has five pages:
 - **Người dùng**: simulated accounts; the selected account's app login (email,
   password on request), devices and actions stay visible beside the list.
 - **Xưởng sản xuất**: manufacture blank devices with QR labels (see below).
+- **Quản trị**: the company's page for every account (real or simulated):
+  system numbers and charts, accounts (lock, sign out everywhere, give a plan),
+  payments (confirm money, cancel), assistant usage and the log of changes.
+  Needs the same `ADMIN_API_KEY` here (`.env.docker`) and in the root `.env`
+  of the main stack (docs/architecture/admin.md).
 - **Hệ thống**: admin token, dependency checks and the operations log.
 
 Automatic runs expire after 24 hours; kept runs remain until explicit cleanup.

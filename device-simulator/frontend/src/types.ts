@@ -484,3 +484,128 @@ export interface ProbeList {
   results: ProbeResult[]
   limits: { users: number; per_user: number; concurrency: number }
 }
+
+// ── Administration ("Quản trị", docs/architecture/admin.md) ─────────────────
+
+export interface AdminOverview {
+  generated_at: string
+  accounts: { total: number; disabled: number; new_today: number; new_7d: number; active_7d: number }
+  devices: { total: number; online: number; by_product: Array<{ product_id: string; name: string; count: number }> }
+  plans: Array<{ code: string; name: string; count: number }>
+  payments: {
+    mode: 'off' | 'mock' | 'bank'
+    revenue_month_vnd: number
+    paid_orders_month: number
+    mock_orders_month: number
+    review: number
+    pending: number
+    unmatched_30d: number
+    sepay_used: number
+    sepay_limit: number
+  }
+  assistant: { tokens_month: number; requests_month: number; tokens_today: number; daily_cap: number }
+  daily: { days: string[]; new_accounts: number[]; revenue_vnd: number[]; assistant_tokens: number[] }
+}
+
+export type AccountStatus = 'active' | 'disabled' | 'pending_deletion'
+
+export interface AdminPlanRef {
+  code: string
+  name: string
+}
+
+export interface AdminAccountRow {
+  id: string
+  email: string
+  full_name: string
+  status: AccountStatus
+  created_at: string
+  plan: AdminPlanRef & { expires_at: string | null }
+  owned_devices: number
+  last_seen_at: string | null
+}
+
+export type AdminAccountFilter = 'all' | 'disabled' | 'paid'
+
+export interface AdminOrder {
+  code: string
+  account?: { id: string; email: string }
+  plan: AdminPlanRef
+  months: number
+  amount_vnd: number
+  received_vnd: number
+  status: 'pending' | 'expired' | 'review' | 'paid' | 'cancelled'
+  paid_via: 'sepay' | 'manual' | 'mock' | null
+  created_at: string | null
+  expires_at?: string | null
+  paid_at: string | null
+  plan_expires_at?: string | null
+}
+
+export interface AdminAuditItem {
+  id: number
+  actor: string
+  action: string
+  account: { id: string | null; email: string | null } | null
+  reason: string
+  details: Record<string, unknown>
+  created_at: string
+}
+
+export interface AdminAccountDetail {
+  account: { id: string; email: string; full_name: string; status: AccountStatus; created_at: string; updated_at: string }
+  plan: AdminPlanRef & { monthly_tokens: number; expires_at: string | null; used_tokens: number; requests: number }
+  smart_features: { scenes: number; schedules: number; automations: number }
+  devices: Array<{ mac: string; name: string; product: string; role: string; since: string; online: boolean; last_seen: string | null }>
+  sessions: Array<{ id: string; platform: string; name: string | null; created_at: string; last_used_at: string; expires_at: string }>
+  orders: AdminOrder[]
+  admin_log: AdminAuditItem[]
+}
+
+export interface AdminGiftablePlan extends AdminPlanRef {
+  monthly_tokens: number
+  price_vnd: number
+}
+
+export type AdminPaymentTab = 'review' | 'pending' | 'paid' | 'unmatched'
+
+export interface AdminTransfer {
+  id: string
+  provider: string
+  reference: string
+  amount_vnd: number
+  content: string
+  outcome: 'unmatched' | 'already_paid'
+  order_code: string | null
+  transferred_at: string | null
+  received_at: string
+}
+
+export interface AdminPayments extends Page<AdminOrder | AdminTransfer> {
+  mode: 'off' | 'mock' | 'bank'
+  counts: { review: number; pending: number; unmatched: number }
+  sepay: { used: number; limit: number }
+  tab: AdminPaymentTab
+}
+
+export type AssistantOutcome = 'chat' | 'action' | 'clarify' | 'confirm' | 'refused' | 'error'
+
+export interface AdminAssistant {
+  generated_at: string
+  period: string
+  tokens_today: number
+  daily_cap: number
+  by_plan: Array<AdminPlanRef & { monthly_tokens: number; accounts: number; tokens: number; requests: number }>
+  top: Array<{
+    account_id: string
+    email: string
+    full_name: string
+    status: AccountStatus
+    plan: AdminPlanRef
+    tokens: number
+    requests: number
+    monthly_tokens: number
+  }>
+  daily: { days: string[]; outcomes: Record<AssistantOutcome, number[]>; tokens: number[] }
+  channels: Partial<Record<'voice' | 'text', number>>
+}

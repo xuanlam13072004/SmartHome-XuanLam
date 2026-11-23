@@ -165,6 +165,9 @@ services:
       # Push notifications (docs/architecture/push.md): the Firebase service account
       # JSON in ./secrets (Git-ignored). Missing file = push off.
       FCM_SERVICE_ACCOUNT_FILE: /run/smarthome-secrets/firebase-service-account.json
+      # Administration API for the Simulator's "Quản trị" page (docs/architecture/admin.md).
+      # Empty = off. Same value as ADMIN_API_KEY in device-simulator/.env.docker.
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-}
     volumes:
       - ./secrets:/run/smarthome-secrets:ro
     ports:

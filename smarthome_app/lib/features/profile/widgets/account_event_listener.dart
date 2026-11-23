@@ -78,6 +78,15 @@ class _AccountEventListenerState extends ConsumerState<AccountEventListener> {
         if (order['status'] == 'paid' && !(inChat && chat!.onScreen)) {
           _show('Đã kích hoạt gói ${plan ?? 'trợ lý'}', route: AppRoutes.profilePlans);
         }
+      case final AccountNotificationEvent notice when notice.event == 'plan_gifted':
+        // The company gave days of a plan (Simulator "Quản trị", docs/architecture/admin.md).
+        ref.invalidate(assistantUsageProvider);
+        final plan = notice.data['plan'] is Map ? Map<String, dynamic>.from(notice.data['plan'] as Map) : const <String, dynamic>{};
+        final until = DateTime.tryParse(notice.data['expires_at']?.toString() ?? '');
+        _show(
+          'Bạn được tặng gói ${plan['name'] ?? 'trợ lý'}${until == null ? '' : ' đến ${TimeFormat.date(until)}'}',
+          route: AppRoutes.profilePlans,
+        );
       case final AccountNotificationEvent notice when notice.event == 'plan_expiring' || notice.event == 'plan_expired':
         ref.invalidate(assistantUsageProvider);
         final plan = notice.data['plan'] is Map ? Map<String, dynamic>.from(notice.data['plan'] as Map) : const <String, dynamic>{};

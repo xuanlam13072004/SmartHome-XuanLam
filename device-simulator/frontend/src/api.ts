@@ -1,4 +1,14 @@
 import type {
+  AdminAccountDetail,
+  AdminAccountFilter,
+  AdminAccountRow,
+  AdminAssistant,
+  AdminAuditItem,
+  AdminGiftablePlan,
+  AdminOrder,
+  AdminOverview,
+  AdminPayments,
+  AdminPaymentTab,
   CameraSegment,
   CameraStatus,
   CatalogProduct,
@@ -426,3 +436,52 @@ export const downloadProbe = async (id: string, format: 'csv' | 'json'): Promise
   link.click()
   URL.revokeObjectURL(url)
 }
+
+// ── Administration ("Quản trị"): the backend forwards to the API Gateway's /admin ──
+
+const adminQuery = (params: Record<string, string | number | undefined>): string => {
+  const query = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== '') query.set(key, String(value))
+  }
+  const text = query.toString()
+  return text ? `?${text}` : ''
+}
+
+const adminPost = <T>(path: string, body: object) =>
+  request<T>(`/admin${path}`, { method: 'POST', body: JSON.stringify(body) })
+
+export const fetchAdminOverview = () => request<AdminOverview>('/admin/overview')
+
+export const fetchAdminAssistant = () => request<AdminAssistant>('/admin/assistant')
+
+export const fetchAdminPlans = async (): Promise<AdminGiftablePlan[]> =>
+  (await request<{ plans: AdminGiftablePlan[] }>('/admin/plans')).plans
+
+export const fetchAdminAccounts = (query: { q?: string; filter: AdminAccountFilter; page: number }) =>
+  request<Page<AdminAccountRow>>(`/admin/accounts${adminQuery({ q: query.q, filter: query.filter, page: query.page })}`)
+
+export const fetchAdminAccount = (id: string) =>
+  request<AdminAccountDetail>(`/admin/accounts/${encodeURIComponent(id)}`)
+
+export type AdminAccountAction = 'disable' | 'enable' | 'sign-out'
+
+export const adminAccountAction = (id: string, action: AdminAccountAction, reason: string) =>
+  adminPost<{ status?: string; signed_out_sessions?: number }>(`/accounts/${encodeURIComponent(id)}/${action}`, { reason })
+
+export const giftAdminPlan = (id: string, gift: { plan_code: string; days: number; reason: string }) =>
+  adminPost<{ gift: { plan: { code: string; name: string }; days: number; expires_at: string } }>(
+    `/accounts/${encodeURIComponent(id)}/gift-plan`, gift,
+  )
+
+export const fetchAdminPayments = (tab: AdminPaymentTab, page: number) =>
+  request<AdminPayments>(`/admin/payments${adminQuery({ tab, page })}`)
+
+export const confirmAdminPayment = (code: string, input: { amount_vnd?: number; reason: string }) =>
+  adminPost<{ outcome: string; order: AdminOrder }>(`/payments/${encodeURIComponent(code)}/confirm`, input)
+
+export const cancelAdminPayment = (code: string, reason: string) =>
+  adminPost<{ order: AdminOrder }>(`/payments/${encodeURIComponent(code)}/cancel`, { reason })
+
+export const fetchAdminAudit = (query: { page: number; action?: string; accountId?: string }) =>
+  request<Page<AdminAuditItem>>(`/admin/audit${adminQuery({ page: query.page, action: query.action, account_id: query.accountId })}`)

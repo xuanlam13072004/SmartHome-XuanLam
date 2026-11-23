@@ -103,7 +103,7 @@ class AppErrorMapper {
       'VALIDATION_ERROR': 'Dữ liệu không hợp lệ',
       'FST_ERR_RATE_LIMIT': 'Bạn thao tác quá nhanh. Vui lòng thử lại sau',
       'INVALID_CREDENTIALS': 'Email hoặc mật khẩu không đúng',
-      'ACCOUNT_LOCKED': 'Tài khoản đã bị khoá',
+      'ACCOUNT_LOCKED': 'Tài khoản đã bị khóa. Vui lòng liên hệ hỗ trợ.',
       'SESSION_NOT_FOUND': 'Phiên đăng nhập không hợp lệ',
       'INVALID_SESSION': 'Phiên đăng nhập không hợp lệ',
       'INVALID_REFRESH_TOKEN': 'Refresh token không hợp lệ',

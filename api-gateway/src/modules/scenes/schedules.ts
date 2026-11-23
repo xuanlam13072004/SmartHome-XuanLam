@@ -190,7 +190,9 @@ export async function runDueSchedules(app: FastifyInstance, limit = 50): Promise
         await client.query('BEGIN');
         const due = await client.query(
             `SELECT id, scene_id, account_id,
-                    next_run_at < NOW() - make_interval(mins => $2) AS missed
+                    next_run_at < NOW() - make_interval(mins => $2) AS missed,
+                    EXISTS (SELECT 1 FROM accounts AS account
+                            WHERE account.id = scene_schedules.account_id AND account.status = 'active') AS account_active
              FROM scene_schedules
              WHERE enabled AND next_run_at <= NOW()
              ORDER BY next_run_at
@@ -200,9 +202,11 @@ export async function runDueSchedules(app: FastifyInstance, limit = 50): Promise
         );
         handled = due.rows.length;
         for (const schedule of due.rows) {
-            let result = 'missed';
+            // A locked account's schedules pause: the occurrence passes without
+            // a run or a result (docs/architecture/admin.md).
+            let result: string | null = schedule.account_active ? 'missed' : null;
             let runId: string | null = null;
-            if (!schedule.missed) {
+            if (schedule.account_active && !schedule.missed) {
                 await client.query('SAVEPOINT fire');
                 try {
                     runId = await insertRun(app, client, {
@@ -224,7 +228,8 @@ export async function runDueSchedules(app: FastifyInstance, limit = 50): Promise
             await client.query(
                 `UPDATE scene_schedules
                  SET next_run_at = scene_schedule_next_run(local_time, days, timezone, NOW()),
-                     last_fired_at = NOW(), last_result = $2, last_run_id = COALESCE($3, last_run_id)
+                     last_fired_at = CASE WHEN $2::text IS NULL THEN last_fired_at ELSE NOW() END,
+                     last_result = COALESCE($2, last_result), last_run_id = COALESCE($3, last_run_id)
                  WHERE id = $1`,
                 [schedule.id, result, runId],
             );

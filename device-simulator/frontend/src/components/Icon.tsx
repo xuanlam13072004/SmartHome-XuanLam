@@ -16,6 +16,7 @@ export type IconName =
   | 'print'
   | 'download'
   | 'power'
+  | 'shield'
 
 const paths: Record<IconName, ReactNode> = {
   overview: <><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="4" /><rect x="14" y="11" width="7" height="10" /><rect x="3" y="14" width="7" height="7" /></>,
@@ -35,6 +36,7 @@ const paths: Record<IconName, ReactNode> = {
   print: <><path d="M6 9V3h12v6" /><rect x="3" y="9" width="18" height="8" rx="1" /><path d="M6 14h12v7H6Z" /></>,
   download: <><path d="M12 3v12M7 10l5 5 5-5" /><path d="M4 21h16" /></>,
   power: <><path d="M12 3v8" /><path d="M6.3 6.8a8 8 0 1 0 11.4 0" /></>,
+  shield: <><path d="M12 3 4.5 6v5.5c0 4.6 3.1 8.4 7.5 9.5 4.4-1.1 7.5-4.9 7.5-9.5V6Z" /><path d="m9 12 2 2 4-4" /></>,
 }
 
 export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {

@@ -31,7 +31,8 @@ export function usagePeriod(now = new Date()): { period: string; resetsAt: Date 
     return { period: `${year}-${String(month).padStart(2, '0')}-01`, resetsAt };
 }
 
-const dayKey = (now = new Date()) => `assistant:tokens:${now.toISOString().slice(0, 10)}`;
+/** Redis counter of the tokens the whole system used today (UTC day): the daily ceiling. */
+export const dayKey = (now = new Date()) => `assistant:tokens:${now.toISOString().slice(0, 10)}`;
 
 function toPlan(row: any): PlanView {
     return {
