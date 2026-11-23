@@ -1,5 +1,9 @@
 name: smarthome-device-simulator
 
+# The Simulator has no web page of its own: it is the "Simulator" section of
+# the Admin Console (admin-console/, docs/architecture/admin.md), which signs
+# staff in, checks their permission and calls this backend with ADMIN_TOKEN.
+
 services:
   simulator-backend:
     build:
@@ -13,8 +17,10 @@ services:
       SIMULATOR_MEDIA_ROOT: /var/lib/simulator-media
     volumes:
       - "${SIMULATOR_MEDIA_HOST_DIR:-E:/smarthome_data/device-simulator/media}:/var/lib/simulator-media"
+    # Only the Admin Console (root stack, same Docker network) uses this API;
+    # the port is published on this computer alone, for debugging.
     ports:
-      - "4001:4001"
+      - "127.0.0.1:4001:4001"
     # One MQTT connection per directly connected virtual device.
     ulimits:
       nofile:
@@ -22,19 +28,6 @@ services:
         hard: 65536
     networks:
       - smarthome_net
-    restart: unless-stopped
-
-  simulator-dashboard:
-    build:
-      context: ./frontend
-    container_name: simulator-dashboard
-    ports:
-      - "4000:80"
-    networks:
-      - smarthome_net
-    depends_on:
-      simulator-backend:
-        condition: service_healthy
     restart: unless-stopped
 
 networks:

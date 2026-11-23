@@ -1,39 +1,155 @@
-import { FastifyInstance, FastifyPluginAsync } from 'fastify';
+import { FastifyInstance, FastifyPluginAsync, FastifyRequest } from 'fastify';
+import { bodyFieldKey } from '../../plugins/rateLimit';
 import { typedRouteConfig } from '../../plugins/validation';
 import { accountDetail, disableAccount, enableAccount, giftPlan, listAccounts, signOutAccount } from './accounts';
-import { listAdminActions } from './audit';
-import { adminGuard } from './guard';
+import { listAdminActions, recordAdminAction } from './audit';
+import { adminGuard, STAFF_CLIENT_HEADER, STAFF_CLIENT_IP_HEADER, staffOf } from './guard';
 import { adminAssistant, adminOverview, giftablePlans } from './overview';
 import { cancelPayment, confirmPayment, listPayments } from './payments';
+import { STAFF_PERMISSIONS, STAFF_PRESETS, staffCan } from './permissions';
 import {
     accountActionSchema,
     accountSchema,
     auditSchema,
     cancelPaymentSchema,
     confirmPaymentSchema,
+    createStaffSchema,
     giftPlanSchema,
     listAccountsSchema,
     listPaymentsSchema,
+    ownPasswordSchema,
+    simulatorAuditSchema,
+    staffActionSchema,
+    staffLoginSchema,
+    updateStaffSchema,
 } from './schemas';
+import {
+    actOnStaff,
+    actorOf,
+    changeOwnPassword,
+    createStaff,
+    listOwnSessions,
+    listStaff,
+    loginStaff,
+    logoutStaff,
+    revokeOtherOwnSessions,
+    updateStaff,
+} from './staff';
 
 /**
- * Administration API (docs/architecture/admin.md), for the Simulator's
- * "Quản trị" page only: every route checks the server key first (guard.ts)
- * and every change needs a reason that goes to admin_audit_log.
+ * Administration API (docs/architecture/admin.md), called only by the Admin
+ * Console's backend. Every route checks the server key and the staff
+ * member's session and permission first (guard.ts); every change to a
+ * customer, an order or a staff member goes to admin_audit_log.
  */
+const header = (request: FastifyRequest, name: string) => {
+    const value = request.headers[name];
+    return typeof value === 'string' ? value : undefined;
+};
+
 const adminRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
-    // onRequest, scoped to this plugin: the key is checked before anything
-    // else (even input validation) on every route below.
+    // onRequest, scoped to this plugin: checked before anything else (even
+    // input validation) on every route below.
     app.addHook('onRequest', adminGuard(app));
+    const loginLimit = app.limitBy('staff-login', bodyFieldKey('email'), 10);
 
-    app.get('/admin/overview', async () => ({ success: true, ...(await adminOverview(app)) }));
+    // ── Signing in and the signed-in staff member ──────────────────────────
 
-    app.get('/admin/assistant', async () => ({ success: true, ...(await adminAssistant(app)) }));
+    app.post('/admin/staff/login', {
+        preHandler: [loginLimit],
+        config: typedRouteConfig({ zodSchema: staffLoginSchema, adminPermission: 'none' }),
+    }, async (request) => {
+        const body = request.body as any;
+        return {
+            success: true,
+            ...(await loginStaff(app, {
+                email: body.email, password: body.password,
+                client: header(request, STAFF_CLIENT_HEADER), ip: header(request, STAFF_CLIENT_IP_HEADER),
+            })),
+        };
+    });
 
-    app.get('/admin/plans', async () => ({ success: true, plans: await giftablePlans(app) }));
+    app.post('/admin/staff/logout', {
+        config: { adminPermission: 'signed-in', beforePasswordChange: true },
+    }, async (request) => {
+        await logoutStaff(app, staffOf(request).session_id);
+        return { success: true };
+    });
+
+    app.get('/admin/staff/me', {
+        config: { adminPermission: 'signed-in', beforePasswordChange: true },
+    }, async (request) => {
+        const staff = staffOf(request);
+        return {
+            success: true,
+            staff: {
+                id: staff.id, email: staff.email, full_name: staff.full_name, is_root: staff.is_root,
+                permissions: staff.permissions, must_change_password: staff.must_change_password,
+            },
+        };
+    });
+
+    app.post('/admin/staff/me/password', {
+        config: typedRouteConfig({ zodSchema: ownPasswordSchema, adminPermission: 'signed-in', beforePasswordChange: true }),
+    }, async (request) => {
+        await changeOwnPassword(app, staffOf(request), request.body as any);
+        return { success: true };
+    });
+
+    app.get('/admin/staff/me/sessions', {
+        config: { adminPermission: 'signed-in' },
+    }, async (request) => ({ success: true, sessions: await listOwnSessions(app, staffOf(request)) }));
+
+    app.post('/admin/staff/me/sessions/revoke-others', {
+        config: { adminPermission: 'signed-in' },
+    }, async (request) => ({ success: true, signed_out_sessions: await revokeOtherOwnSessions(app, staffOf(request)) }));
+
+    app.get('/admin/permissions', {
+        config: { adminPermission: 'signed-in' },
+    }, async () => ({ success: true, permissions: STAFF_PERMISSIONS, presets: STAFF_PRESETS }));
+
+    // ── Staff, managed by the root ─────────────────────────────────────────
+
+    app.get('/admin/staff', {
+        config: { adminPermission: 'staff.manage' },
+    }, async () => ({ success: true, staff: await listStaff(app) }));
+
+    app.post('/admin/staff', {
+        config: typedRouteConfig({ zodSchema: createStaffSchema, adminPermission: 'staff.manage' }),
+    }, async (request) => ({ success: true, ...(await createStaff(app, staffOf(request), request.body as any)) }));
+
+    app.patch('/admin/staff/:id', {
+        config: typedRouteConfig({ zodSchema: updateStaffSchema, adminPermission: 'staff.manage' }),
+    }, async (request) => ({
+        success: true,
+        staff: await updateStaff(app, staffOf(request), (request.params as any).id, request.body as any),
+    }));
+
+    app.post('/admin/staff/:id/:action', {
+        config: typedRouteConfig({ zodSchema: staffActionSchema, adminPermission: 'staff.manage' }),
+    }, async (request) => {
+        const params = request.params as any;
+        return {
+            success: true,
+            ...(await actOnStaff(app, staffOf(request), params.id, params.action, (request.body as any).reason)),
+        };
+    });
+
+    // ── Numbers ────────────────────────────────────────────────────────────
+
+    app.get('/admin/overview', { config: { adminPermission: 'overview.view' } },
+        async () => ({ success: true, ...(await adminOverview(app)) }));
+
+    app.get('/admin/assistant', { config: { adminPermission: 'assistant.view' } },
+        async () => ({ success: true, ...(await adminAssistant(app)) }));
+
+    // ── Customers' accounts ────────────────────────────────────────────────
+
+    app.get('/admin/plans', { config: { adminPermission: 'plans.gift' } },
+        async () => ({ success: true, plans: await giftablePlans(app) }));
 
     app.get('/admin/accounts', {
-        config: typedRouteConfig({ zodSchema: listAccountsSchema }),
+        config: typedRouteConfig({ zodSchema: listAccountsSchema, adminPermission: 'accounts.view' }),
     }, async (request) => {
         const query = request.query as any;
         return {
@@ -43,68 +159,81 @@ const adminRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
     });
 
     app.get('/admin/accounts/:id', {
-        config: typedRouteConfig({ zodSchema: accountSchema }),
-    }, async (request) => ({ success: true, ...(await accountDetail(app, (request.params as any).id)) }));
+        config: typedRouteConfig({ zodSchema: accountSchema, adminPermission: 'accounts.view' }),
+    }, async (request) => {
+        const detail = await accountDetail(app, (request.params as any).id);
+        // The account's admin history is part of the log: shown only with audit.view.
+        return { success: true, ...detail, admin_log: staffCan(staffOf(request), 'audit.view') ? detail.admin_log : null };
+    });
 
-    app.post('/admin/accounts/:id/disable', {
-        config: typedRouteConfig({ zodSchema: accountActionSchema }),
-    }, async (request) => ({
-        success: true,
-        ...(await disableAccount(app, (request.params as any).id, (request.body as any).reason)),
-    }));
-
-    app.post('/admin/accounts/:id/enable', {
-        config: typedRouteConfig({ zodSchema: accountActionSchema }),
-    }, async (request) => ({
-        success: true,
-        ...(await enableAccount(app, (request.params as any).id, (request.body as any).reason)),
-    }));
-
-    app.post('/admin/accounts/:id/sign-out', {
-        config: typedRouteConfig({ zodSchema: accountActionSchema }),
-    }, async (request) => ({
-        success: true,
-        ...(await signOutAccount(app, (request.params as any).id, (request.body as any).reason)),
-    }));
+    for (const [path, act] of [
+        ['disable', disableAccount],
+        ['enable', enableAccount],
+        ['sign-out', signOutAccount],
+    ] as const) {
+        app.post(`/admin/accounts/:id/${path}`, {
+            config: typedRouteConfig({ zodSchema: accountActionSchema, adminPermission: 'accounts.manage' }),
+        }, async (request) => ({
+            success: true,
+            ...(await act(app, (request.params as any).id, (request.body as any).reason, actorOf(staffOf(request)))),
+        }));
+    }
 
     app.post('/admin/accounts/:id/gift-plan', {
-        config: typedRouteConfig({ zodSchema: giftPlanSchema }),
+        config: typedRouteConfig({ zodSchema: giftPlanSchema, adminPermission: 'plans.gift' }),
     }, async (request) => ({
         success: true,
-        gift: await giftPlan(app, (request.params as any).id, request.body as any),
+        gift: await giftPlan(app, (request.params as any).id, request.body as any, actorOf(staffOf(request))),
     }));
 
+    // ── Payments ───────────────────────────────────────────────────────────
+
     app.get('/admin/payments', {
-        config: typedRouteConfig({ zodSchema: listPaymentsSchema }),
+        config: typedRouteConfig({ zodSchema: listPaymentsSchema, adminPermission: 'payments.view' }),
     }, async (request) => {
         const query = request.query as any;
         return { success: true, ...(await listPayments(app, { tab: query.tab, page: query.page, pageSize: query.page_size })) };
     });
 
     app.post('/admin/payments/:code/confirm', {
-        config: typedRouteConfig({ zodSchema: confirmPaymentSchema }),
+        config: typedRouteConfig({ zodSchema: confirmPaymentSchema, adminPermission: 'payments.manage' }),
     }, async (request) => ({
         success: true,
-        ...(await confirmPayment(app, (request.params as any).code, request.body as any)),
+        ...(await confirmPayment(app, (request.params as any).code, request.body as any, actorOf(staffOf(request)))),
     }));
 
     app.post('/admin/payments/:code/cancel', {
-        config: typedRouteConfig({ zodSchema: cancelPaymentSchema }),
+        config: typedRouteConfig({ zodSchema: cancelPaymentSchema, adminPermission: 'payments.manage' }),
     }, async (request) => ({
         success: true,
-        ...(await cancelPayment(app, (request.params as any).code, (request.body as any).reason)),
+        ...(await cancelPayment(app, (request.params as any).code, (request.body as any).reason, actorOf(staffOf(request)))),
     }));
 
+    // ── The log ────────────────────────────────────────────────────────────
+
     app.get('/admin/audit', {
-        config: typedRouteConfig({ zodSchema: auditSchema }),
+        config: typedRouteConfig({ zodSchema: auditSchema, adminPermission: 'audit.view' }),
     }, async (request) => {
         const query = request.query as any;
         return {
             success: true,
             ...(await listAdminActions(app.pg, {
-                page: query.page, pageSize: query.page_size, action: query.action, accountId: query.account_id,
+                page: query.page, pageSize: query.page_size, action: query.action,
+                accountId: query.account_id, staffId: query.staff_id,
             })),
         };
+    });
+
+    /** The Console writes here each change a staff member made in the Simulator. */
+    app.post('/admin/audit/simulator', {
+        config: typedRouteConfig({ zodSchema: simulatorAuditSchema, adminPermission: 'simulator.manage' }),
+    }, async (request) => {
+        const body = request.body as any;
+        await recordAdminAction(app.pg, {
+            actor: actorOf(staffOf(request)), action: 'simulator.request', reason: 'Thao tác trong Simulator',
+            details: { method: body.method, path: body.path, status: body.status },
+        });
+        return { success: true };
     });
 };
 

@@ -120,7 +120,7 @@ export async function confirmPayment(
     app: FastifyInstance,
     code: string,
     input: { amount_vnd?: number; reason: string },
-    actor: AdminActor = 'admin',
+    actor: AdminActor,
 ) {
     const result = await confirmOrderManually(
         deps(app), code, input.amount_vnd, auditOrder(actor, 'payment.confirmed', input.reason, input.amount_vnd),
@@ -129,7 +129,7 @@ export async function confirmPayment(
     return { outcome: result.outcome, order: result.order };
 }
 
-export async function cancelPayment(app: FastifyInstance, code: string, reason: string, actor: AdminActor = 'admin') {
+export async function cancelPayment(app: FastifyInstance, code: string, reason: string, actor: AdminActor) {
     const order = await cancelOrderByStaff(deps(app), code, auditOrder(actor, 'payment.cancelled', reason));
     await forgetOverview(app);
     return { order };

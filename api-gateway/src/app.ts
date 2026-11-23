@@ -82,7 +82,7 @@ export function buildApp(): FastifyInstance {
     app.register(assistantRoutes);
     app.register(paymentRoutes);
     app.register(pushRoutes);
-    // Administration for the Simulator's "Quản trị" page (off without ADMIN_API_KEY).
+    // Administration API for the Admin Console (off without ADMIN_API_KEY).
     app.register(adminRoutes);
 
     // Health check cho load balancer / k8s

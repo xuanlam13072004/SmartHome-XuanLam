@@ -7,7 +7,7 @@ import { appendHistory } from '../assistant/memory';
 import { usagePeriod } from '../assistant/quota';
 import { publishSessionsRevoked } from '../auth/sessionEvents';
 import { extendPlan, orderView } from '../payments/service';
-import { listAdminActions, recordAdminAction } from './audit';
+import { type AdminActor, listAdminActions, recordAdminAction } from './audit';
 import { forgetOverview } from './overview';
 
 /**
@@ -241,7 +241,7 @@ async function endSessions(client: PoolClient, accountId: string): Promise<numbe
 }
 
 /** Locks the account: sessions end now, smart features pause, devices keep working. */
-export async function disableAccount(app: FastifyInstance, accountId: string, reason: string) {
+export async function disableAccount(app: FastifyInstance, accountId: string, reason: string, by: AdminActor) {
     const signedOut = await inTransaction(app, async (client) => {
         const account = await lockAccount(client, accountId);
         if (account.status !== 'active') {
@@ -250,7 +250,7 @@ export async function disableAccount(app: FastifyInstance, accountId: string, re
         await client.query(`UPDATE accounts SET status = 'disabled' WHERE id = $1`, [accountId]);
         const count = await endSessions(client, accountId);
         await recordAdminAction(client, {
-            actor: 'admin', action: 'account.disabled', targetAccountId: accountId, targetEmail: account.email,
+            actor: by, action: 'account.disabled', targetAccountId: accountId, targetEmail: account.email,
             reason, details: { signed_out_sessions: count },
         });
         return count;
@@ -261,13 +261,13 @@ export async function disableAccount(app: FastifyInstance, accountId: string, re
 }
 
 /** Unlocks: the customer signs in again; schedules and automations act again from their next occurrence. */
-export async function enableAccount(app: FastifyInstance, accountId: string, reason: string) {
+export async function enableAccount(app: FastifyInstance, accountId: string, reason: string, by: AdminActor) {
     await inTransaction(app, async (client) => {
         const account = await lockAccount(client, accountId);
         if (account.status !== 'disabled') throw httpError(409, 'ACCOUNT_NOT_DISABLED', 'Tài khoản không bị khóa.');
         await client.query(`UPDATE accounts SET status = 'active' WHERE id = $1`, [accountId]);
         await recordAdminAction(client, {
-            actor: 'admin', action: 'account.enabled', targetAccountId: accountId, targetEmail: account.email, reason,
+            actor: by, action: 'account.enabled', targetAccountId: accountId, targetEmail: account.email, reason,
         });
     });
     await forgetOverview(app);
@@ -275,12 +275,12 @@ export async function enableAccount(app: FastifyInstance, accountId: string, rea
 }
 
 /** Signs the account out of every phone and computer (for example after a suspected leak). */
-export async function signOutAccount(app: FastifyInstance, accountId: string, reason: string) {
+export async function signOutAccount(app: FastifyInstance, accountId: string, reason: string, by: AdminActor) {
     const signedOut = await inTransaction(app, async (client) => {
         const account = await lockAccount(client, accountId);
         const count = await endSessions(client, accountId);
         await recordAdminAction(client, {
-            actor: 'admin', action: 'account.signed_out', targetAccountId: accountId, targetEmail: account.email,
+            actor: by, action: 'account.signed_out', targetAccountId: accountId, targetEmail: account.email,
             reason, details: { signed_out_sessions: count },
         });
         return count;
@@ -299,7 +299,12 @@ function vietnamDate(value: Date): string {
  * purchase (the same plan continues from its end; another plan starts now and
  * converts the remaining time). No order or revenue is recorded; the log is.
  */
-export async function giftPlan(app: FastifyInstance, accountId: string, input: { plan_code: string; days: number; reason: string }) {
+export async function giftPlan(
+    app: FastifyInstance,
+    accountId: string,
+    input: { plan_code: string; days: number; reason: string },
+    by: AdminActor,
+) {
     const plan = (await app.pg.query(
         'SELECT code, name FROM assistant_plans WHERE code = $1 AND is_active AND price_vnd > 0',
         [input.plan_code],
@@ -314,7 +319,7 @@ export async function giftPlan(app: FastifyInstance, accountId: string, input: {
         )).rows[0];
         const expiresAt = await extendPlan(client, accountId, plan.code, { days: input.days });
         await recordAdminAction(client, {
-            actor: 'admin', action: 'plan.gifted', targetAccountId: accountId, targetEmail: account.email,
+            actor: by, action: 'plan.gifted', targetAccountId: accountId, targetEmail: account.email,
             reason: input.reason,
             details: {
                 plan_code: plan.code, plan_name: plan.name, days: input.days, expires_at: expiresAt.toISOString(),

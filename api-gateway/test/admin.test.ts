@@ -8,6 +8,8 @@ import accountRoutes from '../src/modules/account/routes';
 import adminRoutes from '../src/modules/admin/routes';
 import { adminKeyMatches, cameThroughTunnel } from '../src/modules/admin/guard';
 import { daySeries, vietnamDays } from '../src/modules/admin/overview';
+import { expandPermissions, staffCan } from '../src/modules/admin/permissions';
+import { createRootStaff, temporaryPassword } from '../src/modules/admin/staff';
 import { readHistory } from '../src/modules/assistant/memory';
 import automationRoutes from '../src/modules/automations/routes';
 import { runDueAutomations } from '../src/modules/automations/firing';
@@ -31,6 +33,18 @@ test('only the configured key, never through the tunnel', () => {
     assert.equal(cameThroughTunnel({ 'cf-ray': '8f0c1-HKG' }), true);
     assert.equal(cameThroughTunnel({ 'cf-connecting-ip': '1.2.3.4' }), true);
     assert.equal(cameThroughTunnel({ host: 'api-gateway:3000' }), false);
+});
+
+test('a manage permission includes its view; only the root manages staff', () => {
+    assert.deepEqual(expandPermissions(['accounts.manage', 'simulator.manage', 'nonsense']),
+        ['accounts.view', 'accounts.manage', 'simulator.view', 'simulator.manage']);
+    assert.deepEqual(expandPermissions(['plans.gift']), ['accounts.view', 'plans.gift']);
+    const accountant = { is_root: false, permissions: expandPermissions(['payments.manage']) };
+    assert.equal(staffCan(accountant, 'payments.view'), true);
+    assert.equal(staffCan(accountant, 'simulator.view'), false);
+    assert.equal(staffCan(accountant, 'staff.manage'), false);
+    assert.equal(staffCan({ is_root: true, permissions: [] }, 'staff.manage'), true);
+    assert.match(temporaryPassword(), /^[a-z2-9]{4}-[a-z2-9]{4}-[a-z2-9]{4}$/);
 });
 
 test('chart days are Vietnam calendar days', () => {
@@ -57,6 +71,28 @@ test.describe('administration API', { skip: skipWithoutMongo }, () => {
     let app: FastifyInstance;
     let mongo: MongoClient;
 
+    const ROOT_EMAIL = 'root@xuanlam.vn';
+    const ROOT_PASSWORD = 'mat-khau-goc-2026';
+    let rootSession = '';
+
+    const login = (email: string, password: string) =>
+        app.inject({ method: 'POST', url: '/admin/staff/login', headers: { 'x-admin-key': KEY }, payload: { email, password } });
+
+    /** Signs in with a temporary password and replaces it, as the Console makes everyone do. */
+    async function signInStaff(email: string, temporary: string, password: string) {
+        const first = await login(email, temporary);
+        assert.equal(first.statusCode, 200, first.body);
+        assert.equal(first.json().staff.must_change_password, true);
+        const session = first.json().session_token as string;
+        const changed = await app.inject({
+            method: 'POST', url: '/admin/staff/me/password',
+            headers: { 'x-admin-key': KEY, 'x-staff-session': session },
+            payload: { current_password: temporary, new_password: password },
+        });
+        assert.equal(changed.statusCode, 200, changed.body);
+        return session;
+    }
+
     test.before(async () => {
         Object.assign(env, { ADMIN_API_KEY: KEY, PAYMENT_MODE: 'mock' });
         db = await createTestDatabase();
@@ -66,6 +102,8 @@ test.describe('administration API', { skip: skipWithoutMongo }, () => {
             [accountRoutes, adminRoutes, sceneRoutes, automationRoutes, paymentRoutes],
             { client: mongo, db: mongo.db(`admin_${Date.now()}`) },
         );
+        const root = await createRootStaff(db.pool, { email: ROOT_EMAIL, full_name: 'Xuân Lâm' });
+        rootSession = await signInStaff(ROOT_EMAIL, root.temporary_password, ROOT_PASSWORD);
     });
     test.after(async () => {
         await app?.mongo.db.dropDatabase().catch(() => undefined);
@@ -74,8 +112,15 @@ test.describe('administration API', { skip: skipWithoutMongo }, () => {
         await db?.drop();
     });
 
-    const admin = (method: 'GET' | 'POST', url: string, payload?: object, headers: Record<string, string> = {}) =>
-        app.inject({ method, url, headers: { 'x-admin-key': KEY, ...headers }, ...(payload ? { payload } : {}) });
+    /** A call from the Console for the signed-in root (or another staff session). */
+    const admin = (method: 'GET' | 'POST' | 'PATCH', url: string, payload?: object, headers: Record<string, string> = {}) =>
+        app.inject({
+            method, url,
+            headers: { 'x-admin-key': KEY, 'x-staff-session': rootSession, ...headers },
+            ...(payload ? { payload } : {}),
+        });
+    const as = (session: string) => (method: 'GET' | 'POST', url: string, payload?: object) =>
+        admin(method, url, payload, { 'x-staff-session': session });
     const call = (user: SignedInUser, method: 'GET' | 'POST', url: string, payload?: object) =>
         app.inject({ method, url, headers: user.headers, ...(payload ? { payload } : {}) });
     const reason = 'Khách báo bị lộ mật khẩu';
@@ -89,9 +134,13 @@ test.describe('administration API', { skip: skipWithoutMongo }, () => {
         assert.equal(tunnel.json().error.code, 'ADMIN_INTERNAL_ONLY');
         // Checked before the input: a bad body without the key is still 401.
         assert.equal((await app.inject({ method: 'POST', url: '/admin/accounts/x/disable', payload: {} })).statusCode, 401);
-        // A customer's own token is not an administration key.
+        // A customer's own token is not an administration key, nor a staff session.
         const customer = await signUp(app);
         assert.equal((await call(customer, 'GET', '/admin/overview')).statusCode, 401);
+        const noSession = await app.inject({ method: 'GET', url: '/admin/overview', headers: { 'x-admin-key': KEY } });
+        assert.equal(noSession.json().error.code, 'STAFF_SESSION_INVALID');
+        const customerAsStaff = await admin('GET', '/admin/overview', undefined, { 'x-staff-session': customer.accessToken });
+        assert.equal(customerAsStaff.statusCode, 401);
 
         env.ADMIN_API_KEY = '';
         try {
@@ -192,7 +241,7 @@ test.describe('administration API', { skip: skipWithoutMongo }, () => {
         const log = (await admin('GET', `/admin/audit?account_id=${owner.id}`)).json();
         assert.deepEqual(log.items.map((item: any) => item.action), ['account.signed_out', 'account.enabled', 'account.disabled']);
         assert.equal(log.items[2].reason, reason);
-        assert.equal(log.items[2].actor, 'admin');
+        assert.deepEqual(log.items[2].actor, { kind: 'staff', id: log.items[2].actor.id, email: ROOT_EMAIL, name: 'Xuân Lâm' });
         assert.equal(log.items[2].account.email, owner.email);
     });
 
@@ -245,6 +294,105 @@ test.describe('administration API', { skip: skipWithoutMongo }, () => {
         ]);
         assert.equal(log.items[2].details.amount_vnd, 20000);
         assert.equal(log.items[1].details.amount_vnd, first.amount_vnd - 20000);
+    });
+
+    test('the root signs in, must replace the temporary password, and is locked out after five wrong ones', async () => {
+        assert.equal((await createRootStaff(db.pool, { email: 'second@xuanlam.vn', full_name: 'Hai' }).catch(error => error)).code,
+            'STAFF_ROOT_EXISTS', 'exactly one root');
+        const wrong = await login(ROOT_EMAIL, 'not the password');
+        assert.equal(wrong.json().error.code, 'STAFF_INVALID_CREDENTIALS');
+        const unknown = await login('nobody@xuanlam.vn', 'whatever');
+        assert.equal(unknown.json().error.code, 'STAFF_INVALID_CREDENTIALS', 'an unknown e-mail looks the same');
+
+        // A new staff member: only "change your password" until they do.
+        const created = (await admin('POST', '/admin/staff', {
+            email: 'Lan@XuanLam.vn', full_name: 'Nguyễn Thị Lan', permissions: ['accounts.manage'],
+        })).json();
+        assert.deepEqual(created.staff.permissions, ['accounts.view', 'accounts.manage']);
+        const first = (await login('lan@xuanlam.vn', created.temporary_password)).json();
+        const lan = as(first.session_token);
+        assert.equal((await lan('GET', '/admin/accounts')).json().error.code, 'STAFF_PASSWORD_CHANGE_REQUIRED');
+        assert.equal((await lan('GET', '/admin/staff/me')).json().staff.must_change_password, true);
+        const weak = await lan('POST', '/admin/staff/me/password', { current_password: created.temporary_password, new_password: 'short' });
+        assert.equal(weak.json().error.code, 'STAFF_PASSWORD_WEAK');
+        assert.equal((await lan('POST', '/admin/staff/me/password', {
+            current_password: created.temporary_password, new_password: 'mat-khau-cua-lan',
+        })).statusCode, 200);
+        assert.equal((await lan('GET', '/admin/accounts')).statusCode, 200);
+
+        for (let attempt = 1; attempt <= 4; attempt += 1) {
+            assert.equal((await login('lan@xuanlam.vn', `wrong-${attempt}`)).statusCode, 401);
+        }
+        const fifth = await login('lan@xuanlam.vn', 'wrong-5');
+        assert.equal(fifth.statusCode, 429);
+        assert.equal((await login('lan@xuanlam.vn', 'mat-khau-cua-lan')).json().error.code, 'STAFF_LOCKED', 'even the right password waits');
+        const sessions = (await lan('GET', '/admin/staff/me/sessions')).json().sessions;
+        assert.ok(sessions.some((item: any) => item.current), 'a session already open keeps working');
+    });
+
+    test('each staff member sees and does only what the root ticked', async () => {
+        const make = async (email: string, permissions: string[]) => {
+            const created = (await admin('POST', '/admin/staff', { email, full_name: email, permissions })).json();
+            return as(await signInStaff(email, created.temporary_password, 'mat-khau-nhan-vien'));
+        };
+        const support = await make('support@xuanlam.vn', ['accounts.manage', 'audit.view']);
+        const accountant = await make('accountant@xuanlam.vn', ['overview.view', 'payments.manage', 'plans.gift']);
+        const engineer = await make('engineer@xuanlam.vn', ['overview.view', 'simulator.manage']);
+        const customer = await signUp(app);
+
+        assert.equal((await support('GET', '/admin/accounts')).statusCode, 200);
+        assert.equal((await support('GET', '/admin/payments')).json().error.code, 'STAFF_FORBIDDEN');
+        assert.equal((await support('GET', '/admin/overview')).statusCode, 403);
+        assert.equal((await support('GET', '/admin/staff')).statusCode, 403, 'only the root manages staff');
+        assert.ok(Array.isArray((await support('GET', `/admin/accounts/${customer.id}`)).json().admin_log));
+        assert.equal((await support('POST', `/admin/accounts/${customer.id}/sign-out`, { reason: 'Khách nhờ đăng xuất' })).statusCode, 200);
+        assert.equal((await support('POST', `/admin/accounts/${customer.id}/gift-plan`, { plan_code: 'basic', days: 7, reason: 'Thử' })).statusCode, 403);
+
+        assert.equal((await accountant('GET', '/admin/payments')).statusCode, 200);
+        assert.equal((await accountant('POST', `/admin/accounts/${customer.id}/disable`, { reason: 'Không được phép' })).statusCode, 403);
+        assert.equal((await accountant('GET', `/admin/accounts/${customer.id}`)).json().admin_log, null, 'no audit.view, no history');
+        const gift = await accountant('POST', `/admin/accounts/${customer.id}/gift-plan`, { plan_code: 'basic', days: 7, reason: 'Bù lỗi thanh toán' });
+        assert.equal(gift.statusCode, 200, gift.body);
+
+        assert.equal((await engineer('GET', '/admin/accounts')).statusCode, 403);
+        assert.equal((await engineer('POST', '/admin/audit/simulator', { method: 'POST', path: '/simulation-runs', status: 202 })).statusCode, 200);
+        assert.equal((await support('POST', '/admin/audit/simulator', { method: 'POST', path: '/simulation-runs', status: 202 })).statusCode, 403);
+
+        const byGift = (await admin('GET', `/admin/audit?action=plan.gifted&account_id=${customer.id}`)).json().items[0];
+        assert.equal(byGift.actor.email, 'accountant@xuanlam.vn');
+        const simulator = (await admin('GET', '/admin/audit?action=simulator.request')).json().items[0];
+        assert.deepEqual([simulator.actor.email, simulator.details.path], ['engineer@xuanlam.vn', '/simulation-runs']);
+    });
+
+    test('the root locks, unlocks, resets and re-scopes staff; nobody touches the root', async () => {
+        const created = (await admin('POST', '/admin/staff', {
+            email: 'minh@xuanlam.vn', full_name: 'Minh', permissions: ['overview.view'],
+        })).json();
+        assert.equal((await admin('POST', '/admin/staff', { email: 'minh@xuanlam.vn', full_name: 'Minh', permissions: [] })).statusCode, 409);
+        const minh = as(await signInStaff('minh@xuanlam.vn', created.temporary_password, 'mat-khau-cua-minh'));
+        const id = created.staff.id as string;
+
+        const widened = (await admin('PATCH', `/admin/staff/${id}`, { permissions: ['payments.manage'] })).json();
+        assert.deepEqual(widened.staff.permissions, ['payments.view', 'payments.manage']);
+        assert.equal((await minh('GET', '/admin/payments')).statusCode, 200, 'new permissions apply at once');
+        assert.equal((await minh('GET', '/admin/overview')).statusCode, 403);
+
+        assert.equal((await admin('POST', `/admin/staff/${id}/disable`, { reason: 'Nghỉ việc' })).json().signed_out_sessions, 1);
+        assert.equal((await minh('GET', '/admin/payments')).json().error.code, 'STAFF_SESSION_INVALID');
+        assert.equal((await login('minh@xuanlam.vn', 'mat-khau-cua-minh')).json().error.code, 'STAFF_DISABLED');
+        assert.equal((await admin('POST', `/admin/staff/${id}/enable`, { reason: 'Quay lại làm' })).statusCode, 200);
+        const reset = (await admin('POST', `/admin/staff/${id}/reset-password`, { reason: 'Quên mật khẩu' })).json();
+        assert.equal((await login('minh@xuanlam.vn', 'mat-khau-cua-minh')).statusCode, 401, 'the old password stops working');
+        assert.equal((await login('minh@xuanlam.vn', reset.temporary_password)).json().staff.must_change_password, true);
+
+        const list = (await admin('GET', '/admin/staff')).json().staff;
+        const root = list.find((item: any) => item.is_root);
+        assert.equal(root.email, ROOT_EMAIL);
+        assert.equal((await admin('POST', `/admin/staff/${root.id}/disable`, { reason: 'Thử khóa admin gốc' })).statusCode, 409);
+        assert.equal((await admin('PATCH', `/admin/staff/${root.id}`, { permissions: [] })).statusCode, 409);
+        const log = (await admin('GET', '/admin/audit?action=staff.disabled')).json().items;
+        assert.equal(log[0].details.staff.email, 'minh@xuanlam.vn');
+        assert.equal(log[0].reason, 'Nghỉ việc');
     });
 
     test('assistant usage without reading any message', async () => {

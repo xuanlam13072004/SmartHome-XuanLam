@@ -1,67 +1,160 @@
-# Administration ("Quản trị")
+# Admin Console
 
-Status: implemented 2026-11-23.
+Status: implemented 2026-11-23. It replaces the "Quản trị" page that used to
+live inside the Simulator dashboard.
 
-The company's page for system numbers and customer support. It lives in the
-Device Simulator dashboard (menu **Quản trị**), the tool the operator already
-runs; customers never see it. There is one operator (the project owner), so
-there are no admin accounts or roles: whoever runs the Simulator is the admin.
-Named staff with limited rights (for example "only plans") can be added later;
-the log already records who acted (`actor`).
+The company's own web app (`admin-console/`, http://localhost:4000):
+system numbers, customer support, payments, and the **Device Simulator as one
+section of it**. Customers never see it. Staff sign in with their own account:
+
+- one **root** admin (the project owner), created on the server with a command;
+- **sub-admins** the root creates in the Console, each with only the
+  permissions the root ticks (for example "payments only", or "Simulator
+  only").
+
+## Pieces
+
+```
+Browser ──cookie sh_console──▶ Admin Console (admin-console/, port 4000)
+                                 ├─ /api/admin/*     ──X-Admin-Key + staff session──▶ API Gateway /admin/*
+                                 └─ /api/simulator/* ──Bearer SIMULATOR_TOKEN───────▶ Simulator backend /api/*
+                                        (both inside the Docker network smarthome_net)
+```
+
+- **Console backend** (`admin-console/backend`, Fastify): signs staff in,
+  keeps the session in an httpOnly cookie, forwards calls and adds the server
+  keys. The keys never reach the browser.
+- **API Gateway** (`api-gateway/src/modules/admin`): the source of truth for
+  staff, sessions and permissions; it checks the permission of every `/admin`
+  call itself.
+- **Simulator backend** (`device-simulator/`): no web page of its own any
+  more. Its API is published on `127.0.0.1:4001` only, for debugging; the
+  Console is its only user.
+- **Web app** (`admin-console/frontend`, React + Vite): built into the same
+  container and served by the backend.
+
+## Staff and permissions
+
+| Permission | Group | Allows |
+|---|---|---|
+| `overview.view` | Tổng quan | numbers and charts |
+| `accounts.view` | Tài khoản khách | search and open customer accounts |
+| `accounts.manage` | Tài khoản khách | lock / unlock, sign out everywhere (includes view) |
+| `payments.view` | Thanh toán | orders and unmatched transfers |
+| `payments.manage` | Thanh toán | confirm money, cancel orders (includes view) |
+| `plans.gift` | Gói | give or extend a plan (includes `accounts.view`) |
+| `assistant.view` | Trợ lý | assistant usage |
+| `audit.view` | Nhật ký | the administration log (also the log inside an account) |
+| `simulator.view` | Simulator | runs, virtual devices and users, operations log |
+| `simulator.manage` | Simulator | load tests, latency probes, controlling virtual devices, the factory (includes view) |
+
+Presets in the form: **Hỗ trợ khách hàng** (`accounts.manage`, `audit.view`),
+**Kế toán** (`overview.view`, `payments.manage`, `plans.gift`), **Kỹ thuật**
+(`overview.view`, `simulator.manage`). The list lives in
+`api-gateway/src/modules/admin/permissions.ts`; the database stores codes as
+text (no CHECK), so adding one later needs no migration.
+
+Rules:
+
+- The **root** has every permission plus `staff.manage` (the "Nhân viên"
+  page), which is never granted to anyone else. Exactly one root exists
+  (unique index). The Console cannot edit, lock or reset the root; the server
+  command can.
+- A sub-admin sees only the menu items of their permissions; the Gateway and
+  the Console refuse the rest (403 `STAFF_FORBIDDEN`) even if called directly.
+- Changing someone's permissions, locking them or resetting their password
+  takes effect at once for `/admin` (checked on every call) and within 10 s for
+  the Simulator section (the Console's short cache).
+- Nobody can act on their own account from "Nhân viên"; "Tài khoản của tôi" is
+  for that.
+
+## Signing in
+
+- E-mail and password (argon2, at least 10 characters). Five wrong passwords
+  lock the account for 15 minutes; unknown e-mails take the same time to
+  answer as known ones.
+- A new staff member, or one whose password the root reset, gets a temporary
+  password (`xxxx-xxxx-xxxx`) shown once; nothing works until it is replaced
+  (`STAFF_PASSWORD_CHANGE_REQUIRED`).
+- Session: a random 32-byte token in the cookie `sh_console` (httpOnly,
+  `SameSite=Strict`, `Secure` with `ADMIN_CONSOLE_COOKIE_SECURE=true`); the
+  database keeps only its SHA-256. It ends after 30 minutes idle or 12 hours;
+  at most 10 sessions per person (the oldest goes).
+- Changing one's password signs out the other sessions; "Tài khoản của tôi"
+  lists one's sessions and can sign the others out. Locking a staff member or
+  resetting their password signs them out everywhere.
+- Two-step verification for the root is planned for later.
 
 ## Who can reach it
 
-```
-Browser ──(Simulator ADMIN_TOKEN)──▶ Simulator backend ──(ADMIN_API_KEY, Docker network)──▶ API Gateway /admin/*
-```
-
-1. **Simulator token**: every `/api` call of the dashboard needs the Simulator's
-   `ADMIN_TOKEN` (unchanged).
-2. **Server key**: the Simulator backend forwards `/api/admin/*` to the Gateway's
-   `/admin/*` and adds `X-Admin-Key: ADMIN_API_KEY`. The key stays on the two
-   servers; the browser never receives it. Only `GET`/`POST` and paths
-   `/admin/<1–3 segments>` are forwarded (`device-simulator/backend/src/api/admin-proxy.ts`).
-3. **Gateway guard** (`api-gateway/src/modules/admin/guard.ts`, an `onRequest`
-   hook on every admin route, before input validation):
+1. **Network**: the Console is published on `127.0.0.1:4000` (this computer).
+   `ADMIN_CONSOLE_HOST=0.0.0.0` in the root `.env` opens it to the LAN. It is
+   never routed through Cloudflare Tunnel.
+2. **Console**: every API call needs the session cookie; every change also
+   needs the header `X-Console-Request: 1`, which another site cannot send
+   (403 `CONSOLE_REQUEST_REQUIRED`). Pages are served with `X-Frame-Options:
+   DENY`. Signing in is only possible through `/api/session/login`.
+3. **Gateway guard** (`guard.ts`, an `onRequest` hook on every admin route):
    - `ADMIN_API_KEY` empty → the API does not exist (404);
-   - request carrying Cloudflare headers (`cf-ray`, `cf-connecting-ip`) → 403
-     `ADMIN_INTERNAL_ONLY`: the API is never reachable from the Internet, only
-     inside the Docker network (`API_GATEWAY_URL=http://api-gateway:3000`);
-   - wrong key → 401 `ADMIN_KEY_INVALID`, constant-time comparison, at most 20
-     wrong keys per minute per address.
+   - Cloudflare headers (`cf-ray`, `cf-connecting-ip`) → 403
+     `ADMIN_INTERNAL_ONLY`: only reachable inside the Docker network;
+   - wrong key → 401 `ADMIN_KEY_INVALID` (constant-time comparison, at most 20
+     wrong keys per minute per address);
+   - then the staff session, the temporary-password rule and the route's
+     permission (`config.adminPermission`; a route that declares none is
+     refused, so a forgotten check cannot open a hole).
    A customer's access token is never accepted on `/admin`.
-4. **Reason**: every change asks for a reason (3–300 characters), written to
-   `admin_audit_log` in the same transaction as the change.
+4. **Simulator**: the Console lets `GET` through with `simulator.view` and
+   everything else with `simulator.manage`, then calls the Simulator with its
+   `ADMIN_TOKEN`. The Simulator trusts nobody else.
+5. **Reason and log**: every change to a customer, plan, payment or staff
+   member asks for a reason (3–300 characters), written to `admin_audit_log`
+   in the same transaction, with who did it.
 
-### Setting it up
+## Setting it up
 
-Create one random key and put the same value in two files (both Git-ignored):
+1. Two values in the root `.env` (Git-ignored):
+   - `ADMIN_API_KEY`: a random key, 32+ characters:
+     `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`
+   - `SIMULATOR_ADMIN_TOKEN`: the same value as `ADMIN_TOKEN` in
+     `device-simulator/.env.docker` (leave empty if the Simulator is not used).
+2. `docker compose up -d --build api-gateway admin-console`
+   (`db-initialize` adds migration 213 first).
+3. Create the root, once:
+   `docker compose exec api-gateway node dist/tools/staff.js create-root <email> "<Họ tên>"`
+   It prints a temporary password.
+4. Open http://localhost:4000, sign in, choose your own password.
+5. Simulator: `docker compose -f device-simulator/docker-compose.yml up -d --build --remove-orphans`
+   (`--remove-orphans` removes the old `simulator-dashboard` container, which
+   also used port 4000).
 
-```powershell
-node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
-```
+Forgotten root password, or root locked out:
+`docker compose exec api-gateway node dist/tools/staff.js reset-root`
+(new temporary password, every root session ends). `staff.js list` shows the
+staff accounts.
 
-- root `.env`: `ADMIN_API_KEY=<key>` → `docker compose up -d api-gateway`
-- `device-simulator/.env.docker`: `ADMIN_API_KEY=<key>` → `docker compose up -d` in `device-simulator/`
+Without `ADMIN_API_KEY` the Console still starts and answers 503
+`CONSOLE_NOT_CONFIGURED` with what to set; without `SIMULATOR_ADMIN_TOKEN` the
+Simulator section is hidden (503 `SIMULATOR_NOT_CONFIGURED`).
 
-If something is missing the page says which side (`ADMIN_NOT_CONFIGURED`,
-Gateway 404, `ADMIN_KEY_INVALID`, `ADMIN_INTERNAL_ONLY`).
+## Pages
 
-## What the page shows and does
-
-| Tab | Shows | Changes |
-|---|---|---|
-| Tổng quan | Accounts (new today / 7 days, active 7 days, locked), devices and online, revenue this month (mock orders not counted), orders to look at, SePay transactions vs limit, assistant tokens; 30-day columns: new accounts, revenue, assistant tokens; devices per product, accounts per plan. Cached 60 s, refreshed every minute. | — |
-| Tài khoản | Search by email, name or device MAC; filters locked / paid plan. Detail: plan and usage, smart features (scenes, schedules, automations), devices (owned and shared, online), open sessions, last orders, admin log of the account. | Lock / unlock, sign out everywhere, give or extend a plan |
-| Thanh toán | Orders part paid, waiting (7 days), paid; transfers no order matched (30 days); SePay counter. | Confirm money received (amount), cancel an order |
-| Trợ lý | Tokens and turns this month by plan, today vs the system ceiling, turns and tokens per day, outcomes (chat, action, clarify, confirm, refused, error), voice vs text, 20 heaviest accounts. | — |
-| Nhật ký | Every change from this page or the CLI, newest first, with reason, filter by action. | — |
+| Menu | Permission | Shows | Changes |
+|---|---|---|---|
+| **Vận hành** · Tổng quan | `overview.view` | Accounts (new today / 7 days, active 7 days, locked), devices and online, revenue this month (mock orders not counted), orders to look at, SePay transactions vs limit, assistant tokens; 30-day columns: new accounts, revenue, assistant tokens; devices per product, accounts per plan. Cached 60 s, refreshed every minute. | — |
+| Tài khoản khách | `accounts.view` | Search by e-mail, name or device MAC; filters locked / paid plan. Detail: plan and usage, smart features, devices (owned and shared, online), open sessions, last orders, the account's admin log (with `audit.view`). | Lock / unlock, sign out everywhere (`accounts.manage`); give or extend a plan (`plans.gift`) |
+| Thanh toán | `payments.view` | Orders part paid, waiting (7 days), paid; transfers no order matched (30 days); SePay counter. | Confirm money received, cancel an order (`payments.manage`) |
+| Trợ lý | `assistant.view` | Tokens and turns this month by plan, today vs the system ceiling, per day, outcomes, voice vs text, 20 heaviest accounts. | — |
+| Nhật ký | `audit.view` | Every change from the Console or the CLI, newest first, with reason and who did it; filter by action. | — |
+| **Simulator** · Kiểm thử tải, Thiết bị ảo, Người dùng ảo, Xưởng sản xuất, Hệ thống Simulator | `simulator.view` | The former Simulator dashboard (`device-simulator/README.md`). With view only, a banner says that buttons will be refused. | Everything with `simulator.manage` |
+| **Công ty** · Nhân viên | root | Staff, their permissions, last sign-in, status (active, locked, waiting for a new password). | Add (temporary password shown once), edit name and permissions, lock / unlock, reset password, sign out |
+| Tài khoản của tôi | everyone | Own permissions and sessions. | Change password, sign out other sessions |
 
 Deliberately **not** possible: reading assistant chats, camera or recordings,
-access history, PINs or passwords; controlling devices; deleting accounts or
-editing their e-mail/name; changing prices or the catalog.
+access history, PINs or passwords; controlling customers' devices; deleting
+accounts or editing their e-mail/name; changing prices or the catalog.
 
-### Locking an account
+### Locking a customer account
 
 `accounts.status = 'disabled'` (an existing state, no schema change):
 
@@ -93,45 +186,91 @@ The customer's app gets the account event `plan_gifted` (snackbar, push
 
 ### Payments
 
-The same functions as `node dist/tools/payments.js confirm|cancel`; the CLI now
-also writes to the log with actor `cli`. Confirming records a manual
+The same functions as `node dist/tools/payments.js confirm|cancel`; the CLI
+writes to the log too (actor "Lệnh CLI"). Confirming records a manual
 transaction and pays or part-pays the order; cancelling tells the customer's app.
 
-## API (Gateway, all behind the guard)
+## The log
+
+`admin_audit_log` keeps the actor kind (`staff` or `cli`), the staff member's
+id and an e-mail snapshot (kept if the staff account is later changed), the
+action, the customer account if any, the reason and details. Actions:
+`account.disabled|enabled|signed_out`, `plan.gifted`,
+`payment.confirmed|cancelled`, `staff.created|updated|disabled|enabled|password_reset|signed_out`
+(the CLI's create-root and reset-root included) and `simulator.request`
+(method, path and status of each Simulator change; the webcam's video chunks
+of virtual cameras are not logged).
+
+## API
+
+Console (`admin-console/backend/src/app.ts`):
 
 | Method | Path | |
 |---|---|---|
-| GET | `/admin/overview` | Tổng quan (cache 60 s) |
-| GET | `/admin/assistant` | Trợ lý (cache 60 s) |
-| GET | `/admin/plans` | Plans that can be given |
-| GET | `/admin/accounts?q=&filter=all\|disabled\|paid&page=` | 50 per page, newest first |
-| GET | `/admin/accounts/:id` | Detail |
-| POST | `/admin/accounts/:id/disable` · `/enable` · `/sign-out` | `{reason}` |
-| POST | `/admin/accounts/:id/gift-plan` | `{plan_code, days, reason}` |
-| GET | `/admin/payments?tab=review\|pending\|paid\|unmatched&page=` | |
-| POST | `/admin/payments/:code/confirm` | `{amount_vnd?, reason}` (default: what is still owed) |
-| POST | `/admin/payments/:code/cancel` | `{reason}` |
-| GET | `/admin/audit?action=&account_id=&page=` | |
+| POST | `/api/session/login` | `{email, password}` → sets the cookie |
+| POST | `/api/session/logout` | ends the session at the Gateway, clears the cookie |
+| GET | `/api/session` | `{staff, simulator}` (who is signed in; is the Simulator connected) |
+| any | `/api/admin/*` | forwarded to the Gateway `/admin/*` |
+| any | `/api/simulator/*` | forwarded to the Simulator `/api/*` (permission checked here) |
+| GET | `/api/health` | `{status, configured}` |
+
+Gateway (all behind the guard; permission in brackets):
+
+| Method | Path | |
+|---|---|---|
+| POST | `/admin/staff/login` | `{email, password}` → session token (only the Console calls it) |
+| POST | `/admin/staff/logout` | [signed in] |
+| GET | `/admin/staff/me` | [signed in] who am I |
+| POST | `/admin/staff/me/password` | [signed in] `{current_password, new_password}` |
+| GET | `/admin/staff/me/sessions` | [signed in] |
+| POST | `/admin/staff/me/sessions/revoke-others` | [signed in] |
+| GET | `/admin/permissions` | [signed in] permissions and presets |
+| GET | `/admin/staff` | [root] |
+| POST | `/admin/staff` | [root] `{email, full_name, permissions}` → `temporary_password` |
+| PATCH | `/admin/staff/:id` | [root] `{full_name?, permissions?}` |
+| POST | `/admin/staff/:id/disable` · `/enable` · `/reset-password` · `/sign-out` | [root] `{reason}` |
+| GET | `/admin/overview` | [`overview.view`] (cache 60 s) |
+| GET | `/admin/assistant` | [`assistant.view`] (cache 60 s) |
+| GET | `/admin/plans` | [`plans.gift`] plans that can be given |
+| GET | `/admin/accounts?q=&filter=all\|disabled\|paid&page=` | [`accounts.view`] 50 per page |
+| GET | `/admin/accounts/:id` | [`accounts.view`] |
+| POST | `/admin/accounts/:id/disable` · `/enable` · `/sign-out` | [`accounts.manage`] `{reason}` |
+| POST | `/admin/accounts/:id/gift-plan` | [`plans.gift`] `{plan_code, days, reason}` |
+| GET | `/admin/payments?tab=review\|pending\|paid\|unmatched&page=` | [`payments.view`] |
+| POST | `/admin/payments/:code/confirm` | [`payments.manage`] `{amount_vnd?, reason}` |
+| POST | `/admin/payments/:code/cancel` | [`payments.manage`] `{reason}` |
+| GET | `/admin/audit?action=&account_id=&staff_id=&page=` | [`audit.view`] |
+| POST | `/admin/audit/simulator` | [`simulator.manage`] the Console's log of a Simulator change |
 
 ## Data
 
-Migration `212_admin.sql` (additive): `admin_audit_log` (actor, action,
-target account and e-mail snapshot, reason, details JSON, time) with indexes by
-time and by account; indexes `accounts(created_at)` and paid
-`payment_orders(paid_at)` for the charts.
+- `212_admin.sql`: `admin_audit_log` with indexes by time and by account;
+  indexes `accounts(created_at)` and paid `payment_orders(paid_at)` for the
+  charts.
+- `213_staff.sql` (additive): `staff_accounts` (e-mail, name, argon2 hash,
+  `is_root` with a unique index for the single root, permissions `text[]`,
+  status, temporary-password flag, failed sign-ins and lock time),
+  `staff_sessions` (token hash, client, address, last use, expiry), and
+  `admin_audit_log.staff_id` / `staff_email`.
 
 ## Load
 
-With 8k accounts and 30k devices every query is indexed or scans a few
-thousand rows; lists are paged (50); overview and assistant numbers are cached
-60 s in Redis and dropped after a change. One operator uses the page, so it
-adds nothing noticeable to the customers' traffic.
+The Console serves a handful of staff, not customers. With 8k accounts and
+30k devices every query is indexed or scans a few thousand rows; lists are
+paged (50); overview and assistant numbers are cached 60 s in Redis and
+dropped after a change. A staff call costs one indexed session lookup
+(`last_used_at` is written at most once a minute).
 
 ## Tests
 
-- `api-gateway/test/admin.test.ts`: key, tunnel and "off" checks; search by
-  e-mail, name, MAC; lock → sessions revoked, `ACCOUNT_LOCKED`, schedules and
-  automations pause, unlock resumes; sign-out; gifts extend like purchases and
-  notify; confirm/cancel with log entries; assistant numbers without messages.
-- `device-simulator/backend/test/admin-proxy.test.ts`: key added, only
-  `/admin` paths, Gateway answers passed through, unreachable Gateway.
+- `api-gateway/test/admin.test.ts`: key, tunnel and "off" checks; root
+  creation, temporary password, lockout after 5 wrong passwords, sessions;
+  every permission against its routes and the root-only ones; staff
+  management and its log; search by e-mail, name, MAC; lock → sessions
+  revoked, `ACCOUNT_LOCKED`, schedules and automations pause, unlock resumes;
+  gifts extend like purchases; confirm/cancel with log entries; assistant
+  numbers without messages; the Simulator log entry.
+- `admin-console/backend/test/console.test.ts`: cookie flags and the token
+  never in a page; the header rule; keys added and cookies removed when
+  forwarding; Simulator permission (view vs manage) and its log; binary bodies
+  and event streams pass through; not configured / no Simulator.

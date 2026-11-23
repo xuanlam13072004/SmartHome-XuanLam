@@ -1,6 +1,0 @@
-node_modules
-dist
-src/assets
-.env
-.hallmark
-npm-debug.log

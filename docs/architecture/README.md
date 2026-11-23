@@ -70,10 +70,13 @@ state, event or time → scene and/or notification) and suggestions:
 
 ## Administration
 
-The company's "Quản trị" page inside the Simulator dashboard: system numbers,
-customer accounts (lock, sign out, give a plan), payments and assistant usage,
-every change with a reason in a log; reached only inside Docker with a
-server-held key: [admin.md](admin.md).
+The Admin Console (`admin-console/`), the company's internal web app: staff
+accounts (one root, sub-admins with the permissions the root ticks), system
+numbers, customer accounts (lock, sign out, give a plan), payments, assistant
+usage, every change with a reason in a log, and the Device Simulator as one
+of its sections. Open on this computer (or the LAN), never through the tunnel;
+it reaches the Gateway's /admin API inside Docker with a server-held key:
+[admin.md](admin.md).
 
 ## Security camera (proposal)
 

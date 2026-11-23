@@ -8,11 +8,12 @@
  * `confirm` is for a transfer you see in the bank app that SePay did not report
  * (or when SePay is not used): it records the amount and activates the plan.
  * Both changes are written to the administration log (actor "cli"), like the
- * same buttons on the Simulator's "Quản trị" page.
+ * same buttons on the Admin Console's "Thanh toán" page.
  */
 import Redis from 'ioredis';
 import { Pool } from 'pg';
 import { env } from '../config/env';
+import { CLI } from '../modules/admin/audit';
 import { auditOrder } from '../modules/admin/payments';
 import { cancelOrderByStaff, confirmOrderManually, sepayTransactionsThisMonth } from '../modules/payments/service';
 
@@ -51,14 +52,14 @@ async function main() {
             await redis.connect().catch(() => undefined);
             const result = await confirmOrderManually(
                 { pg, redis: redis.status === 'ready' ? redis : null, log }, code.toUpperCase(), amount,
-                auditOrder('cli', 'payment.confirmed', 'Xác nhận bằng lệnh payments.js', amount),
+                auditOrder(CLI, 'payment.confirmed', 'Xác nhận bằng lệnh payments.js', amount),
             );
             console.log(`${code}: ${result.outcome}; status ${result.order?.status}, plan until ${result.order?.plan_expires_at ?? '-'}`);
         } else if (command === 'cancel' && code) {
             await redis.connect().catch(() => undefined);
             await cancelOrderByStaff(
                 { pg, redis: redis.status === 'ready' ? redis : null, log }, code.toUpperCase(),
-                auditOrder('cli', 'payment.cancelled', 'Hủy bằng lệnh payments.js'),
+                auditOrder(CLI, 'payment.cancelled', 'Hủy bằng lệnh payments.js'),
             );
             console.log(`${code}: cancelled`);
         } else {

@@ -79,7 +79,7 @@ class _AccountEventListenerState extends ConsumerState<AccountEventListener> {
           _show('Đã kích hoạt gói ${plan ?? 'trợ lý'}', route: AppRoutes.profilePlans);
         }
       case final AccountNotificationEvent notice when notice.event == 'plan_gifted':
-        // The company gave days of a plan (Simulator "Quản trị", docs/architecture/admin.md).
+        // The company gave days of a plan (Admin Console, docs/architecture/admin.md).
         ref.invalidate(assistantUsageProvider);
         final plan = notice.data['plan'] is Map ? Map<String, dynamic>.from(notice.data['plan'] as Map) : const <String, dynamic>{};
         final until = DateTime.tryParse(notice.data['expires_at']?.toString() ?? '');

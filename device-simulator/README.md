@@ -9,8 +9,8 @@ active virtual Hub, switch to direct MQTT fallback when its lease disappears,
 and return to relay after a valid topology update. Operation inputs are checked
 again against the published catalog before state mutation.
 
-Virtual security cameras (`prod_security_camera`) use the dashboard's webcam
-and microphone as their image sensor: the browser encodes H.264 + AAC with
+Virtual security cameras (`prod_security_camera`) use the webcam and
+microphone of the browser showing the Admin Console as their image sensor: the browser encodes H.264 + AAC with
 WebCodecs (Chrome or Edge) and the backend plays the camera firmware, recording
 1-minute CMAF files 24/7 into a virtual SD card (`SIMULATOR_MEDIA_ROOT`, whole-store
 quota `SIMULATOR_MEDIA_QUOTA_BYTES`, default 10 GB, oldest minute recycled first).
@@ -25,11 +25,16 @@ registry stores only a verifier digest, never plaintext PIN material.
 Start the full stack from the repository root:
 
 ```powershell
-docker compose up -d api-gateway real-time-service mqtt-worker-service
-docker compose -f device-simulator/docker-compose.yml up -d --build simulator-backend simulator-dashboard
+docker compose up -d api-gateway real-time-service mqtt-worker-service admin-console
+docker compose -f device-simulator/docker-compose.yml up -d --build --remove-orphans
 ```
 
-Open `http://localhost:4000`. The dashboard has six pages:
+The Simulator has no web page of its own: it is the **Simulator** section of
+the Admin Console (`http://localhost:4000`, docs/architecture/admin.md), shown
+to the root and to staff with the `simulator.view` permission (reading) or
+`simulator.manage` (everything). The root `.env` needs `SIMULATOR_ADMIN_TOKEN`
+equal to this Simulator's `ADMIN_TOKEN` (`.env.docker`). `--remove-orphans`
+removes the old `simulator-dashboard` container. The section has five pages:
 
 - **Kiểm thử tải**: pick a preset (5×2 devices up to 7 500 users × 3–5 devices ≈
   30 000) or set users, devices per user, telemetry period and products, then
@@ -43,17 +48,12 @@ Open `http://localhost:4000`. The dashboard has six pages:
   online devices (latency until the device's result is recorded) or open the
   app's lists; results with p50/p95/p99, errors and the machine, downloadable
   as CSV/JSON (docs/architecture/load-testing.md).
-- **Thiết bị**: server-paged registry of devices (filter by run, product,
+- **Thiết bị ảo**: server-paged registry of devices (filter by run, product,
   status; search name, MAC, serial or owner email).
-- **Người dùng**: simulated accounts; the selected account's app login (email,
+- **Người dùng ảo**: simulated accounts; the selected account's app login (email,
   password on request), devices and actions stay visible beside the list.
 - **Xưởng sản xuất**: manufacture blank devices with QR labels (see below).
-- **Quản trị**: the company's page for every account (real or simulated):
-  system numbers and charts, accounts (lock, sign out everywhere, give a plan),
-  payments (confirm money, cancel), assistant usage and the log of changes.
-  Needs the same `ADMIN_API_KEY` here (`.env.docker`) and in the root `.env`
-  of the main stack (docs/architecture/admin.md).
-- **Hệ thống**: admin token, dependency checks and the operations log.
+- **Hệ thống Simulator**: dependency checks and the operations log.
 
 Automatic runs expire after 24 hours; kept runs remain until explicit cleanup.
 Persistent PostgreSQL and MongoDB data live under `E:\smarthome_data` as
@@ -136,9 +136,10 @@ unpaired devices are not reclaimed. Once generation finishes successfully, the
 run becomes `completed` even if its historical error counter is nonzero.
 Runs already cleaned cannot be recovered by this action.
 
-Both API Gateway and simulator backend must be running before verifying the
-dashboard admin token. HTTP 502/504 indicates the dashboard cannot obtain a
-backend response; an invalid token is reported as HTTP 401.
+The Admin Console reaches the Simulator backend inside the Docker network.
+HTTP 502/504 means it got no answer (Simulator backend not running); 503
+`SIMULATOR_NOT_CONFIGURED` means `SIMULATOR_ADMIN_TOKEN` is empty; 401 from the
+Simulator means the two tokens differ.
 
 ## MQTT identity of virtual devices
 
