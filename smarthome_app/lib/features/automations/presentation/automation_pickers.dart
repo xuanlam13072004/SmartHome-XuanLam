@@ -162,17 +162,18 @@ class _DevicePicker<T> extends ConsumerWidget {
                 if (usable.isEmpty) {
                   return Padding(padding: const EdgeInsets.all(AppSpacing.lg), child: Text(empty));
                 }
-                // Grouped by this account's rooms, in the rooms' order; no room last.
+                // The weather at home first, then by this account's rooms, in the rooms' order; no room last.
                 final order = {for (final room in rooms?.rooms ?? const []) room.id: room.position};
+                int rank(AutomationDevice device) => device.isWeather ? -1 : order[device.roomId] ?? 1 << 20;
                 usable.sort((a, b) {
-                  final left = order[a.roomId] ?? 1 << 20;
-                  final right = order[b.roomId] ?? 1 << 20;
+                  final left = rank(a);
+                  final right = rank(b);
                   return left != right ? left.compareTo(right) : a.name.compareTo(b.name);
                 });
                 final children = <Widget>[];
                 String? group;
                 for (final device in usable) {
-                  final roomName = rooms?.byId(device.roomId)?.name ?? 'Chưa xếp phòng';
+                  final roomName = device.isWeather ? 'Thời tiết' : rooms?.byId(device.roomId)?.name ?? 'Chưa xếp phòng';
                   if (roomName != group) {
                     group = roomName;
                     children.add(Padding(

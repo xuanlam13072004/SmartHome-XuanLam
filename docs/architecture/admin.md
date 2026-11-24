@@ -147,6 +147,7 @@ Simulator section is hidden (503 `SIMULATOR_NOT_CONFIGURED`).
 | Trợ lý | `assistant.view` | Tokens and turns this month by plan, today vs the system ceiling, per day, outcomes, voice vs text, 20 heaviest accounts. | — |
 | Nhật ký | `audit.view` | Every change from the Console or the CLI, newest first, with reason and who did it; filter by action. | — |
 | **Simulator** · Kiểm thử tải, Thiết bị ảo, Người dùng ảo, Xưởng sản xuất, Hệ thống Simulator | `simulator.view` | The former Simulator dashboard (`device-simulator/README.md`). With view only, a banner says that buttons will be refused. | Everything with `simulator.manage` |
+| Thời tiết giả lập | `simulator.view` | The Gateway's weather mode; with `WEATHER_MODE=mock`, the weather set per province or "Mọi nơi" ([weather.md](weather.md)). Talks to the Gateway, so it works without a Simulator. | Set or clear (`simulator.manage`) |
 | **Công ty** · Nhân viên | root | Staff, their permissions, last sign-in, status (active, locked, waiting for a new password). | Add (temporary password shown once), edit name and permissions, lock / unlock, reset password, sign out |
 | Tài khoản của tôi | everyone | Own permissions and sessions. | Change password, sign out other sessions |
 
@@ -197,9 +198,10 @@ id and an e-mail snapshot (kept if the staff account is later changed), the
 action, the customer account if any, the reason and details. Actions:
 `account.disabled|enabled|signed_out`, `plan.gifted`,
 `payment.confirmed|cancelled`, `staff.created|updated|disabled|enabled|password_reset|signed_out`
-(the CLI's create-root and reset-root included) and `simulator.request`
+(the CLI's create-root and reset-root included), `simulator.request`
 (method, path and status of each Simulator change; the webcam's video chunks
-of virtual cameras are not logged).
+of virtual cameras are not logged) and `weather.mock_set|mock_cleared` (area
+and scenario of the mock weather).
 
 ## API
 
@@ -241,6 +243,8 @@ Gateway (all behind the guard; permission in brackets):
 | POST | `/admin/payments/:code/cancel` | [`payments.manage`] `{reason}` |
 | GET | `/admin/audit?action=&account_id=&staff_id=&page=` | [`audit.view`] |
 | POST | `/admin/audit/simulator` | [`simulator.manage`] the Console's log of a Simulator change |
+| GET | `/admin/weather` | [`simulator.view`] weather mode, provinces, mock weather |
+| PUT / DELETE | `/admin/weather/mock`, `/admin/weather/mock/:area` | [`simulator.manage`] set / clear mock weather (`409 WEATHER_NOT_MOCK` unless `WEATHER_MODE=mock`) |
 
 ## Data
 

@@ -23,6 +23,7 @@ import '../../features/notifications/presentation/notifications_screen.dart';
 import '../../features/profile/presentation/delete_account_screen.dart';
 import '../../features/profile/presentation/help_screen.dart';
 import '../../features/profile/presentation/sessions_screen.dart';
+import '../../features/device_stats/data/device_stats.dart';
 import '../../features/device_stats/presentation/device_stats_screen.dart';
 import '../../features/sharing/presentation/device_members_screen.dart';
 import '../../features/sharing/presentation/sharing_screen.dart';
@@ -33,6 +34,7 @@ import '../../features/assistant/presentation/plans_screen.dart';
 import '../../features/payments/presentation/checkout_screen.dart';
 import '../../features/voice/presentation/voice_session_screen.dart';
 import '../../features/debug/presentation/debug_screen.dart';
+import '../../features/weather/presentation/home_location_screen.dart';
 
 import 'app_routes.dart';
 import 'app_shell.dart';
@@ -226,6 +228,10 @@ GoRouter router(Ref ref) {
                     builder: (context, state) => const SessionsScreen(),
                   ),
                   GoRoute(
+                    path: 'home-location',
+                    builder: (context, state) => const HomeLocationScreen(),
+                  ),
+                  GoRoute(
                     path: 'delete-account',
                     builder: (context, state) => const DeleteAccountScreen(),
                   ),
@@ -312,7 +318,10 @@ GoRouter router(Ref ref) {
         pageBuilder: (context, state) => _buildPageWithSlideTransition(
           context,
           state,
-          DeviceStatsScreen(mac: state.pathParameters['mac']!),
+          DeviceStatsScreen(
+            mac: state.pathParameters['mac']!,
+            initialRange: StatsRange.fromApi(state.uri.queryParameters['range']),
+          ),
         ),
       ),
 

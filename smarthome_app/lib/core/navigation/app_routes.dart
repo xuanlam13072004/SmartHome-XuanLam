@@ -31,6 +31,7 @@ abstract final class AppRoutes {
   static const String profileActivity = '/profile/activity';
   static const String profileVoice = '/profile/voice';
   static const String profilePlans = '/profile/plans';
+  static const String profileHomeLocation = '/profile/home-location';
 
   static String paymentCheckoutOf(String code) => '/profile/plans/checkout/$code';
 
@@ -49,7 +50,9 @@ abstract final class AppRoutes {
   static String deviceMembersOf(String mac) => '/device/$mac/members';
   static const String deviceStats = '/device/:mac/stats';
 
-  static String deviceStatsOf(String mac) => '/device/$mac/stats';
+  /// [range]: '24h', '7d' or '30d' to open on (the assistant's history answers).
+  static String deviceStatsOf(String mac, {String? range}) =>
+      range == null ? '/device/$mac/stats' : '/device/$mac/stats?range=${Uri.encodeQueryComponent(range)}';
 
   // Debug Routes
   static const String debugWidgets = '/debug/widgets';

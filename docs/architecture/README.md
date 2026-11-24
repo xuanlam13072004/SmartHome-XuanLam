@@ -1,7 +1,7 @@
 # Current SmartHome architecture
 
 This repository has one active contract: Product Catalog V2 and database schema
-version 211 (baseline 203 + incremental migrations in
+version 214 (baseline 203 + incremental migrations in
 `database/postgres/migrations`). There is no V1 compatibility layer.
 
 ## Authority boundaries
@@ -47,6 +47,14 @@ scene runner, with history and schedules; automations ("Tự động": device
 state, event or time → scene and/or notification) and suggestions:
 [scenes.md](scenes.md).
 
+## Weather
+
+The weather at the account's home (a province or a ward, never GPS) from
+Open-Meteo, kept per 0.1° area and refreshed within a daily call budget:
+weather conditions in automations ("Nếu", never "Khi"), the assistant's
+weather answers, the app's weather line; mock weather set in the Admin
+Console for demos and tests: [weather.md](weather.md).
+
 ## Voice, assistant and plans
 
 - Voice verification ("Giọng nói"): 1:1 check that a recording is the account
@@ -56,7 +64,9 @@ state, event or time → scene and/or notification) and suggestions:
 - Assistant ("Trợ lý"): general chat plus home control; Gemini only proposes
   commands through functions over short ids, the Gateway checks each one and
   runs it through the normal device/scene paths; spoken commands need the
-  verified voice; monthly token allowance per plan: [assistant.md](assistant.md).
+  verified voice; answers about the home's past from facts the server looks
+  up (each number checked) and about the weather at home from the forecast;
+  monthly token allowance per plan: [assistant.md](assistant.md).
 - Payments: VietQR transfers confirmed by the SePay webhook, by hand (CLI) or
   simulated in mock mode; a paid order extends the account's plan:
   [payments.md](payments.md).

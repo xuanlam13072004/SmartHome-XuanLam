@@ -644,6 +644,25 @@ export interface PermissionPreset {
   permissions: string[]
 }
 
+// ── Mock weather ───────────────────────────────────────────────────────────
+
+export type WeatherScenario = 'sunny' | 'rain_soon' | 'raining' | 'heat'
+
+export interface WeatherMock {
+  scenario: WeatherScenario
+  /** °C now; each scenario has its own default. */
+  temperature?: number
+  /** rain_soon: hours until it rains (1–12). */
+  rain_in_hours?: number
+}
+
+export interface AdminWeather {
+  mode: 'off' | 'live' | 'mock'
+  provinces: Array<{ code: string; name: string }>
+  /** 'all' or a province code → what is played there. */
+  mocks: Record<string, WeatherMock>
+}
+
 export interface OwnSession {
   id: string
   client: string | null

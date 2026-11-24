@@ -4,7 +4,8 @@ import { buildHomeContext, type DeviceRow, type HomeContext, withAccount } from 
 /**
  * A sample home for assistant tests and the prompt evaluation: front door,
  * awning, kitchen hazard unit, garden irrigation and a camera, in two rooms,
- * plus two scenes (one protected). Device names are what a user might type,
+ * plus two scenes (one protected), two automations and a home location (Hà Nội, for the weather).
+ * Device names are what a user might type,
  * including one that tries to give the model orders.
  */
 
@@ -59,6 +60,11 @@ export async function fixtureContext(): Promise<HomeContext> {
             { id: '00000000-0000-4000-8000-0000000000a1', name: 'Đi ngủ', protected: false },
             { id: '00000000-0000-4000-8000-0000000000a2', name: 'Ra khỏi nhà', protected: true },
         ],
+        automations: [
+            { id: '00000000-0000-4000-8000-0000000000b1', name: 'Tưới khi đất khô', scene_id: '00000000-0000-4000-8000-0000000000a3' },
+            { id: '00000000-0000-4000-8000-0000000000b2', name: 'Báo khi cửa mở ban đêm', scene_id: null },
+        ],
+        weather: { place: 'Hà Nội' },
         now: new Date('2026-11-21T13:40:00Z'),
     });
     return withAccount(home, {
@@ -68,6 +74,13 @@ export async function fixtureContext(): Promise<HomeContext> {
         plans: FIXTURE_PLANS,
         payments: true,
     });
+}
+
+/** The history id (d…) of the device named [device]. */
+export function historyId(context: HomeContext, device: string): string {
+    const found = context.history.find(item => item.device === device);
+    if (!found) throw new Error(`No history for "${device}"`);
+    return found.id;
 }
 
 /** The id of [label] on the device named [device] in [context]. */

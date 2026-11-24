@@ -134,6 +134,23 @@ class AssistantDraft {
       );
 }
 
+/// A device chart offered next to an answer about the house's history.
+class HistoryChart {
+  const HistoryChart({required this.mac, required this.device, required this.range});
+
+  factory HistoryChart.fromJson(Map<String, dynamic> json) => HistoryChart(
+        mac: json['mac']?.toString() ?? '',
+        device: json['device']?.toString() ?? '',
+        range: json['range']?.toString() ?? '24h',
+      );
+
+  final String mac;
+  final String device;
+
+  /// '24h', '7d' or '30d': the chart period closest to the question.
+  final String range;
+}
+
 class AssistantReply {
   const AssistantReply({
     required this.message,
@@ -145,6 +162,7 @@ class AssistantReply {
     required this.monthlyTokens,
     this.offer,
     this.draft,
+    this.charts = const [],
     this.transcript,
     this.voiceVerified,
   });
@@ -164,6 +182,9 @@ class AssistantReply {
 
   /// A scene or automation to save, waiting for the user's tap.
   final AssistantDraft? draft;
+
+  /// Charts of the devices an answer about the past was looked up for.
+  final List<HistoryChart> charts;
   final int usedTokens;
   final int monthlyTokens;
 
@@ -184,6 +205,10 @@ class AssistantReply {
       options: [for (final item in clarification['options'] as List? ?? const []) item.toString()],
       offer: json['offer'] is Map ? PlanOffer.fromJson(_map(json['offer'])) : null,
       draft: json['draft'] is Map ? AssistantDraft.fromJson(_map(json['draft'])) : null,
+      charts: [
+        for (final item in json['charts'] as List? ?? const [])
+          if (item is Map && item['mac'] != null) HistoryChart.fromJson(_map(item)),
+      ],
       usedTokens: _int(usage['used_tokens']),
       monthlyTokens: _int(usage['monthly_tokens']),
       transcript: json['transcript']?.toString(),

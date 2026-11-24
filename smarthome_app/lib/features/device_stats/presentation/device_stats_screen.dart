@@ -21,16 +21,19 @@ String _clock(DateTime instant) {
 /// "Biểu đồ hoạt động" of one device: readings, events and commands over
 /// the last 24 hours, 7 or 30 days.
 class DeviceStatsScreen extends ConsumerStatefulWidget {
-  const DeviceStatsScreen({super.key, required this.mac});
+  const DeviceStatsScreen({super.key, required this.mac, this.initialRange});
 
   final String mac;
+
+  /// The period shown first (24 hours when not given).
+  final StatsRange? initialRange;
 
   @override
   ConsumerState<DeviceStatsScreen> createState() => _DeviceStatsScreenState();
 }
 
 class _DeviceStatsScreenState extends ConsumerState<DeviceStatsScreen> {
-  StatsRange _range = StatsRange.day;
+  late StatsRange _range = widget.initialRange ?? StatsRange.day;
 
   /// The last numbers shown, kept (dimmed) while another period loads.
   DeviceStats? _previous;

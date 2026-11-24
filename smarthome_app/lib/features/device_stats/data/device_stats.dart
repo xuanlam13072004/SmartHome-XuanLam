@@ -13,6 +13,14 @@ enum StatsRange {
 
   /// "24 giờ qua", "7 ngày qua".
   String get period => '$label qua';
+
+  /// The period of an API value ('24h', '7d', '30d'), null when unknown.
+  static StatsRange? fromApi(String? value) {
+    for (final range in values) {
+      if (range.apiValue == value) return range;
+    }
+    return null;
+  }
 }
 
 /// The Gateway cuts hours and days in Vietnam time (UTC+7, no daylight saving),

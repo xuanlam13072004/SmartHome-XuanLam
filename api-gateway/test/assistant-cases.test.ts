@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseValue, type Plan } from '../src/modules/assistant/planner';
+import { WEATHER_CONDITION_IDS } from '../src/modules/weather/forecast';
+import { WEATHER_WHENS } from '../src/modules/assistant/weatherLookup';
 import { fixtureContext } from './assistant/fixture';
 import { type AssistantCase, scoreCase } from './assistant/score';
 
@@ -11,12 +13,30 @@ const cases: AssistantCase[] = JSON.parse(
     fs.readFileSync(path.join(__dirname, 'assistant', 'cases.json'), 'utf8'),
 ).cases;
 
-test('the prompt test set has about 100 sentences, each valid for the sample home', async () => {
+test('the prompt test set has about 140 sentences, each valid for the sample home', async () => {
     const context = await fixtureContext();
-    assert.ok(cases.length >= 100);
+    assert.ok(cases.length >= 140);
     assert.deepEqual(cases.map(item => item.id), cases.map((_, index) => index + 1));
     for (const item of cases) {
-        assert.ok(['act', 'ask', 'none', 'allow', 'offer', 'draft'].includes(item.expect), `case ${item.id}`);
+        assert.ok(['act', 'ask', 'none', 'allow', 'offer', 'draft', 'history', 'weather'].includes(item.expect), `case ${item.id}`);
+        if (item.expect === 'history') assert.ok(item.lookups?.length, `case ${item.id}: history needs lookups`);
+        if (item.expect === 'weather') assert.ok(item.weather?.length, `case ${item.id}: weather needs forecasts`);
+        for (const lookup of item.weather ?? []) {
+            assert.ok(lookup.when.every(when => (WEATHER_WHENS as readonly string[]).includes(when)), `case ${item.id}`);
+        }
+        for (const condition of item.draft?.weather ?? []) {
+            for (const choice of condition.split('|')) {
+                const match = /^([a-z0-9_]+)(=|>|<)(.+)$/.exec(choice);
+                assert.ok(match && WEATHER_CONDITION_IDS.includes(match[1] as any), `case ${item.id}: ${choice}`);
+            }
+        }
+        for (const lookup of item.lookups ?? []) {
+            assert.ok(lookup.what.every(what => ['events', 'readings', 'commands', 'runs'].includes(what)), `case ${item.id}`);
+            if (lookup.device) assert.ok(context.history.some(device => device.device === lookup.device), `case ${item.id}: ${lookup.device}`);
+            if (lookup.run) {
+                assert.ok([...context.scenes, ...context.automations].some(entry => entry.name === lookup.run), `case ${item.id}: ${lookup.run}`);
+            }
+        }
         assert.equal(item.expect === 'draft', item.draft !== undefined, `case ${item.id}: draft goes with expect "draft"`);
         if (item.expect === 'act') assert.ok((item.actions?.length ?? 0) + (item.scenes?.length ?? 0) > 0, `case ${item.id}`);
         assert.equal(item.expect === 'offer', item.offer !== undefined, `case ${item.id}: offer goes with expect "offer"`);
@@ -45,7 +65,10 @@ test('scoring: anything run that was not expected is a wrong command', async () 
     const context = await fixtureContext();
     const close = context.actions.find(action => action.device === 'Mái che sân sau' && action.label === 'Đóng mái')!;
     const plan = (actions: Plan['actions'], extra: Partial<Plan> = {}): Plan =>
-        ({ text: null, actions, clarification: null, offer: null, draft: null, dropped: [], tokens: 0, blocked: false, ...extra });
+        ({
+            text: null, actions, clarification: null, offer: null, draft: null, lookups: [], weather: [], dropped: [], tokens: 0,
+            blocked: false, ...extra,
+        });
     const closing = plan([{ kind: 'device', action: close, input: {}, quote: 'đóng mái' }]);
     const act: AssistantCase = { id: 1, say: 'đóng mái che', expect: 'act', actions: [{ device: 'Mái che sân sau', label: 'Đóng mái' }] };
     assert.equal(scoreCase(act, closing), 'pass');
@@ -81,6 +104,20 @@ test('scoring: anything run that was not expected is a wrong command', async () 
     assert.equal(scoreCase(morning, drafted('06:00', 300)), 'wrong_draft');
     assert.equal(scoreCase(morning, plan([])), 'missed');
     assert.equal(scoreCase({ id: 9, say: 'có hẹn giờ được không', expect: 'none' }, drafted('06:00', 600)), 'wrong_draft');
+
+    const door = context.history.find(item => item.device === 'Cửa chính')!;
+    const looked = (what: 'events' | 'commands', period: string) => plan([], {
+        lookups: [{ what, device: door, window: { start: new Date(0), end: new Date(1), label: period, days: 1, clipped: false, too_old: false } }] as Plan['lookups'],
+    });
+    const asked: AssistantCase = {
+        id: 10, say: 'hôm qua cửa chính mở mấy lần', expect: 'history', lookups: [{ what: ['events'], device: 'Cửa chính', period: 'hôm qua' }],
+    };
+    assert.equal(scoreCase(asked, looked('events', 'hôm qua (20/11)')), 'pass');
+    assert.equal(scoreCase(asked, looked('commands', 'hôm qua (20/11)')), 'wrong_history');
+    assert.equal(scoreCase(asked, looked('events', 'hôm nay (21/11)')), 'wrong_history');
+    assert.equal(scoreCase(asked, plan([])), 'missed');
+    assert.equal(scoreCase(asked, closing), 'wrong_command');
+    assert.equal(scoreCase({ id: 11, say: 'cửa đang khóa không', expect: 'none' }, looked('events', 'hôm nay')), 'wrong_history');
 });
 
 test('the sample account sees its plan, usage and prices; only paid plans can be offered', async () => {

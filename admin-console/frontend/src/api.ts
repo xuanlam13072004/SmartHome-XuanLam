@@ -5,6 +5,7 @@ import type {
   AdminAssistant,
   AdminAuditItem,
   AdminGiftablePlan,
+  AdminWeather,
   AdminOrder,
   AdminOverview,
   AdminPayments,
@@ -35,6 +36,7 @@ import type {
   SimulatorEvent,
   Staff,
   StaffMember,
+  WeatherMock,
 } from './types'
 
 /** Everything goes to the Admin Console backend on the same origin (docs/architecture/admin.md). */
@@ -496,6 +498,15 @@ export const fetchAdminAudit = (query: { page: number; action?: string; accountI
 
 export const fetchAdminAuditFor = (query: { page: number; staffId: string }) =>
   request<Page<AdminAuditItem>>(`/admin/audit${adminQuery({ page: query.page, staff_id: query.staffId })}`)
+
+// Mock weather (WEATHER_MODE=mock on the Gateway): per province, or 'all'.
+export const fetchAdminWeather = () => request<AdminWeather>('/admin/weather')
+
+export const setAdminWeatherMock = (area: string, mock: WeatherMock) =>
+  request<{ mocks: Record<string, WeatherMock> }>('/admin/weather/mock', { method: 'PUT', body: JSON.stringify({ area, ...mock }) })
+
+export const clearAdminWeatherMock = (area: string) =>
+  request<{ mocks: Record<string, WeatherMock> }>(`/admin/weather/mock/${encodeURIComponent(area)}`, { method: 'DELETE' })
 
 // ── Session and staff ──────────────────────────────────────────────────────
 

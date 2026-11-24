@@ -16,12 +16,14 @@ import {
     shadowValue,
     validComparison,
 } from './catalog';
-import type { AutomationInput } from './schemas';
+import type { AutomationInput, DeviceConditionInput } from './schemas';
+import { findWeatherCondition, validWeatherComparison, weatherConditionOptions } from '../weather/forecast';
+import { ensureForecast, homeLocation, weatherEnabled } from '../weather/service';
 
 /**
  * Automations ("Tự động"): Khi (a device state, a device event or a time) →
- * Nếu (up to 3 device states, an active window) → Thì (run a scene and/or
- * notify the account). Saving checks everything against the caller's devices
+ * Nếu (up to 3 device states or weather at home, an active window) → Thì (run
+ * a scene and/or notify the account). Saving checks everything against the caller's devices
  * and the catalog; the engine (workers/automationEngine.ts, firing.ts) runs them.
  */
 
@@ -55,6 +57,8 @@ type TriggerView =
     | { kind: 'time'; time: string; days: number[] };
 
 interface ConditionView {
+    /** 'weather': the weather at the account's home (device is null, property 'weather.<id>'). */
+    kind: 'device' | 'weather';
     device: DeviceRef | null;
     property: string;
     label: string;
@@ -80,15 +84,17 @@ export interface AutomationView {
     next_run_at: string | null;
     last_triggered_at: string | null;
     last_result: string | null;
+    /** Why the last occurrence did nothing besides the devices ('weather_unavailable'). */
+    last_skip_reason: string | null;
     last_run_id: string | null;
 }
 
-interface StoredCondition {
-    device_id: string;
-    property: string;
-    operator: Operator;
-    value: unknown;
-}
+export type StoredCondition =
+    | { device_id: string; property: string; operator: Operator; value: unknown; kind?: undefined }
+    | { kind: 'weather'; weather: string; operator: Operator; value: unknown };
+
+export const isWeatherCondition = (condition: StoredCondition): condition is Extract<StoredCondition, { kind: 'weather' }> =>
+    condition.kind === 'weather';
 
 const PROTECTED_SCENE = () => httpError(400, 'SCENE_PROTECTED_STEPS',
     'A scene with steps that need the password cannot run automatically');
@@ -129,6 +135,13 @@ export function translate(error: any) {
 
 // ── What the pickers offer ─────────────────────────────────────────────────
 
+/** The weather a condition may check, when the account has a home location (null: weather off). */
+export async function weatherOptions(app: FastifyInstance, accountId: string) {
+    if (!weatherEnabled()) return null;
+    const location = await homeLocation(app, accountId);
+    return { place: location?.place ?? null, conditions: weatherConditionOptions() };
+}
+
 /** Every device the caller can see, with the states and events an automation may use. */
 export async function listAutomationOptions(app: FastifyInstance, accountId: string) {
     const result = await app.pg.query(
@@ -165,7 +178,7 @@ const VIEW_COLUMNS = `automation.id, automation.name, automation.enabled, automa
     to_char(automation.active_from, 'HH24:MI') AS active_from, to_char(automation.active_to, 'HH24:MI') AS active_to,
     automation.scene_id, scene.name AS scene_name, automation.notify_message, automation.cooldown_seconds,
     automation.suggestion, automation.next_run_at, automation.last_triggered_at, automation.last_result,
-    automation.last_run_id`;
+    automation.last_skip_reason, automation.last_run_id`;
 
 /** The account's automations, oldest first (or just [automationId]). */
 export async function listAutomations(
@@ -184,10 +197,16 @@ export async function listAutomations(
     if (rows.length === 0) return [];
 
     const deviceIds = new Set<string>();
+    let weather = false;
     for (const row of rows) {
         if (row.trigger_device_id) deviceIds.add(row.trigger_device_id);
-        for (const condition of row.conditions as StoredCondition[]) deviceIds.add(condition.device_id);
+        for (const condition of row.conditions as StoredCondition[]) {
+            if (isWeatherCondition(condition)) weather = true;
+            else deviceIds.add(condition.device_id);
+        }
     }
+    // A weather condition works while the account has a home location.
+    const weatherAvailable = weather && weatherEnabled() && Boolean(await homeLocation(app, accountId));
     const devices = new Map((await app.pg.query(
         `SELECT device.id, device.mac, device.name, device.product_id, device.catalog_revision,
                 device.is_active AND membership.account_id IS NOT NULL AS accessible
@@ -213,6 +232,7 @@ export async function listAutomations(
         const { ref, product, accessible } = describe(deviceId);
         const property = product ? findProperty(product, path, use) : null;
         return {
+            kind: 'device' as const,
             device: ref,
             property: path,
             label: property?.label ?? path,
@@ -228,8 +248,8 @@ export async function listAutomations(
         let trigger: TriggerView;
         if (row.trigger_kind === 'state') {
             trigger = {
-                kind: 'state',
                 ...stateView(row.trigger_device_id, row.trigger_property, row.trigger_operator, row.trigger_value, 'trigger'),
+                kind: 'state',
             };
         } else if (row.trigger_kind === 'event') {
             const { ref, product, accessible } = describe(row.trigger_device_id);
@@ -251,9 +271,23 @@ export async function listAutomations(
             name: row.name,
             enabled: row.enabled,
             trigger,
-            conditions: (row.conditions as StoredCondition[]).map(condition => stateView(
-                condition.device_id, condition.property, condition.operator, condition.value, 'condition',
-            )),
+            conditions: (row.conditions as StoredCondition[]).map((condition): ConditionView => {
+                if (!isWeatherCondition(condition)) {
+                    return stateView(condition.device_id, condition.property, condition.operator, condition.value, 'condition');
+                }
+                const known = findWeatherCondition(condition.weather);
+                return {
+                    kind: 'weather',
+                    device: null,
+                    property: `weather.${condition.weather}`,
+                    label: known?.label ?? condition.weather,
+                    instance_label: 'Thời tiết',
+                    operator: condition.operator,
+                    value: condition.value,
+                    unit: known?.kind === 'number' ? 'celsius' : null,
+                    available: Boolean(known) && weatherAvailable,
+                };
+            }),
             window: row.active_from ? { from: row.active_from, to: row.active_to } : null,
             timezone: row.timezone,
             scene: row.scene_id ? { id: row.scene_id, name: row.scene_name } : null,
@@ -263,6 +297,7 @@ export async function listAutomations(
             next_run_at: row.next_run_at,
             last_triggered_at: row.last_triggered_at,
             last_result: row.last_result,
+            last_skip_reason: row.last_skip_reason,
             last_run_id: row.last_run_id,
         };
     });
@@ -289,7 +324,8 @@ export async function resolveAutomation(
     accountId: string,
     input: AutomationInput,
 ): Promise<ResolvedAutomation> {
-    const macs = new Set(input.conditions.map(condition => condition.mac));
+    const deviceConditions = input.conditions.filter((condition): condition is DeviceConditionInput => 'mac' in condition);
+    const macs = new Set(deviceConditions.map(condition => condition.mac));
     if (input.trigger.kind !== 'time') macs.add(input.trigger.mac);
     const devices = await loadAccessibleDevices(app, [...macs], accountId);
     const productOf = (mac: string, what: string) => {
@@ -319,7 +355,14 @@ export async function resolveAutomation(
         triggerMac = device.mac;
     }
 
-    const conditions = input.conditions.map((condition, index) => {
+    const conditions = input.conditions.map((condition, index): StoredCondition => {
+        if (!('mac' in condition)) {
+            if (!weatherEnabled()) throw httpError(400, 'WEATHER_UNAVAILABLE', 'Weather is not enabled on this server');
+            if (!validWeatherComparison(condition.weather, condition.operator, condition.value)) {
+                throw httpError(400, 'AUTOMATION_CONDITION_INVALID', `Condition ${index + 1}: not a usable comparison`);
+            }
+            return { kind: 'weather', weather: condition.weather, operator: condition.operator, value: condition.value };
+        }
         const { device, product } = productOf(condition.mac, `Condition ${index + 1}`);
         const property = product ? findProperty(product, condition.property, 'condition') : null;
         if (!property || !validComparison(property, condition.operator, condition.value)) {
@@ -332,7 +375,15 @@ export async function resolveAutomation(
             value: condition.value,
         };
     });
+    if (conditions.some(isWeatherCondition) && !(await homeLocation(app, accountId))) {
+        throw httpError(400, 'WEATHER_LOCATION_REQUIRED', 'Set the home location before using the weather');
+    }
     return { input, triggerDeviceId, triggerMac, conditions };
+}
+
+/** Saved with a weather condition: make sure its area's forecast is kept fresh from now on. */
+function watchWeather(app: FastifyInstance, accountId: string, resolved: ResolvedAutomation) {
+    if (resolved.conditions.some(isWeatherCondition)) void ensureForecast(app, accountId);
 }
 
 /** Whether a state trigger already holds (it fires only when it becomes true). */
@@ -420,6 +471,7 @@ export async function createAutomation(app: FastifyInstance, accountId: string, 
     const resolved = await resolveAutomation(app, accountId, input);
     const id = await inTransaction(app, client => insertAutomation(app, client, accountId, resolved));
     await announceChange(app, id);
+    watchWeather(app, accountId, resolved);
     return getAutomation(app, accountId, id);
 }
 
@@ -444,6 +496,7 @@ export async function replaceAutomation(
         if (!updated.rows[0]) throw httpError(404, 'AUTOMATION_NOT_FOUND', 'Automation not found');
     });
     await announceChange(app, automationId);
+    watchWeather(app, accountId, resolved);
     return getAutomation(app, accountId, automationId);
 }
 

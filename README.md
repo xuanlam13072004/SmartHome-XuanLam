@@ -9,12 +9,12 @@ App và backend không phân biệt thiết bị thật hay ảo.
 
 | Thư mục | Vai trò |
 |---|---|
-| `api-gateway/` | REST API (Fastify, TypeScript): tài khoản, thiết bị, chia sẻ, phòng, kịch bản, tự động hóa, giọng nói, trợ lý, thanh toán |
+| `api-gateway/` | REST API (Fastify, TypeScript): tài khoản, thiết bị, chia sẻ, phòng, kịch bản, tự động hóa, thời tiết, giọng nói, trợ lý, thanh toán |
 | `mqtt-worker-service/` | Cầu nối MQTT ↔ backend: lệnh, trạng thái, Hub–Node |
 | `real-time-service/` | WebSocket đẩy sự kiện tới app |
 | `media-relay-service/` | Chuyển tiếp video camera (HLS) |
 | `voice-service/` | Python: xác minh giọng nói, chuyển giọng thành chữ (PhoWhisper) |
-| `database/` | Schema PostgreSQL (baseline 203 + migrations, hiện **213**), catalog sản phẩm, khởi tạo |
+| `database/` | Schema PostgreSQL (baseline 203 + migrations, hiện **214**), catalog sản phẩm, khởi tạo |
 | `admin-console/` | Admin Console: trang web nội bộ của công ty (quản trị, nhân viên và phân quyền, phần Simulator) |
 | `device-simulator/` | Simulator: tạo người dùng và thiết bị ảo qua API công khai (compose riêng; giao diện nằm trong Admin Console) |
 | `smarthome_app/` | Ứng dụng Flutter |
@@ -30,6 +30,9 @@ App và backend không phân biệt thiết bị thật hay ảo.
    - trợ lý: `GEMINI_API_KEY` (Google AI Studio; để trống = tắt trợ lý);
    - thanh toán: mặc định `PAYMENT_MODE=mock` (không tiền thật); tiền thật xem
      `docs/architecture/payments.md`;
+   - thời tiết: mặc định `WEATHER_MODE=live` (Open-Meteo, miễn phí, không cần khóa);
+     `mock` = đặt thời tiết giả lập trong Admin Console để demo, `off` = tắt
+     (`docs/architecture/weather.md`);
    - truy cập từ xa: `CLOUDFLARED_CREDENTIALS_FILE` (`docs/cloudflare-tunnel.md`).
    - thông báo đẩy (không bắt buộc): đặt `secrets/firebase-service-account.json`
      và `smarthome_app/android/app/google-services.json` (`docs/architecture/push.md`).
@@ -63,7 +66,7 @@ cd admin-console/backend; npm test
 cd media-relay-service; npm test
 docker compose run --rm voice-service python -m pytest -q
 cd smarthome_app; flutter test
-cd api-gateway; npm run assistant:eval   # bộ 123 câu với Gemini thật (cần GEMINI_API_KEY)
+cd api-gateway; npm run assistant:eval   # bộ 157 câu với Gemini thật (cần GEMINI_API_KEY)
 ```
 
 ## Tài liệu

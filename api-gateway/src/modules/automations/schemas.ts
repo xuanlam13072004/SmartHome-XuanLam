@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { WEATHER_CONDITION_IDS } from '../weather/forecast';
 
 const mac = z.string().trim().toUpperCase().regex(/^([0-9A-F]{2}:){5}[0-9A-F]{2}$/, 'Invalid MAC address');
 const name = z.string()
@@ -29,7 +30,14 @@ const trigger = z.discriminatedUnion('kind', [
     z.object({ kind: z.literal('time'), time: localTime, days: weekdays }).strict(),
 ]);
 
-const condition = z.object({ mac, property, operator, value }).strict();
+const deviceCondition = z.object({ mac, property, operator, value }).strict();
+// The weather at the account's home (docs/architecture/weather.md): only in "Nếu".
+const weatherCondition = z.object({
+    weather: z.enum(WEATHER_CONDITION_IDS as [string, ...string[]]),
+    operator,
+    value,
+}).strict();
+const condition = z.union([deviceCondition, weatherCondition]);
 
 const definition = z.object({
     name,
@@ -72,3 +80,5 @@ export const applySuggestionSchema = z.object({
 export type AutomationInput = z.infer<typeof definition>;
 export type TriggerInput = z.infer<typeof trigger>;
 export type ConditionInput = z.infer<typeof condition>;
+export type DeviceConditionInput = z.infer<typeof deviceCondition>;
+export type WeatherConditionInput = z.infer<typeof weatherCondition>;

@@ -88,6 +88,7 @@ class AutomationDevice {
     required this.events,
     required this.conditions,
     this.roomId,
+    this.isWeather = false,
   });
 
   final String mac;
@@ -96,6 +97,19 @@ class AutomationDevice {
   final List<AutomationProperty> triggers;
   final List<AutomationEventOption> events;
   final List<AutomationProperty> conditions;
+
+  /// The weather at the account's home: offered like a device, for "Nếu" only.
+  final bool isWeather;
+
+  /// The weather conditions of GET /automations/options (`weather.conditions`) as a device.
+  factory AutomationDevice.weather(String place, List<AutomationProperty> conditions) => AutomationDevice(
+        mac: '',
+        name: 'Thời tiết ở $place',
+        triggers: const [],
+        events: const [],
+        conditions: conditions,
+        isWeather: true,
+      );
 
   factory AutomationDevice.fromJson(Map<String, dynamic> json) => AutomationDevice(
         mac: json['mac'] as String,
@@ -118,6 +132,7 @@ class StateComparison {
     required this.value,
     this.unit,
     this.available = true,
+    this.weather,
   });
 
   final String mac;
@@ -128,37 +143,49 @@ class StateComparison {
   final Object value;
   final String? unit;
 
-  /// False when the device left this account or the catalog no longer offers the state.
+  /// False when the device left this account or the catalog no longer offers
+  /// the state; for the weather, while the account has no home location.
   final bool available;
+
+  /// A weather condition at home (`rain_next_12h`…) instead of a device state.
+  final String? weather;
 
   String get name => property.split('.').last;
 
+  bool get isWeather => weather != null;
+
   factory StateComparison.fromJson(Map<String, dynamic> json) {
     final device = _map(json['device']);
+    final property = json['property'] as String;
+    final weather = json['kind'] == 'weather';
     return StateComparison(
       mac: device['mac'] as String? ?? '',
-      deviceName: device['name'] as String? ?? 'Thiết bị đã gỡ',
-      property: json['property'] as String,
-      label: json['label'] as String? ?? json['property'] as String,
+      deviceName: weather ? 'Thời tiết' : device['name'] as String? ?? 'Thiết bị đã gỡ',
+      property: property,
+      label: json['label'] as String? ?? property,
       operator: json['operator'] as String? ?? 'eq',
       value: json['value'] as Object? ?? '',
       unit: json['unit'] as String?,
       available: json['available'] as bool? ?? true,
+      weather: weather ? property.split('.').last : null,
     );
   }
 
   factory StateComparison.of(AutomationDevice device, AutomationProperty property, String operator, Object value) =>
       StateComparison(
         mac: device.mac,
-        deviceName: device.name,
+        deviceName: device.isWeather ? 'Thời tiết' : device.name,
         property: property.property,
         label: property.label,
         operator: operator,
         value: value,
         unit: property.unit,
+        weather: device.isWeather ? property.name : null,
       );
 
-  Map<String, dynamic> toJson() => {'mac': mac, 'property': property, 'operator': operator, 'value': value};
+  Map<String, dynamic> toJson() => weather != null
+      ? {'weather': weather, 'operator': operator, 'value': value}
+      : {'mac': mac, 'property': property, 'operator': operator, 'value': value};
 }
 
 /// "Khi": a device state, a device event or a time on chosen weekdays.
@@ -261,6 +288,7 @@ class Automation {
     this.nextRunAt,
     this.lastTriggeredAt,
     this.lastResult,
+    this.lastSkipReason,
     this.lastRunId,
   });
 
@@ -284,6 +312,9 @@ class Automation {
 
   /// started · notified · skipped_* · no_action · unavailable · missed
   final String? lastResult;
+
+  /// Why the last time did nothing besides the devices: `weather_unavailable`.
+  final String? lastSkipReason;
   final String? lastRunId;
 
   bool get hasUnavailableParts => !trigger.available || conditions.any((condition) => !condition.available);
@@ -308,6 +339,7 @@ class Automation {
       nextRunAt: _time(json['next_run_at']),
       lastTriggeredAt: _time(json['last_triggered_at']),
       lastResult: json['last_result'] as String?,
+      lastSkipReason: json['last_skip_reason'] as String?,
       lastRunId: json['last_run_id'] as String?,
     );
   }
@@ -330,6 +362,7 @@ class Automation {
         nextRunAt: status.containsKey('next_run_at') ? _time(status['next_run_at']) : nextRunAt,
         lastTriggeredAt: _time(status['last_triggered_at']) ?? lastTriggeredAt,
         lastResult: status['last_result'] as String? ?? lastResult,
+        lastSkipReason: status.containsKey('last_result') ? status['last_skip_reason'] as String? : lastSkipReason,
         lastRunId: status['last_run_id'] as String? ?? lastRunId,
       );
 }
@@ -413,7 +446,7 @@ class AutomationSuggestion {
 
   final String key;
 
-  /// gas_vent · night_lock · night_door · rain_stop · offline
+  /// gas_vent · night_lock · night_door · rain_stop · offline · weather_water · weather_roof
   final String template;
   final String title;
   final String description;

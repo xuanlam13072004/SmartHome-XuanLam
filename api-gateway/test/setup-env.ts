@@ -6,3 +6,5 @@ process.env.PG_USER ||= 'test';
 process.env.PG_PASSWORD ||= 'test';
 process.env.MONGO_URI ||= 'mongodb://127.0.0.1:1';
 process.env.REDIS_URL ||= 'redis://127.0.0.1:1';
+// Tests never call Open-Meteo; the weather tests that need "live" use a local stand-in.
+process.env.WEATHER_MODE ||= 'mock';

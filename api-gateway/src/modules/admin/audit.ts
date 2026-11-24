@@ -18,7 +18,9 @@ export type AdminAction =
     | 'staff.enabled'
     | 'staff.password_reset'
     | 'staff.signed_out'
-    | 'simulator.request';
+    | 'simulator.request'
+    | 'weather.mock_set'
+    | 'weather.mock_cleared';
 
 /** A staff member signed in to the Admin Console, or a tool run inside the Gateway container. */
 export type AdminActor = { kind: 'staff'; id: string; email: string } | { kind: 'cli' };

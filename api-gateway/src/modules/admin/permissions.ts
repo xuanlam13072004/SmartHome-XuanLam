@@ -12,10 +12,10 @@ export const STAFF_PERMISSIONS = [
     { code: 'plans.gift', group: 'Gói', label: 'Tặng/gia hạn gói', implies: ['accounts.view'] },
     { code: 'assistant.view', group: 'Trợ lý', label: 'Xem thống kê trợ lý' },
     { code: 'audit.view', group: 'Nhật ký', label: 'Xem nhật ký quản trị' },
-    { code: 'simulator.view', group: 'Simulator', label: 'Xem lần chạy, thiết bị ảo, người dùng ảo' },
+    { code: 'simulator.view', group: 'Simulator', label: 'Xem lần chạy, thiết bị ảo, người dùng ảo, thời tiết giả lập' },
     {
         code: 'simulator.manage', group: 'Simulator',
-        label: 'Kiểm thử tải, đo độ trễ, điều khiển thiết bị ảo, xưởng sản xuất', implies: ['simulator.view'],
+        label: 'Kiểm thử tải, đo độ trễ, điều khiển thiết bị ảo, xưởng sản xuất, đặt thời tiết giả lập', implies: ['simulator.view'],
     },
 ] as const;
 

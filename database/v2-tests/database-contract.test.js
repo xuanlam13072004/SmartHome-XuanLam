@@ -230,4 +230,9 @@ test('PostgreSQL upgrade steps are numbered after the baseline, additive and tra
     // A phone stops receiving when its session ends; each reminder is sent once.
     assert.match(push, /session_id uuid NOT NULL REFERENCES public\.user_sessions\(id\) ON DELETE CASCADE/);
     assert.match(push, /PRIMARY KEY \(account_id, plan_expires_at, stage\)/);
+    const weather = fs.readFileSync(migrations.find(item => item.name === 'weather').file, 'utf8');
+    // The home is coarse and all or nothing; a weather condition lives in automations.conditions.
+    assert.match(weather, /CONSTRAINT account_preferences_home_complete/);
+    assert.match(weather, /ADD COLUMN last_skip_reason text/);
+    assert.match(weather, /conditions @> '\[\{"kind": "weather"\}\]'/);
 });

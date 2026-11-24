@@ -18,12 +18,23 @@ class AutomationsApi {
     return AutomationList.fromJson(response.data!);
   }
 
-  /// The caller's devices with the states and events an automation may use.
+  /// The caller's devices with the states and events an automation may use,
+  /// then the weather at home (conditions only) once a home location is set.
   Future<List<AutomationDevice>> fetchOptions() async {
     final response = await _dio.get<Map<String, dynamic>>('/automations/options');
-    return (response.data!['devices'] as List)
+    final devices = (response.data!['devices'] as List)
         .map((item) => AutomationDevice.fromJson(Map<String, dynamic>.from(item as Map)))
-        .toList(growable: false);
+        .toList();
+    final weather = response.data!['weather'];
+    if (weather is Map && weather['place'] is String) {
+      devices.add(AutomationDevice.weather(
+        weather['place'] as String,
+        (weather['conditions'] as List? ?? const [])
+            .map((item) => AutomationProperty.fromJson(Map<String, dynamic>.from(item as Map)))
+            .toList(growable: false),
+      ));
+    }
+    return List.unmodifiable(devices);
   }
 
   Future<List<AutomationSuggestion>> fetchSuggestions() async {

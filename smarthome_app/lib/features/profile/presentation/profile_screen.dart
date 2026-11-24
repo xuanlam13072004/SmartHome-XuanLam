@@ -10,6 +10,7 @@ import '../../../core/utils/app_error_mapper.dart';
 import '../../../core/widgets/widgets.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../notifications/providers/notification_providers.dart';
+import '../../weather/providers/weather_providers.dart';
 import '../providers/account_providers.dart';
 import '../widgets/profile_header.dart';
 import '../widgets/profile_section.dart';
@@ -26,6 +27,7 @@ class ProfileScreen extends ConsumerWidget {
     final overview = ref.watch(accountOverviewProvider);
     final themeMode = ref.watch(themeModeProvider);
     final unread = ref.watch(badgesProvider).valueOrNull?.notifications ?? 0;
+    final home = ref.watch(homeWeatherProvider).valueOrNull;
 
     return PageScaffold(
       scrollable: false,
@@ -116,6 +118,18 @@ class ProfileScreen extends ConsumerWidget {
                 ),
               ],
             ),
+            if (home?.enabled != false)
+              ProfileSection(
+                title: 'Nhà',
+                children: [
+                  ProfileTile(
+                    icon: LucideIcons.cloudSun,
+                    title: 'Vị trí nhà & thời tiết',
+                    subtitle: home?.location?.place ?? 'Cho tự động hóa theo mưa, nắng và để hỏi trợ lý',
+                    onTap: () => context.push(AppRoutes.profileHomeLocation),
+                  ),
+                ],
+              ),
             ProfileSection(
               title: 'Cài đặt ứng dụng',
               children: [

@@ -34,7 +34,11 @@ class AutomationCard extends StatelessWidget {
       if (sceneName != null) 'Chạy “$sceneName”',
       if (automation.notifyMessage != null) 'Gửi thông báo',
     ];
-    final last = AutomationLabels.lastResult(automation.lastResult, automation.lastTriggeredAt);
+    final last = AutomationLabels.lastResult(
+      automation.lastResult,
+      automation.lastTriggeredAt,
+      skipReason: automation.lastSkipReason,
+    );
     final next = automation.enabled && automation.nextRunAt != null
         ? 'Lần tới ${SceneLabels.nextRun(automation.nextRunAt!)}'
         : null;

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/config/app_config.dart';
 import '../../../core/core.dart';
+import '../../../core/navigation/app_routes.dart';
 import '../../../core/utils/app_error_mapper.dart';
 import '../../../core/widgets/widgets.dart';
 import '../../profile/widgets/confirm_dialog.dart';
@@ -10,6 +12,7 @@ import '../../scenes/data/scene_models.dart';
 import '../../scenes/presentation/scene_schedules_sheet.dart' show showScheduleEditor;
 import '../../scenes/providers/scenes_providers.dart';
 import '../../scenes/scene_icons.dart';
+import '../../weather/providers/weather_providers.dart';
 import '../automation_labels.dart';
 import '../data/automation_models.dart';
 import '../providers/automations_providers.dart';
@@ -275,6 +278,8 @@ class _AutomationEditorScreenState extends ConsumerState<AutomationEditorScreen>
     final list = ref.watch(automationsProvider).valueOrNull;
     // Loaded early for the pickers.
     ref.watch(automationOptionsProvider);
+    final home = ref.watch(homeWeatherProvider).valueOrNull;
+    final needsHome = home != null && home.enabled && home.location == null;
     final scenes = ref.watch(scenesProvider).valueOrNull?.scenes ?? const <Scene>[];
     final automation = list?.byId(widget.automationId);
     if (_editing && !_loaded && automation != null) _load(automation);
@@ -380,7 +385,9 @@ class _AutomationEditorScreenState extends ConsumerState<AutomationEditorScreen>
                     leading: Icon(Icons.rule_rounded,
                         color: _conditions[index].available ? null : scheme.error),
                     title: Text('${_conditions[index].deviceName}: ${AutomationLabels.comparison(_conditions[index])}'),
-                    subtitle: _conditions[index].available ? null : const Text('Thiết bị không còn dùng được'),
+                    subtitle: _conditions[index].available
+                        ? null
+                        : Text(_conditions[index].isWeather ? 'Chưa đặt vị trí nhà' : 'Thiết bị không còn dùng được'),
                     onTap: _saving ? null : () => _editCondition(index),
                     trailing: IconButton(
                       tooltip: 'Bỏ điều kiện',
@@ -392,7 +399,16 @@ class _AutomationEditorScreenState extends ConsumerState<AutomationEditorScreen>
                   ListTile(
                     leading: const Icon(Icons.add_rounded),
                     title: const Text('Thêm điều kiện'),
+                    subtitle: needsHome ? null : const Text('Trạng thái thiết bị hoặc thời tiết ở nhà'),
                     onTap: _saving ? null : () => _addCondition(maxConditions),
+                  ),
+                if (needsHome)
+                  ListTile(
+                    leading: const Icon(Icons.cloud_outlined),
+                    title: const Text('Dùng thời tiết làm điều kiện'),
+                    subtitle: const Text('Đặt vị trí nhà để thêm "nếu không mưa", "nếu trên 35°C"…'),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: _saving ? null : () => context.push(AppRoutes.profileHomeLocation),
                   ),
                 SwitchListTile(
                   secondary: const Icon(Icons.nightlight_round),

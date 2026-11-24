@@ -5,6 +5,7 @@ import { AssistantTab } from './components/admin/AssistantTab'
 import { AuditTab } from './components/admin/AuditTab'
 import { OverviewTab } from './components/admin/OverviewTab'
 import { PaymentsTab } from './components/admin/PaymentsTab'
+import { WeatherMockTab } from './components/admin/WeatherMockTab'
 import { DeviceDetail } from './components/DeviceDetail'
 import { EventsLog } from './components/EventsLog'
 import { FactoryPage } from './components/factory/FactoryPage'
@@ -22,7 +23,7 @@ import { StaffPage } from './console/StaffPage'
 
 export type MainView =
   | 'overview' | 'accounts' | 'payments' | 'assistant' | 'audit'
-  | 'load' | 'devices' | 'users' | 'factory' | 'system'
+  | 'load' | 'devices' | 'users' | 'factory' | 'weather' | 'system'
   | 'staff' | 'me'
 
 interface NavItem {
@@ -53,6 +54,8 @@ const groups: Array<{ title: string; items: NavItem[] }> = [
       { id: 'devices', label: 'Thiết bị ảo', description: 'Điều khiển, dữ liệu, tem QR', icon: 'device', permission: 'simulator.view', simulator: true },
       { id: 'users', label: 'Người dùng ảo', description: 'Tài khoản đăng nhập app', icon: 'staff', permission: 'simulator.view', simulator: true },
       { id: 'factory', label: 'Xưởng sản xuất', description: 'Thiết bị trắng có tem QR', icon: 'factory', permission: 'simulator.view', simulator: true },
+      // Set on the API Gateway (WEATHER_MODE=mock), so it needs no Simulator connection.
+      { id: 'weather', label: 'Thời tiết giả lập', description: 'Nắng, mưa cho tự động hóa', icon: 'weather', permission: 'simulator.view' },
       { id: 'system', label: 'Hệ thống Simulator', description: 'Hạ tầng, nhật ký vận hành', icon: 'settings', permission: 'simulator.view', simulator: true },
     ],
   },
@@ -111,6 +114,7 @@ function Shell({ access, onSignOut }: { access: ConsoleAccess; onSignOut: () => 
 
   const current = allowed.find((item) => item.id === view) ?? allowed[0]
   const simulatorView = current?.simulator === true
+  const inSimulatorGroup = groups.some((group) => group.title === 'Simulator' && group.items.some((item) => item.id === current?.id))
 
   return (
     <div className="app-shell">
@@ -159,7 +163,7 @@ function Shell({ access, onSignOut }: { access: ConsoleAccess; onSignOut: () => 
       <div className="app-stage">
         <header className="topbar">
           <div>
-            <p>{simulatorView ? 'SIMULATOR' : 'ADMIN CONSOLE'} / {(current?.label ?? '').toUpperCase()}</p>
+            <p>{inSimulatorGroup ? 'SIMULATOR' : 'ADMIN CONSOLE'} / {(current?.label ?? '').toUpperCase()}</p>
             <h1>{deviceMac ? 'Bàn điều khiển thiết bị' : current?.label}</h1>
           </div>
         </header>
@@ -207,6 +211,7 @@ function Shell({ access, onSignOut }: { access: ConsoleAccess; onSignOut: () => 
                 />
               )}
               {view === 'factory' && <FactoryPage enabled={simulatorReady} onSelectDevice={setDeviceMac} />}
+              {view === 'weather' && <WeatherMockTab />}
               {view === 'system' && (
                 <div className="system-page">
                   <PreflightPanel onReadyChange={setSimulatorReady} />

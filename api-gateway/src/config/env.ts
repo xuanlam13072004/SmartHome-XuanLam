@@ -39,6 +39,14 @@ const envSchema = z.object({
     // Tokens per day for the whole system (protects the shared API key), assistant log retention.
     ASSISTANT_DAILY_TOKEN_CAP: z.coerce.number().int().positive().default(3000000),
     ASSISTANT_TURN_RETENTION_DAYS: z.coerce.number().int().min(1).max(365).default(30),
+    // Weather (docs/architecture/weather.md): live = Open-Meteo forecasts (free for non-commercial use,
+    // no key); mock = weather set in the Admin Console (demos, tests); off = no weather at all.
+    WEATHER_MODE: z.enum(['off', 'live', 'mock']).default('live'),
+    WEATHER_API_URL: z.string().url().default('https://api.open-meteo.com/v1'),
+    WEATHER_GEOCODING_URL: z.string().url().default('https://geocoding-api.open-meteo.com/v1'),
+    // How often forecasts in use are refreshed, and the most Open-Meteo calls a day (free limit 10,000).
+    WEATHER_REFRESH_MINUTES: z.coerce.number().int().min(10).max(180).default(30),
+    WEATHER_DAILY_CALL_LIMIT: z.coerce.number().int().min(0).max(100000).default(8000),
     // Payments (docs/architecture/payments.md): off · mock (no real money, for testing) · bank (VietQR).
     PAYMENT_MODE: z.enum(['off', 'mock', 'bank']).default('off'),
     // Receiving account: NAPAS BIN of the bank (6 digits), account number, holder, bank name to show.

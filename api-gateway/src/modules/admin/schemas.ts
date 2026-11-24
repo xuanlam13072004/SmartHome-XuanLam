@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MOCK_SCENARIOS } from '../weather/forecast';
 import { PAYMENT_TABS } from './payments';
 import { PERMISSION_CODES, type StaffPermission } from './permissions';
 
@@ -104,6 +105,23 @@ export const updateStaffSchema = z.object({
 export const staffActionSchema = z.object({
     params: staffParams.extend({ action: z.enum(['disable', 'enable', 'reset-password', 'sign-out']) }),
     body: z.object({ reason }),
+});
+
+// ── Mock weather (WEATHER_MODE=mock) ──────────────────────────────────────
+
+const weatherArea = z.string().regex(/^(all|[a-z][a-z_]{1,39})$/);
+
+export const weatherMockSchema = z.object({
+    body: z.object({
+        area: weatherArea,
+        scenario: z.enum(MOCK_SCENARIOS),
+        temperature: z.number().finite().min(-10).max(50).optional(),
+        rain_in_hours: z.number().int().min(1).max(12).optional(),
+    }).strict(),
+});
+
+export const weatherAreaSchema = z.object({
+    params: z.object({ area: weatherArea }),
 });
 
 export const simulatorAuditSchema = z.object({

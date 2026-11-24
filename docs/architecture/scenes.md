@@ -114,8 +114,12 @@ An automation is **Khi → Nếu → Thì**, personal like scenes
   - `time`: a local time on chosen weekdays (`next_run_at`, the same
     `scene_schedule_next_run` and 15-minute missed rule as schedules).
 - **Nếu** (optional): up to 3 comparisons on the devices' current state
-  (MongoDB shadows), all true, and/or a daily active window
+  (MongoDB shadows) or on the weather at home (rain now or in the next 1/3/6/12
+  hours, temperature now or today's highest, from the stored forecast:
+  [weather.md](weather.md)), all true, and/or a daily active window
   (`automation_window_open(from, to, zone, at)`, 23:00–05:00 crosses midnight).
+  The weather is never a trigger; unknown weather is "not met"
+  (`last_skip_reason = 'weather_unavailable'`).
 - **Thì**: run one of the account's scenes (`insertRun`, trigger `automation`,
   `scene_runs.automation_id`) and/or send the account a notification. Deleting
   the scene leaves the automation without one (`ON DELETE SET NULL (scene_id)`);
@@ -176,6 +180,8 @@ anyway):
 | `night_door` | door position | door opens between 23:00 and 05:00 → notification |
 | `rain_stop` | rain sensor + pump the account may stop | rain detected → scene "Dừng tưới" |
 | `offline` | safety controller or camera | it goes offline → notification |
+| `weather_water` | home location + garden pump the account may run | 6:00 daily, if no rain in 12 hours → water 10 minutes |
+| `weather_roof` | home location + roof the account may close | 17:00 daily, if rain in 6 hours → close the roof + notification |
 
 A suggestion is identified by template and devices (`automations.suggestion`)
 and offered until an automation made from it exists.
@@ -197,8 +203,8 @@ and offered until an automation made from it exists.
 | `GET /scene-runs?scene_id=&before=&limit=` | History, newest first, keyset paged |
 | `GET /scene-runs/:runId` | One run with its steps (`automation: {id, name}` when an automation started it) |
 | `GET /automations` | Automations (trigger, conditions and their `available`, window, scene, notification, last result), limits |
-| `GET /automations/options` | The caller's devices with the states (triggers, conditions) and events an automation may use |
-| `POST /automations` | Create (`AUTOMATION_TRIGGER_INVALID`, `AUTOMATION_CONDITION_INVALID`, `SCENE_PROTECTED_STEPS`, `AUTOMATION_NAME_TAKEN`, `AUTOMATION_LIMIT`) |
+| `GET /automations/options` | The caller's devices with the states (triggers, conditions) and events an automation may use, and `weather: {place, conditions}` |
+| `POST /automations` | Create (`AUTOMATION_TRIGGER_INVALID`, `AUTOMATION_CONDITION_INVALID`, `WEATHER_LOCATION_REQUIRED`, `WEATHER_UNAVAILABLE`, `SCENE_PROTECTED_STEPS`, `AUTOMATION_NAME_TAKEN`, `AUTOMATION_LIMIT`) |
 | `PUT /automations/:id` | Replace the definition (history stays) |
 | `PATCH /automations/:id` `{enabled}` | Turn on/off (on starts from the current state) |
 | `DELETE /automations/:id` | Delete |
@@ -224,7 +230,8 @@ shows the next scheduled run. Rooms and scenes share the reorder sheet
 `smarthome_app/lib/features/automations/`: the "Tự động" tab of the scenes page
 (suggestions with **Thêm**, then the automations with an on/off switch, Khi → Thì
 summary, next time or last result), the editor (Khi: state / event / time; Nếu:
-up to 3 states + active window; Thì: scene and/or notification text; cooldown),
-pickers grouped by room with comparisons built from the catalog. Automation
+up to 3 states or weather conditions + active window; Thì: scene and/or
+notification text; cooldown), pickers grouped by room ("Thời tiết" first once
+the home location is set) with comparisons built from the catalog. Automation
 messages appear in "Thông báo" (and as a snackbar), runs in history as
 "Tự động: <tên>".

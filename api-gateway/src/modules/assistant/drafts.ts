@@ -1,4 +1,5 @@
 import { env } from '../../config/env';
+import { weatherConditionText } from '../weather/forecast';
 import { type Operator, validComparison } from '../automations/catalog';
 import { comparisonLabel, daysLabel, durationLabel, valueLabel } from '../automations/labels';
 import { SCENE_ICONS } from '../scenes/schemas';
@@ -182,6 +183,7 @@ export interface DraftView {
 }
 
 function comparisonText(item: DraftComparison): string {
+    if (item.watch.weather) return `Thời tiết: ${weatherConditionText(item.watch.weather, item.operator, item.value)}`;
     return `${item.watch.device}: ${comparisonLabel(item.watch.label, item.watch.property, item.operator, item.value, item.watch.unit)}`;
 }
 

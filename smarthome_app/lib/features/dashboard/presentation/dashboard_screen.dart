@@ -14,6 +14,7 @@ import '../../rooms/providers/rooms_providers.dart';
 import '../../rooms/room_insights.dart';
 import 'capability_actions.dart';
 import 'qr_scanner_screen.dart';
+import '../../weather/widgets/weather_card.dart';
 
 /// Room chip selected on "Tổng quan": null = all devices.
 final _roomFilterProvider = StateProvider.autoDispose<String?>((ref) => null);
@@ -160,6 +161,9 @@ class DashboardScreen extends ConsumerWidget {
                 ),
               ),
             ),
+
+            // ── Weather at home (or where to set it) ────────────────────────
+            const SliverToBoxAdapter(child: WeatherCard()),
 
             const SliverToBoxAdapter(
               child: SizedBox(height: AppSpacing.lg),

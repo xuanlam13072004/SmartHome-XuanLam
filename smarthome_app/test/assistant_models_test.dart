@@ -142,4 +142,22 @@ void main() {
     expect(scene.automation, isFalse);
     expect(scene.trigger, isNull);
   });
+
+  test('an answer about the past offers the charts of its devices', () {
+    final reply = AssistantReply.fromJson({
+      'message': 'hôm qua cửa mở mấy lần',
+      'reply': 'Hôm qua (22/11) cửa chính được mở 3 lần.',
+      'outcome': 'chat',
+      'actions': const [],
+      'charts': [
+        {'mac': 'AA:00:00:00:00:01', 'device': 'Cửa chính', 'range': '24h'},
+        {'device': 'không có mac'},
+      ],
+      'usage': {'used_tokens': 1400, 'monthly_tokens': 100000, 'plan': 'free'},
+    });
+    expect(reply.charts.single.mac, 'AA:00:00:00:00:01');
+    expect(reply.charts.single.device, 'Cửa chính');
+    expect(reply.charts.single.range, '24h');
+    expect(AssistantReply.fromJson({'reply': 'Chào bạn'}).charts, isEmpty);
+  });
 }

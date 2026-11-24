@@ -102,11 +102,21 @@ abstract final class AutomationLabels {
         _ => kind == 'boolean' ? ':' : 'là',
       };
 
-  /// "Trạng thái cửa là Mở", "Nhiệt độ trên 35°C", "Kết nối: Mất kết nối".
+  /// "Trạng thái cửa là Mở", "Nhiệt độ trên 35°C", "Kết nối: Mất kết nối";
+  /// for the weather "Không mưa trong 12 giờ tới", "Nhiệt độ ngoài trời trên 35°C".
   static String comparison(StateComparison state) {
+    if (state.isWeather) return weather(state.weather!, state.label, state.operator, state.value);
     final kind = state.value is bool ? 'boolean' : state.value is num ? 'number' : 'enum';
     final text = value(state.name, state.value, unit: state.unit);
     return kind == 'boolean' ? '${state.label}: $text' : '${state.label} ${operatorLabel(state.operator, kind)} $text';
+  }
+
+  /// A weather condition in words, as the server and the assistant say it.
+  static String weather(String id, String label, String operator, Object value) {
+    if (value is num) return '$label ${operator == 'gt' ? 'trên' : 'dưới'} ${AutomationLabels.value(id, value, unit: 'celsius')}';
+    if (value == true) return label;
+    if (id == 'rain_now') return 'Trời không mưa';
+    return label.startsWith('Có mưa') ? label.replaceFirst('Có mưa', 'Không mưa') : 'Không: $label';
   }
 
   // ── Events ────────────────────────────────────────────────────────────────
@@ -156,9 +166,12 @@ abstract final class AutomationLabels {
   static String cooldown(int seconds) => seconds >= 3600 ? '${seconds ~/ 3600} giờ' : '${seconds ~/ 60} phút';
 
   /// What happened the last time it was triggered.
-  static String? lastResult(String? result, DateTime? at) {
+  static String? lastResult(String? result, DateTime? at, {String? skipReason}) {
     if (result == null || at == null) return null;
     final when = TimeFormat.relative(at);
+    if (result == 'skipped_conditions' && skipReason == 'weather_unavailable') {
+      return 'Không chạy $when: chưa có dự báo thời tiết cho vị trí nhà';
+    }
     return switch (result) {
       'started' => 'Đã chạy kịch bản $when',
       'notified' => 'Đã gửi thông báo $when',
@@ -180,6 +193,8 @@ abstract final class AutomationLabels {
         'night_door' => Icons.nightlight_rounded,
         'rain_stop' => Icons.umbrella_rounded,
         'offline' => Icons.wifi_off_rounded,
+        'weather_water' => Icons.water_drop_rounded,
+        'weather_roof' => Icons.thunderstorm_rounded,
         _ => Icons.lightbulb_outline_rounded,
       };
 }

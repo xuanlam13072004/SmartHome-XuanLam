@@ -4095,6 +4095,33 @@ dd {
   margin-block: 0;
 }
 
+.weather-mock__form {
+  display: grid;
+  max-width: 44rem;
+  gap: var(--space-lg);
+}
+
+.weather-mock__form select {
+  max-width: 22rem;
+}
+
+.weather-mock__hint {
+  flex-basis: 100%;
+  margin-block-start: var(--space-2xs);
+}
+
+.weather-mock__numbers {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 14rem));
+  gap: var(--space-md);
+}
+
+@media (max-width: 640px) {
+  .weather-mock__numbers {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .console-columns {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

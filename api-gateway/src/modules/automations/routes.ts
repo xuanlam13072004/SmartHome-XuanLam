@@ -14,6 +14,7 @@ import {
     deleteAutomation,
     listAutomationOptions,
     listAutomations,
+    weatherOptions,
     replaceAutomation,
     setAutomationEnabled,
 } from './service';
@@ -42,6 +43,8 @@ const automationRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
     }, async (request) => ({
         success: true,
         devices: await listAutomationOptions(app, accountIdOf(request)),
+        // Weather conditions ("Nếu"): null when the server has no weather; place null = no home location yet.
+        weather: await weatherOptions(app, accountIdOf(request)),
     }));
 
     app.get('/automations/suggestions', {

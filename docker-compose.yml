@@ -153,6 +153,11 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
       GEMINI_THINKING_LEVEL: ${GEMINI_THINKING_LEVEL-low}
+      # Weather at home (docs/architecture/weather.md): live = Open-Meteo (no key),
+      # mock = set in the Admin Console, off = none.
+      WEATHER_MODE: ${WEATHER_MODE:-live}
+      WEATHER_REFRESH_MINUTES: ${WEATHER_REFRESH_MINUTES:-30}
+      WEATHER_DAILY_CALL_LIMIT: ${WEATHER_DAILY_CALL_LIMIT:-8000}
       # Payments (docs/architecture/payments.md). mock = no real money (testing);
       # bank = VietQR to the account below, confirmed by the SePay webhook or by hand.
       PAYMENT_MODE: ${PAYMENT_MODE:-mock}

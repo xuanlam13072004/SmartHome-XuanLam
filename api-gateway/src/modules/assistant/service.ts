@@ -6,10 +6,14 @@ import { createDeviceOperation } from '../device/service';
 import { startRun } from '../scenes/runs';
 import { paymentsAvailable } from '../payments/service';
 import { clearVoiceFailures, recordVoiceFailure, voiceLockState } from '../voice/lockout';
+import { weatherEnabled, weatherForAccount } from '../weather/service';
 import { loadHomeContext, withAccount } from './context';
 import { draftProblemReply, draftReply } from './drafts';
 import { storeDraft } from './draftStore';
 import { type GenerateFn, geminiGenerate } from './gemini';
+import { answerIsGrounded, answerRequest, chartsOf, type HistoryFacts, type HistoryLookup } from './history';
+import { lookUpHistory } from './historyQuery';
+import { answerFallback, type WeatherLookup, weatherFacts, weatherOff } from './weatherLookup';
 import { appendHistory, type PendingAction, peekPending, readHistory, savePending, takePending } from './memory';
 import { type PlanOffer, planTurn, type ProposedAction } from './planner';
 import { addUsage, assertQuota, listPlans, usageSummary } from './quota';
@@ -20,7 +24,9 @@ import { assistantTurns } from '../../metrics/registry';
  * One assistant turn: quota → home context → the model's plan (checked) →
  * voice verification for commands → run through the normal device and scene
  * paths → a reply written by the server. Questions, chat and state answers
- * never run anything.
+ * never run anything. Questions about the past and about the weather at home
+ * are answered from the facts the server looks up (a second model call,
+ * checked against those facts).
  */
 
 export interface VoiceInput {
@@ -129,6 +135,48 @@ function offerLine(offer: OfferView, currentPlan: string): string {
     return `Gói ${offer.plan.name}: ${prices}. Bạn muốn ${verb} ${offer.prices.map(price => term(price.months)).join(' hay ')}?`;
 }
 
+/** What the forecast of the account's home says for each lookup. */
+async function lookUpWeather(app: FastifyInstance, accountId: string, lookups: WeatherLookup[], now: Date): Promise<HistoryFacts[]> {
+    if (lookups.length === 0) return [];
+    if (!weatherEnabled()) return lookups.map(weatherOff);
+    try {
+        const { location, snapshot } = await weatherForAccount(app, accountId);
+        return lookups.map(lookup => weatherFacts(lookup, snapshot, location?.place ?? null, now));
+    } catch (error) {
+        app.log.warn({ error }, 'The assistant could not read the forecast');
+        return lookups.map(weatherOff);
+    }
+}
+
+/**
+ * Looks the history and the forecast up and has the model say it: the answer
+ * may only use numbers from the facts (or the question), else the server's
+ * sentence is used.
+ */
+async function answerFromFacts(
+    app: FastifyInstance,
+    accountId: string,
+    generate: GenerateFn,
+    message: string,
+    lookups: { history: HistoryLookup[]; weather: WeatherLookup[]; now: Date },
+): Promise<{ reply: string; facts: HistoryFacts[]; tokens: number; grounded: boolean }> {
+    const [history, weather] = await Promise.all([
+        Promise.all(lookups.history.map(lookup => lookUpHistory(app, accountId, lookup))),
+        lookUpWeather(app, accountId, lookups.weather, lookups.now),
+    ]);
+    const facts = [...weather, ...history];
+    const fallback = answerFallback(facts);
+    try {
+        const answer = await generate(answerRequest(message, facts));
+        const text = answer.text ? clip(answer.text, 1000) : '';
+        const grounded = Boolean(text) && !answer.blocked && answerIsGrounded(text, facts, message);
+        return { reply: grounded ? text : fallback, facts, tokens: answer.tokens, grounded };
+    } catch (error) {
+        app.log.warn({ error }, 'The assistant could not phrase an answer from facts');
+        return { reply: fallback, facts, tokens: 0, grounded: false };
+    }
+}
+
 const PAYMENTS_CLOSED = 'Hiện ứng dụng chưa mở thanh toán nên chưa mua gói được. Bạn vẫn dùng gói hiện tại bình thường.';
 
 /** Why spoken commands are refused; null when the speaker may give them. */
@@ -171,7 +219,11 @@ export async function runAssistantTurn(
         plan: quota.plan, used_tokens: quota.used_tokens, resets_at: quota.resets_at, plans, payments,
     });
     const plan = await planTurn(generate, { context, history, message });
-    if (plan.tokens > 0) await addUsage(app, accountId, plan.tokens);
+    const looked = !plan.blocked && (plan.lookups.length > 0 || plan.weather.length > 0)
+        ? await answerFromFacts(app, accountId, generate, message, { history: plan.lookups, weather: plan.weather, now: context.now })
+        : null;
+    const tokens = plan.tokens + (looked?.tokens ?? 0);
+    if (tokens > 0) await addUsage(app, accountId, tokens);
 
     const turnId = crypto.randomUUID();
     const results: ActionResult[] = [];
@@ -219,11 +271,15 @@ export async function runAssistantTurn(
             outcome = results.some(item => item.status === 'pending') ? 'confirm'
                 : results.some(item => item.status === 'sent') ? 'action' : 'error';
         }
+        if (looked) reply = [looked.reply, reply].join(' ');
         if (extras.length > 0) reply = [reply, ...extras].join(' ');
         if (confirms) outcome = 'confirm';
     } else if (extras.length > 0) {
-        reply = extras.join(' ');
+        reply = [...(looked ? [looked.reply] : []), ...extras].join(' ');
         outcome = confirms ? 'confirm' : 'chat';
+    } else if (looked) {
+        reply = looked.reply;
+        outcome = 'chat';
     } else if (plan.clarification) {
         reply = plan.clarification.question;
         outcome = 'clarify';
@@ -244,7 +300,10 @@ export async function runAssistantTurn(
 
     await appendHistory(app, accountId, [
         { role: 'user', text: message },
-        { role: 'model', text: reply, ...(outcome === 'clarify' ? { clarify: true } : {}) },
+        {
+            role: 'model', text: reply, ...(outcome === 'clarify' ? { clarify: true } : {}),
+            ...(looked && plan.lookups.length > 0 ? { history: true } : {}),
+        },
     ]);
     await app.pg.query(
         `INSERT INTO assistant_turns (id, account_id, channel, message, reply, outcome, actions, tokens, voice_verified)
@@ -254,7 +313,12 @@ export async function runAssistantTurn(
                 ...results.map(({ pending_id: _, ...rest }) => rest),
                 ...(offer ? [{ kind: 'offer', plan: offer.plan.code, months: offer.months }] : []),
                 ...(draft ? [{ kind: 'draft', draft: draft.kind, name: draft.name }] : []),
-            ]), plan.tokens, voiceVerified],
+                // The place of a weather lookup is not kept (it says where the user lives).
+                ...(looked ? looked.facts.map(item => ({
+                    kind: 'history', what: item.kind, target: item.kind === 'weather' ? null : item.device ?? item.of ?? null,
+                    period: item.period, grounded: looked.grounded,
+                })) : []),
+            ]), tokens, voiceVerified],
     );
     assistantTurns.inc({ channel: input.channel, outcome });
     const usage = await usageSummary(app, accountId);
@@ -267,6 +331,8 @@ export async function runAssistantTurn(
         clarification: outcome === 'clarify' && plan.clarification ? plan.clarification : null,
         offer,
         draft,
+        /** Devices whose activity chart the app offers next to a history answer. */
+        charts: looked ? chartsOf(plan.lookups) : [],
         usage: { used_tokens: usage.used_tokens, monthly_tokens: usage.plan.monthly_tokens, plan: usage.plan.code },
     };
 }

@@ -103,6 +103,23 @@ export function mayBeAutomation(...texts: string[]): boolean {
     return texts.some(text => hasPhrase(tokens(text, true), AUTOMATION_PHRASES));
 }
 
+/** Words of questions about the past ("hôm qua", "lần cuối", "mấy lần", "cao nhất"), tone marks ignored. */
+const HISTORY_PHRASES = [
+    'hom nay', 'hom qua', 'hom kia', 'hom truoc', 'tuan', 'thang', 'lan cuoi', 'gan nhat', 'gan day', 'vua roi', 'vua nay',
+    'may lan', 'bao nhieu lan', 'bao lau', 'khi nao', 'luc nao', 'may gio', 'co ai', 'ai da', 'ai mo', 'ai khoa',
+    'ai bat', 'ai tat', 'cao nhat', 'thap nhat', 'trung binh', 'lich su', 'nhat ky', 'sang nay', 'trua nay',
+    'chieu nay', 'toi nay', 'toi qua', 'dem qua', 'gio qua', 'ngay qua', 'co chay', 'da chay', 'da duoc', 'thong ke',
+];
+
+/** Whether [texts] may ask about what already happened (then the model also gets what history may be looked up). */
+export function mayBeHistory(...texts: string[]): boolean {
+    return texts.some(text => {
+        const words = tokens(text, true);
+        // "đã … chưa" ("vườn đã được tưới chưa?") asks whether something happened.
+        return hasPhrase(words, HISTORY_PHRASES) || (words.includes('da') && words.includes('chua'));
+    });
+}
+
 export function clip(text: string, max: number): string {
     const value = text.replace(/\s+/g, ' ').trim();
     return value.length <= max ? value : `${value.slice(0, max - 1)}…`;

@@ -22,7 +22,13 @@ import {
     staffActionSchema,
     staffLoginSchema,
     updateStaffSchema,
+    weatherAreaSchema,
+    weatherMockSchema,
 } from './schemas';
+import { env } from '../../config/env';
+import { httpError } from '../../utils/httpError';
+import { PROVINCES } from '../weather/provinces';
+import { listMocks, setMock } from '../weather/service';
 import {
     actOnStaff,
     actorOf,
@@ -234,6 +240,51 @@ const adminRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
             details: { method: body.method, path: body.path, status: body.status },
         });
         return { success: true };
+    });
+
+    // ── Mock weather (docs/architecture/weather.md) ─────────────────────────
+    // Only with WEATHER_MODE=mock: demos and tests set the weather of an area
+    // (a province, or every area) instead of waiting for real rain.
+
+    app.get('/admin/weather', {
+        config: { adminPermission: 'simulator.view' },
+    }, async () => ({
+        success: true,
+        mode: env.WEATHER_MODE,
+        provinces: PROVINCES.map(({ code, name }) => ({ code, name })),
+        mocks: env.WEATHER_MODE === 'mock' ? await listMocks(app) : {},
+    }));
+
+    const assertMock = () => {
+        if (env.WEATHER_MODE !== 'mock') {
+            throw httpError(409, 'WEATHER_NOT_MOCK', 'Mock weather needs WEATHER_MODE=mock on the API Gateway');
+        }
+    };
+
+    app.put('/admin/weather/mock', {
+        config: typedRouteConfig({ zodSchema: weatherMockSchema, adminPermission: 'simulator.manage' }),
+    }, async (request) => {
+        assertMock();
+        const { area, ...mock } = request.body as any;
+        await setMock(app, area, mock);
+        await recordAdminAction(app.pg, {
+            actor: actorOf(staffOf(request)), action: 'weather.mock_set', reason: 'Thời tiết giả lập',
+            details: { area, ...mock },
+        });
+        return { success: true, mocks: await listMocks(app) };
+    });
+
+    app.delete('/admin/weather/mock/:area', {
+        config: typedRouteConfig({ zodSchema: weatherAreaSchema, adminPermission: 'simulator.manage' }),
+    }, async (request) => {
+        assertMock();
+        const { area } = request.params as { area: string };
+        await setMock(app, area, null);
+        await recordAdminAction(app.pg, {
+            actor: actorOf(staffOf(request)), action: 'weather.mock_cleared', reason: 'Thời tiết giả lập',
+            details: { area },
+        });
+        return { success: true, mocks: await listMocks(app) };
     });
 };
 

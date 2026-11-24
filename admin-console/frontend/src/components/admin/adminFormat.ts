@@ -59,6 +59,8 @@ export const auditActionLabel: Record<string, string> = {
   'staff.password_reset': 'Đặt lại mật khẩu nhân viên',
   'staff.signed_out': 'Đăng xuất nhân viên',
   'simulator.request': 'Thao tác Simulator',
+  'weather.mock_set': 'Đặt thời tiết giả lập',
+  'weather.mock_cleared': 'Bỏ thời tiết giả lập',
 }
 
 /** Who did it: the staff member's name, a CLI tool, or the page before staff accounts existed. */
@@ -94,6 +96,10 @@ export const auditDetail = (item: AdminAuditItem): string => {
   }
   if (item.action === 'payment.cancelled') return String(details.code)
   if (item.action === 'simulator.request') return `${String(details.method)} ${String(details.path)}`
+  if (item.action.startsWith('weather.')) {
+    const area = details.area === 'all' ? 'Mọi nơi' : String(details.area)
+    return details.scenario ? `${area} · ${String(details.scenario)}` : area
+  }
   const staff = details.staff as { email?: string } | undefined
   if (item.action.startsWith('staff.') && staff?.email) return staff.email
   if (typeof details.signed_out_sessions === 'number') return `${formatNumber(details.signed_out_sessions)} phiên đăng xuất`

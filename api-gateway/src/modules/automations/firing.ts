@@ -9,7 +9,10 @@ import {
 } from '../notifications/accountNotifications';
 import { advanceRun, insertRun } from '../scenes/runs';
 import { skipReason } from '../scenes/schedules';
-import { compare, type Operator, shadowValue } from './catalog';
+import { compareWeather, weatherValue } from '../weather/forecast';
+import { readForecast } from '../weather/service';
+import { compare, shadowValue } from './catalog';
+import { isWeatherCondition, type StoredCondition } from './service';
 
 /**
  * Firing an automation. Every decision happens with the automation's row
@@ -21,9 +24,11 @@ import { compare, type Operator, shadowValue } from './catalog';
  *   next_run_at moves on in the same transaction (like scene schedules).
  * Then: account not locked by the administrator → trigger device still
  * accessible → cooldown over (device triggers) →
- * active window → conditions on the devices' current state → run the scene
- * (insertRun, trigger 'automation') and/or insert the notification. The
- * outcome is recorded in last_result; runs and notifications go out after COMMIT.
+ * active window → conditions on the devices' current state and on the stored
+ * forecast of the account's home (weather unknown = not met, recorded as
+ * last_skip_reason 'weather_unavailable') → run the scene (insertRun, trigger
+ * 'automation') and/or insert the notification. The outcome is recorded in
+ * last_result; runs and notifications go out after COMMIT.
  */
 
 const MISSED_AFTER_MINUTES = 15;
@@ -54,7 +59,7 @@ interface FireRow {
     trigger_kind: 'state' | 'event' | 'time';
     trigger_matched: boolean;
     last_event_id: string | null;
-    conditions: Array<{ device_id: string; property: string; operator: Operator; value: unknown }>;
+    conditions: StoredCondition[];
     scene_id: string | null;
     notify_message: string | null;
     window_open: boolean;
@@ -65,6 +70,8 @@ interface FireRow {
 interface Outcome {
     /** Recorded in last_result; null records nothing (cooldown). */
     result: string | null;
+    /** Recorded in last_skip_reason with a result: why nothing ran besides the devices. */
+    skipReason?: string | null;
     acted: boolean;
     runId: string | null;
     notification: AccountNotificationRow | null;
@@ -72,9 +79,36 @@ interface Outcome {
 
 const NOTHING: Outcome = { result: null, acted: false, runId: null, notification: null };
 
-/** All conditions hold on the devices' current state (a device the account lost access to fails). */
-async function conditionsHold(app: FastifyInstance, client: PoolClient, row: FireRow): Promise<boolean> {
-    if (row.conditions.length === 0) return true;
+/**
+ * Whether all conditions hold: device ones on the devices' current state (a
+ * device the account lost access to fails), weather ones on the stored
+ * forecast of the account's home ('weather_unavailable' when it is unknown).
+ */
+async function conditionsHold(app: FastifyInstance, client: PoolClient, row: FireRow): Promise<true | false | 'weather_unavailable'> {
+    const weather = row.conditions.filter(isWeatherCondition);
+    const devicesOnly = row.conditions.filter(condition => !isWeatherCondition(condition)) as
+        Array<Exclude<StoredCondition, { kind: 'weather' }>>;
+    if (devicesOnly.length > 0 && !(await deviceConditionsHold(app, client, row.account_id, devicesOnly))) return false;
+    if (weather.length === 0) return true;
+    const home = (await client.query(
+        'SELECT home_latitude, home_longitude, home_place FROM account_preferences WHERE account_id = $1',
+        [row.account_id],
+    )).rows[0];
+    const location = home?.home_latitude === null || home?.home_latitude === undefined ? null
+        : { latitude: Number(home.home_latitude), longitude: Number(home.home_longitude), place: home.home_place };
+    const now = new Date();
+    const forecast = await readForecast(app, location, now);
+    const values = weather.map(condition => weatherValue(forecast, condition.weather, now));
+    if (values.some(value => value === undefined)) return 'weather_unavailable';
+    return weather.every((condition, index) => compareWeather(values[index], condition.operator, condition.value));
+}
+
+async function deviceConditionsHold(
+    app: FastifyInstance,
+    client: PoolClient,
+    accountId: string,
+    conditions: Array<Exclude<StoredCondition, { kind: 'weather' }>>,
+): Promise<boolean> {
     const devices = await client.query(
         `SELECT device.id, device.mac FROM device_metadata AS device
          JOIN device_memberships AS membership
@@ -82,15 +116,15 @@ async function conditionsHold(app: FastifyInstance, client: PoolClient, row: Fir
           AND membership.status = 'active'
           AND (membership.expires_at IS NULL OR membership.expires_at > NOW())
          WHERE device.id = ANY($2::uuid[]) AND device.is_active = true`,
-        [row.account_id, row.conditions.map(condition => condition.device_id)],
+        [accountId, conditions.map(condition => condition.device_id)],
     );
     const macs = new Map(devices.rows.map(device => [device.id as string, device.mac as string]));
-    if (row.conditions.some(condition => !macs.has(condition.device_id))) return false;
+    if (conditions.some(condition => !macs.has(condition.device_id))) return false;
     const shadows = await app.mongo.db.collection<any>(env.MONGO_DEVICE_SHADOWS_COLLECTION)
         .find({ _id: { $in: [...new Set(macs.values())] } }, { projection: { instances: 1, diagnostics: 1, is_online: 1 } })
         .toArray();
     const byMac = new Map(shadows.map(shadow => [String(shadow._id), shadow]));
-    return row.conditions.every(condition => compare(
+    return conditions.every(condition => compare(
         shadowValue(byMac.get(macs.get(condition.device_id)!), condition.property),
         condition.operator,
         condition.value,
@@ -104,8 +138,10 @@ async function act(app: FastifyInstance, client: PoolClient, row: FireRow, respe
     if (!row.account_active) return NOTHING;
     if (!row.available) return { ...NOTHING, result: 'unavailable' };
     if (respectCooldown && !row.cooled) return NOTHING;
-    if (!row.window_open || !(await conditionsHold(app, client, row))) {
-        return { ...NOTHING, result: 'skipped_conditions' };
+    if (!row.window_open) return { ...NOTHING, result: 'skipped_conditions' };
+    const held = await conditionsHold(app, client, row);
+    if (held !== true) {
+        return { ...NOTHING, result: 'skipped_conditions', skipReason: held === 'weather_unavailable' ? held : null };
     }
     let result: string | null = null;
     let runId: string | null = null;
@@ -145,12 +181,13 @@ const RECORD = `UPDATE automations
         last_event_id = COALESCE($2, last_event_id),
         last_triggered_at = CASE WHEN $3::text IS NULL THEN last_triggered_at ELSE NOW() END,
         last_result = COALESCE($3, last_result),
+        last_skip_reason = CASE WHEN $3::text IS NULL THEN last_skip_reason ELSE $6::text END,
         last_acted_at = CASE WHEN $4 THEN NOW() ELSE last_acted_at END,
         last_run_id = COALESCE($5, last_run_id),
         next_run_at = CASE WHEN trigger_kind = 'time'
             THEN scene_schedule_next_run(trigger_time, trigger_days, timezone, NOW()) ELSE next_run_at END
     WHERE id = $1
-    RETURNING id, account_id, last_triggered_at, last_result, last_run_id, next_run_at`;
+    RETURNING id, account_id, last_triggered_at, last_result, last_skip_reason, last_run_id, next_run_at`;
 
 interface Fired {
     accountId: string;
@@ -159,13 +196,16 @@ interface Fired {
 }
 
 async function record(client: PoolClient, row: FireRow, outcome: Outcome, eventId: string | null): Promise<Fired> {
-    const updated = (await client.query(RECORD, [row.id, eventId, outcome.result, outcome.acted, outcome.runId])).rows[0];
+    const updated = (await client.query(RECORD, [
+        row.id, eventId, outcome.result, outcome.acted, outcome.runId, outcome.skipReason ?? null,
+    ])).rows[0];
     return {
         accountId: row.account_id,
         status: {
             automation_id: updated.id,
             last_triggered_at: updated.last_triggered_at,
             last_result: updated.last_result,
+            last_skip_reason: updated.last_skip_reason,
             last_run_id: updated.last_run_id,
             next_run_at: updated.next_run_at,
         },

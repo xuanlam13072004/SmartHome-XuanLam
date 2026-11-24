@@ -205,6 +205,28 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
   }
 
   Widget? _footer(ChatEntry entry) {
+    final main = _mainFooter(entry);
+    if (entry.charts.isEmpty) return main;
+    final charts = Wrap(
+      spacing: AppSpacing.xs,
+      runSpacing: AppSpacing.xs,
+      children: [
+        for (final chart in entry.charts)
+          OutlinedButton.icon(
+            icon: const Icon(Icons.insights_rounded, size: 18),
+            label: Text(entry.charts.length == 1 ? 'Xem biểu đồ' : 'Biểu đồ · ${chart.device}'),
+            onPressed: () => context.push(AppRoutes.deviceStatsOf(chart.mac, range: chart.range)),
+          ),
+      ],
+    );
+    if (main == null) return charts;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [main, const SizedBox(height: AppSpacing.sm), charts],
+    );
+  }
+
+  Widget? _mainFooter(ChatEntry entry) {
     if (entry.offer != null) {
       return OfferActions(
         offer: entry.offer!,

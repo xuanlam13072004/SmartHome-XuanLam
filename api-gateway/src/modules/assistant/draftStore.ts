@@ -35,6 +35,11 @@ const comparisonInput = (item: DraftComparison) => ({
     mac: item.watch.mac, property: item.watch.property, operator: item.operator, value: item.value,
 });
 
+/** A condition as the automation API takes it: on a device, or on the weather at home. */
+const conditionInput = (item: DraftComparison): ConditionInput => (item.watch.weather
+    ? { weather: item.watch.weather, operator: item.operator, value: item.value }
+    : comparisonInput(item));
+
 /** Keeps the draft; returns what the app shows. */
 export async function storeDraft(app: Pick<FastifyInstance, 'redis'>, accountId: string, draft: AutomationDraft): Promise<DraftView> {
     const id = crypto.randomBytes(9).toString('base64url');
@@ -53,7 +58,7 @@ export async function storeDraft(app: Pick<FastifyInstance, 'redis'>, accountId:
             trigger: trigger.kind === 'time' ? { kind: 'time', time: trigger.time, days: trigger.days }
                 : trigger.kind === 'state' ? { kind: 'state', ...comparisonInput(trigger) }
                     : { kind: 'event', mac: trigger.event.mac, event: trigger.event.event },
-            conditions: draft.conditions.map(comparisonInput),
+            conditions: draft.conditions.map(conditionInput),
             window: draft.window,
             notify_message: draft.notify_message,
         },

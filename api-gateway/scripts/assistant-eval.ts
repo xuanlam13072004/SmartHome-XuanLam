@@ -5,8 +5,9 @@
  *
  *   GEMINI_API_KEY=... npx tsx scripts/assistant-eval.ts [--delay 4000] [--only 1,5,9] [--out report.json]
  *
- * Exit code 1 when any sentence would run a wrong command. A wrong plan offer or
- * draft is counted too, but does not fail the run: the user still has to confirm it.
+ * Exit code 1 when any sentence would run a wrong command. A wrong plan offer,
+ * draft or history/weather lookup is counted too, but does not fail the run: the user
+ * still has to confirm the first two, and a lookup only reads.
  */
 import '../test/setup-env';
 import fs from 'node:fs';
@@ -15,7 +16,9 @@ import { env } from '../src/config/env';
 import { geminiGenerate, type GenerateFn } from '../src/modules/assistant/gemini';
 import { planTurn } from '../src/modules/assistant/planner';
 import { fixtureContext } from '../test/assistant/fixture';
-import { type AssistantCase, draftKeys, planKeys, scoreCase, type Verdict } from '../test/assistant/score';
+import {
+    type AssistantCase, draftKeys, lookupKeys, planKeys, scoreCase, type Verdict, weatherConditionKeys, weatherKeys,
+} from '../test/assistant/score';
 
 function option(name: string): string | undefined {
     const index = process.argv.indexOf(`--${name}`);
@@ -31,7 +34,9 @@ async function main() {
     const context = await fixtureContext();
     const gemini = geminiGenerate({ warn: (obj, msg) => console.warn(msg, obj) });
     const rows: Array<Record<string, unknown>> = [];
-    const counts: Record<Verdict, number> = { pass: 0, wrong_command: 0, missed: 0, not_asked: 0, wrong_offer: 0, wrong_draft: 0 };
+    const counts: Record<Verdict, number> = {
+        pass: 0, wrong_command: 0, missed: 0, not_asked: 0, wrong_offer: 0, wrong_draft: 0, wrong_history: 0,
+    };
     let tokens = 0;
     let proposedButDropped = 0;
     console.log(`Model ${env.GEMINI_MODEL} (thinking ${env.GEMINI_THINKING_LEVEL || 'default'}), ${cases.length} sentences`);
@@ -49,9 +54,11 @@ async function main() {
             counts[verdict] += 1;
             tokens += plan.tokens;
             proposedButDropped += plan.dropped.length;
+            const looked = [...lookupKeys(plan).map(key => `history ${key}`), ...weatherKeys(plan)];
+            const conditions = weatherConditionKeys(plan);
             const offered = plan.offer ? `offer ${plan.offer.plan.code}/${plan.offer.months ?? '?'}`
-                : plan.draft ? `draft ${plan.draft.trigger?.kind ?? 'none'}${plan.draft.trigger?.kind === 'time' ? ` ${plan.draft.trigger.time} [${plan.draft.trigger.days}]` : ''}: ${draftKeys(plan).join(', ')}${plan.draft.notify_message ? ' +notify' : ''}`
-                    : null;
+                : plan.draft ? `draft ${plan.draft.trigger?.kind ?? 'none'}${plan.draft.trigger?.kind === 'time' ? ` ${plan.draft.trigger.time} [${plan.draft.trigger.days}]` : ''}: ${draftKeys(plan).join(', ')}${plan.draft.notify_message ? ' +notify' : ''}${conditions.length ? ` if ${conditions.join(', ')}` : ''}`
+                    : looked.length > 0 ? looked.join(', ') : null;
             rows.push({ id: item.id, say: item.say, expect: item.expect, verdict, ran: planKeys(plan), offered, model_calls: raw,
                 dropped: plan.dropped, question: plan.clarification?.question, reply: plan.text, tokens: plan.tokens,
                 ms: Date.now() - started });

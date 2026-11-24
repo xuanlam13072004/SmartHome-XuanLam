@@ -34,6 +34,7 @@ class ChatEntry {
         quota = false,
         offer = null,
         draft = null,
+        charts = const [],
         orderCode = null;
 
   ChatEntry.assistant(
@@ -42,6 +43,7 @@ class ChatEntry {
     this.options = const [],
     this.offer,
     this.draft,
+    this.charts = const [],
     this.orderCode,
     this.working = false,
   })  : role = ChatRole.assistant,
@@ -57,6 +59,7 @@ class ChatEntry {
         working = false,
         offer = null,
         draft = null,
+        charts = const [],
         orderCode = null;
 
   final ChatRole role;
@@ -84,6 +87,9 @@ class ChatEntry {
   /// A scene/automation to save, and what happened to it.
   final AssistantDraft? draft;
   DraftState draftState = DraftState.open;
+
+  /// Device charts offered next to an answer about the past.
+  final List<HistoryChart> charts;
 
   /// What saving the draft created (to open it).
   String? savedSceneId;
@@ -149,6 +155,7 @@ class AssistantChat extends ChangeNotifier {
       options: reply.options,
       offer: reply.offer,
       draft: reply.draft,
+      charts: reply.charts,
     ));
     _ref.invalidate(assistantUsageProvider);
   }

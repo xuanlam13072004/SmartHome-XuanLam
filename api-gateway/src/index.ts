@@ -19,6 +19,7 @@ import { CredentialStatusConsumer } from './workers/credentialStatusConsumer';
 import { SceneRunner } from './workers/sceneRunner';
 import { AutomationEngine } from './workers/automationEngine';
 import { PushNotifier } from './workers/pushNotifier';
+import { WeatherRefresher } from './workers/weatherRefresher';
 import { startMetricsServer } from './metrics/registry';
 
 const app = buildApp();
@@ -38,6 +39,7 @@ const start = async () => {
         let sceneRunner: SceneRunner | null = null;
         let automationEngine: AutomationEngine | null = null;
         let pushNotifier: PushNotifier | null = null;
+        let weatherRefresher: WeatherRefresher | null = null;
 
         // Đăng ký hook dừng Consumer khi app đóng (phải đăng ký trước khi ready/listen)
         app.addHook('onClose', async () => {
@@ -64,6 +66,9 @@ const start = async () => {
             }
             if (pushNotifier) {
                 await pushNotifier.stop();
+            }
+            if (weatherRefresher) {
+                await weatherRefresher.stop();
             }
             if (automationEngine) {
                 await automationEngine.stop();
@@ -134,6 +139,9 @@ const start = async () => {
         // Push notifications for phones where the app is closed (docs/architecture/push.md).
         pushNotifier = new PushNotifier(app);
         await pushNotifier.start();
+        // Forecasts of the areas in use (docs/architecture/weather.md).
+        weatherRefresher = new WeatherRefresher(app);
+        weatherRefresher.start();
 
         // Prometheus metrics on their own port, not reachable through the public API.
         startMetricsServer(env.METRICS_PORT, app.log);

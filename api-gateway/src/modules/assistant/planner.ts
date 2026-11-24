@@ -1,9 +1,11 @@
 import type { AssistantAction, AssistantScene, HomeContext, PurchasablePlan } from './context';
 import { type AutomationDraft, checkDraft } from './drafts';
 import type { ChatMessage, GenerateFn } from './gemini';
+import { checkLookup, type HistoryLookup, lookupKey, MAX_LOOKUPS } from './history';
 import { FUNCTIONS, SYSTEM_PROMPT } from './prompt';
-import { asksToBuy, clip, groundQuote, mayBeAutomation } from './text';
+import { asksToBuy, clip, groundQuote, mayBeAutomation, mayBeHistory } from './text';
 import { parseValue } from './values';
+import { checkWeatherLookup, MAX_WEATHER_LOOKUPS, type WeatherLookup } from './weatherLookup';
 
 export { parseValue };
 
@@ -12,6 +14,7 @@ export { parseValue };
  * proposes. A proposal survives only if its id is in this turn's home
  * context, its quote is in what the user said (and not negated), and its
  * value fits the operation. Anything else is dropped, never "repaired".
+ * History and weather lookups (read only) need no quote: their ids and period are checked.
  * Pure (no database): the prompt evaluation script uses it as is.
  */
 
@@ -45,6 +48,10 @@ export interface Plan {
     offer: PlanOffer | null;
     /** A scene or automation to show for "Lưu" (nothing is created yet). */
     draft: AutomationDraft | null;
+    /** History to look up before answering (history.ts). */
+    lookups: HistoryLookup[];
+    /** Forecasts to read before answering (weatherLookup.ts). */
+    weather: WeatherLookup[];
     dropped: DroppedCall[];
     tokens: number;
     blocked: boolean;
@@ -70,10 +77,17 @@ function conversation(history: ChatMessage[]) {
 
 export async function planTurn(generate: GenerateFn, input: PlanInput): Promise<Plan> {
     const { context, history, message } = input;
-    // What automations may watch is sent only when the message may be about one.
+    // What automations may watch, and what history may be looked up, are sent
+    // only when the message may be about them (or follows such an answer).
     const previousUser = [...history].reverse().find(item => item.role === 'user')?.text ?? '';
-    const data = mayBeAutomation(message, previousUser) && context.automationData.length > 0
-        ? { ...context.data, automation: context.automationData } : context.data;
+    const lastReply = history[history.length - 1];
+    const data = {
+        ...context.data,
+        ...(mayBeAutomation(message, previousUser) && context.automationData.length > 0
+            ? { automation: context.automationData } : {}),
+        ...(mayBeHistory(message) || (lastReply?.role === 'model' && lastReply.history)
+            ? { history: context.historyData } : {}),
+    };
     const result = await generate({
         system: SYSTEM_PROMPT,
         functions: FUNCTIONS,
@@ -101,10 +115,11 @@ export async function planTurn(generate: GenerateFn, input: PlanInput): Promise<
     };
 
     const plan: Plan = {
-        text: result.text, actions: [], clarification: null, offer: null, draft: null,
+        text: result.text, actions: [], clarification: null, offer: null, draft: null, lookups: [], weather: [],
         dropped: [], tokens: result.tokens, blocked: result.blocked,
     };
     const seen = new Set<string>();
+    const looked = new Set<string>();
     for (const call of result.calls) {
         const args = call.args;
         if (call.name === 'ask_clarification') {
@@ -114,6 +129,32 @@ export async function planTurn(generate: GenerateFn, input: PlanInput): Promise<
                     .map(option => clip(String(option), 60)).filter(Boolean).slice(0, 5);
                 plan.clarification = { question, options };
             }
+            continue;
+        }
+        if (call.name === 'look_up_history') {
+            const checked = checkLookup(args, context, context.now);
+            if (!checked.ok) {
+                plan.dropped.push({ name: call.name, reason: checked.reason });
+                continue;
+            }
+            const key = lookupKey(checked.lookup);
+            if (looked.has(key)) continue;
+            looked.add(key);
+            if (plan.lookups.length >= MAX_LOOKUPS) plan.dropped.push({ name: call.name, reason: 'too_many' });
+            else plan.lookups.push(checked.lookup);
+            continue;
+        }
+        if (call.name === 'look_up_weather') {
+            const checked = checkWeatherLookup(args, context.now);
+            if (!checked.ok) {
+                plan.dropped.push({ name: call.name, reason: checked.reason });
+                continue;
+            }
+            const key = `weather|${checked.lookup.start.getTime()}|${checked.lookup.end.getTime()}`;
+            if (looked.has(key)) continue;
+            looked.add(key);
+            if (plan.weather.length >= MAX_WEATHER_LOOKUPS) plan.dropped.push({ name: call.name, reason: 'too_many' });
+            else plan.weather.push(checked.lookup);
             continue;
         }
         if (call.name !== 'control_device' && call.name !== 'run_scene' && call.name !== 'offer_plan'
@@ -189,13 +230,18 @@ export async function planTurn(generate: GenerateFn, input: PlanInput): Promise<
         }
         plan.actions.push(proposal);
     }
-    // A question back means the model is unsure: run (offer, draft) nothing this turn.
-    if (plan.clarification && (plan.actions.length > 0 || plan.offer || plan.draft)) {
+    // A question back means the model is unsure: run (offer, draft, look up) nothing this turn.
+    if (plan.clarification && (plan.actions.length > 0 || plan.offer || plan.draft || plan.lookups.length > 0
+        || plan.weather.length > 0)) {
         plan.dropped.push(...plan.actions.map(item => ({
             name: item.kind === 'device' ? 'control_device' : 'run_scene', reason: 'ambiguous' as const,
         })));
         if (plan.offer) plan.dropped.push({ name: 'offer_plan', reason: 'ambiguous' });
         if (plan.draft) plan.dropped.push({ name: 'draft_automation', reason: 'ambiguous' });
+        plan.dropped.push(...plan.lookups.map(() => ({ name: 'look_up_history', reason: 'ambiguous' as const })));
+        plan.dropped.push(...plan.weather.map(() => ({ name: 'look_up_weather', reason: 'ambiguous' as const })));
+        plan.lookups = [];
+        plan.weather = [];
         plan.actions = [];
         plan.offer = null;
         plan.draft = null;

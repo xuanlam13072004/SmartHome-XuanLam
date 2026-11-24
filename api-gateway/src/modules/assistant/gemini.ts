@@ -2,9 +2,10 @@ import { env } from '../../config/env';
 import { httpError } from '../../utils/httpError';
 
 /**
- * Gemini generateContent over REST (no SDK): one call per assistant turn.
+ * Gemini generateContent over REST (no SDK): one call per assistant turn,
+ * two when the user asks about history (the facts looked up, then the answer).
  * Commands come back as function calls; the reply of a turn that runs
- * commands is written by the server, so no second call is needed.
+ * commands is written by the server.
  */
 
 export interface ChatMessage {
@@ -12,6 +13,8 @@ export interface ChatMessage {
     text: string;
     /** The assistant asked a question back: the next user message may answer it. */
     clarify?: boolean;
+    /** The assistant answered from looked-up history: a follow-up ("còn hôm kia?") may ask again. */
+    history?: boolean;
 }
 
 export interface GeminiRequest {
@@ -62,8 +65,11 @@ export function geminiGenerate(log: { warn: (obj: unknown, msg: string) => void 
         const body = {
             systemInstruction: { parts: [{ text: request.system }] },
             contents: request.contents,
-            tools: [{ functionDeclarations: request.functions }],
-            toolConfig: { functionCallingConfig: { mode: 'AUTO' } },
+            // The answer from looked-up history is plain text: no functions then.
+            ...(request.functions.length > 0 ? {
+                tools: [{ functionDeclarations: request.functions }],
+                toolConfig: { functionCallingConfig: { mode: 'AUTO' } },
+            } : {}),
             generationConfig: {
                 // Thinking tokens count towards this limit.
                 maxOutputTokens: 2048,

@@ -6,6 +6,7 @@ import type { SceneStepInput } from '../scenes/schemas';
 import { insertScene, resolveSteps } from '../scenes/service';
 import { findEvent, findProperty } from './catalog';
 import type { AutomationInput } from './schemas';
+import { homeLocation, weatherEnabled } from '../weather/service';
 import {
     announceChange,
     getAutomation,
@@ -21,7 +22,9 @@ import {
  * already report: the roof closes for rain and the garden waters itself on
  * the devices, and warning/critical device events are notifications anyway.
  * A suggestion is identified by template and devices, and is offered until
- * an automation made from it exists.
+ * an automation made from it exists. With a home location, two use the
+ * forecast: water in the morning unless rain is coming, close the roof in
+ * the evening when it is.
  */
 
 const MAX_SUGGESTIONS = 8;
@@ -70,8 +73,52 @@ function clip(text: string, max = 60): string {
     return text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`;
 }
 
-function templates(app: FastifyInstance, devices: Device[]): Suggestion[] {
+function templates(app: FastifyInstance, devices: Device[], weather: boolean): Suggestion[] {
     const result: Suggestion[] = [];
+    if (weather) {
+        const garden = devices.find(device => can(app, device, 'irrigation_pump', 'water_for_duration'));
+        if (garden) {
+            result.push({
+                key: `weather_water:${garden.mac}`,
+                template: 'weather_water',
+                title: '6:00 tưới vườn nếu 12 giờ tới không mưa',
+                description: `Mỗi sáng 6:00 tưới ${garden.name} 10 phút, bỏ qua khi dự báo có mưa.`,
+                plan: () => ({
+                    scene: {
+                        name: clip(`Tưới ${garden.name} 10 phút`),
+                        icon: 'water',
+                        steps: [{ ...step(garden.mac, 'irrigation_pump', 'water_for_duration'), input: { duration_seconds: 600 } }],
+                    },
+                    automation: {
+                        name: clip(`Tưới ${garden.name} nếu không mưa`),
+                        trigger: { kind: 'time', time: '06:00', days: EVERY_DAY },
+                        conditions: [{ weather: 'rain_next_12h', operator: 'eq', value: false }],
+                        window: null, notify_message: null, cooldown_seconds: 300,
+                    },
+                }),
+            });
+        }
+        const roof = devices.find(device => can(app, device, 'roof_motor', 'close'));
+        if (roof) {
+            result.push({
+                key: `weather_roof:${roof.mac}`,
+                template: 'weather_roof',
+                title: '17:00 đóng mái nếu tối nay có mưa',
+                description: `Mỗi chiều 17:00, nếu dự báo 6 giờ tới có mưa thì đóng ${roof.name} và báo cho bạn.`,
+                plan: () => ({
+                    scene: { name: clip(`Đóng ${roof.name}`), icon: 'rain', steps: [step(roof.mac, 'roof_motor', 'close')] },
+                    automation: {
+                        name: clip(`Đóng ${roof.name} trước mưa`),
+                        trigger: { kind: 'time', time: '17:00', days: EVERY_DAY },
+                        conditions: [{ weather: 'rain_next_6h', operator: 'eq', value: true }],
+                        window: null,
+                        notify_message: clip(`Tối nay có thể mưa nên ${roof.name} đã được đóng.`, 160),
+                        cooldown_seconds: 300,
+                    },
+                }),
+            });
+        }
+    }
     const roofs = devices.filter(device => can(app, device, 'roof_motor', 'open'));
     for (const hazard of devices.filter(device => hasEvent(device, 'hazard.incident_started'))) {
         const roof = roofs[0];
@@ -183,7 +230,7 @@ function templates(app: FastifyInstance, devices: Device[]): Suggestion[] {
 }
 
 async function candidates(app: FastifyInstance, accountId: string): Promise<{ list: Suggestion[]; added: Set<string> }> {
-    const [devices, added] = await Promise.all([
+    const [devices, added, location] = await Promise.all([
         app.pg.query(
             `SELECT device.id, device.mac, device.name, device.product_id, device.catalog_revision, membership.role,
                     COALESCE(ARRAY_AGG(permission.permission_scope)
@@ -200,11 +247,15 @@ async function candidates(app: FastifyInstance, accountId: string): Promise<{ li
             [accountId],
         ),
         app.pg.query('SELECT suggestion FROM automations WHERE account_id = $1 AND suggestion IS NOT NULL', [accountId]),
+        weatherEnabled() ? homeLocation(app, accountId) : Promise.resolve(null),
     ]);
     const usable = devices.rows
         .map(row => ({ ...row, product: app.catalog.getProduct(row.product_id) }))
         .filter((device: any) => device.product && device.product.catalog_revision === device.catalog_revision);
-    return { list: templates(app, usable as Device[]), added: new Set(added.rows.map(row => row.suggestion as string)) };
+    return {
+        list: templates(app, usable as Device[], location !== null),
+        added: new Set(added.rows.map(row => row.suggestion as string)),
+    };
 }
 
 /** Suggestions not added yet, at most MAX_SUGGESTIONS. */
