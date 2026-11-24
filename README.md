@@ -16,7 +16,8 @@ App và backend không phân biệt thiết bị thật hay ảo.
 | `voice-service/` | Python: xác minh giọng nói, chuyển giọng thành chữ (PhoWhisper) |
 | `database/` | Schema PostgreSQL (baseline 203 + migrations, hiện **214**), catalog sản phẩm, khởi tạo |
 | `admin-console/` | Admin Console: trang web nội bộ của công ty (quản trị, nhân viên và phân quyền, phần Simulator) |
-| `device-simulator/` | Simulator: tạo người dùng và thiết bị ảo qua API công khai (compose riêng; giao diện nằm trong Admin Console) |
+| `device-simulator/` | Simulator: tạo người dùng và thiết bị ảo qua API công khai (giao diện nằm trong Admin Console) |
+| `docker-compose.yml` / `docker-compose.admin-console.yml` | Hệ thống nhà thông minh / nhóm công cụ của công ty (Admin Console + Simulator) |
 | `smarthome_app/` | Ứng dụng Flutter |
 | `firmware/` | Firmware ESP32 |
 | `docs/` | Kiến trúc (`docs/architecture/`), Cloudflare Tunnel, bàn giao (`AI_HANDOFF.md`) |
@@ -43,11 +44,13 @@ App và backend không phân biệt thiết bị thật hay ảo.
      `mqtt-worker-service/.env.docker` tạo từ các file `.env.docker.example`.
 3. `docker compose up -d --build` (lần đầu lâu: voice-service tải PyTorch, ECAPA,
    PhoWhisper ~1,5 GB; cần khoảng 1,5 GB RAM cho riêng dịch vụ này).
-4. Admin Console (http://localhost:4000): tạo admin gốc một lần
+4. Admin Console + Simulator (nhóm riêng `admin-console` trong Docker), chạy sau hệ thống:
+   `docker compose -f docker-compose.admin-console.yml up -d --build`.
+   Tạo admin gốc một lần
    `docker compose exec api-gateway node dist/tools/staff.js create-root <email> "<Họ tên>"`
-   (in ra mật khẩu tạm), đăng nhập rồi đặt mật khẩu mới. Nhân viên khác do admin gốc tạo ở trang
-   Nhân viên; quên mật khẩu admin gốc: `staff.js reset-root`.
-5. Simulator: xem `device-simulator/README.md`.
+   (in ra mật khẩu tạm), mở http://localhost:4000, đăng nhập rồi đặt mật khẩu mới. Nhân viên khác do
+   admin gốc tạo ở trang Nhân viên; quên mật khẩu admin gốc: `staff.js reset-root`.
+5. Simulator: nằm trong Admin Console (nhóm menu SIMULATOR); chi tiết `device-simulator/README.md`.
 6. Kiểm thử tải (không bắt buộc): `docker compose --profile monitoring up -d` thêm
    Prometheus + Grafana (http://localhost:3005); cách đo và số liệu cho báo cáo:
    `docs/architecture/load-testing.md`.

@@ -22,19 +22,20 @@ in PostgreSQL, while the private key is encrypted in the simulator registry.
 Credential envelopes are decrypted only inside that virtual device; the
 registry stores only a verifier digest, never plaintext PIN material.
 
-Start the full stack from the repository root:
+Start from the repository root: the system first, then the company's tools
+(the Admin Console and this Simulator's backend, one Docker group named
+`admin-console`, `docker-compose.admin-console.yml`):
 
 ```powershell
-docker compose up -d api-gateway real-time-service mqtt-worker-service admin-console
-docker compose -f device-simulator/docker-compose.yml up -d --build --remove-orphans
+docker compose up -d
+docker compose -f docker-compose.admin-console.yml up -d --build
 ```
 
 The Simulator has no web page of its own: it is the **Simulator** section of
 the Admin Console (`http://localhost:4000`, docs/architecture/admin.md), shown
 to the root and to staff with the `simulator.view` permission (reading) or
 `simulator.manage` (everything). The root `.env` needs `SIMULATOR_ADMIN_TOKEN`
-equal to this Simulator's `ADMIN_TOKEN` (`.env.docker`). `--remove-orphans`
-removes the old `simulator-dashboard` container. The section has five pages:
+equal to this Simulator's `ADMIN_TOKEN` (`.env.docker`). The section has five pages:
 
 - **Kiểm thử tải**: pick a preset (5×2 devices up to 7 500 users × 3–5 devices ≈
   30 000) or set users, devices per user, telemetry period and products, then

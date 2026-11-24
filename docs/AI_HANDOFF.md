@@ -90,7 +90,7 @@ MongoDB riêng `DeviceSimulatorDB`, kết nối API Gateway/MQTT và điều khi
 | `firmware/hazard-controller/` | Firmware tham chiếu ESP32 cho báo cháy/khí gas: MQ2, lửa, DHT11, còi, nút tắt âm | `README.md`, `src/`, `include/`, `test/` |
 | `mosquitto/` | Cấu hình broker (Dynamic Security) | `mosquitto.conf`, `docs/architecture/mqtt-security.md` |
 | `docker-compose.yml` | Hệ thống chính: PostgreSQL, MongoDB, Redis, Mosquitto, initializer (DB + MQTT) và services | Compose root |
-| `device-simulator/docker-compose.yml` | Simulator backend (giao diện nằm trong Admin Console), nối vào Docker network của hệ thống chính | Compose Simulator |
+| `docker-compose.admin-console.yml` | Nhóm Docker riêng `admin-console`: Admin Console + Simulator backend (giao diện Simulator nằm trong Console), nối vào Docker network của hệ thống chính | `docker compose -f docker-compose.admin-console.yml up -d --build` |
 
 ## Ranh giới sở hữu dữ liệu
 

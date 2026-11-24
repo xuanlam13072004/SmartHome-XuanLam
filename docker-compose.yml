@@ -280,32 +280,11 @@ services:
       db-initialize:
         condition: service_completed_successfully
 
+  # The Admin Console and the Device Simulator run as their own group,
+  # "admin-console": docker-compose.admin-console.yml (docs/architecture/admin.md).
+
   # Cloudflare Tunnel (docs/cloudflare-tunnel.md): api-datn / ws-datn public
   # hostnames and the private route to the media relay for WARP phones.
-  # The company's Admin Console (docs/architecture/admin.md): staff sign in here;
-  # it calls the API Gateway's /admin API and the Device Simulator for them.
-  # 127.0.0.1: this computer only; ADMIN_CONSOLE_HOST=0.0.0.0 opens it to the LAN.
-  # Never routed through Cloudflare Tunnel.
-  admin-console:
-    build:
-      context: ./admin-console
-    container_name: admin-console
-    environment:
-      GATEWAY_URL: http://api-gateway:3000
-      ADMIN_API_KEY: ${ADMIN_API_KEY:-}
-      SIMULATOR_URL: http://simulator-backend:4001
-      # The Simulator's ADMIN_TOKEN (device-simulator/.env.docker); empty = no Simulator section.
-      SIMULATOR_TOKEN: ${SIMULATOR_ADMIN_TOKEN:-}
-      COOKIE_SECURE: ${ADMIN_CONSOLE_COOKIE_SECURE:-false}
-    ports:
-      - "${ADMIN_CONSOLE_HOST:-127.0.0.1}:4000:4000"
-    networks:
-      - smarthome_net
-    depends_on:
-      api-gateway:
-        condition: service_started
-    restart: unless-stopped
-
   cloudflared:
     image: cloudflare/cloudflared:2026.2.0
     container_name: cloudflared

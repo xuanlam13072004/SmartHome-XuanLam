@@ -21,6 +21,11 @@ Browser ──cookie sh_console──▶ Admin Console (admin-console/, port 400
                                         (both inside the Docker network smarthome_net)
 ```
 
+The Console and the Simulator backend run as their own Docker group,
+`admin-console` (`docker-compose.admin-console.yml` at the repository root),
+apart from the smart home system (`docker-compose.yml`); they join the
+system's network `smarthome-xuanlam_smarthome_net`.
+
 - **Console backend** (`admin-console/backend`, Fastify): signs staff in,
   keeps the session in an httpOnly cookie, forwards calls and adds the server
   keys. The keys never reach the browser.
@@ -118,15 +123,15 @@ Rules:
      `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`
    - `SIMULATOR_ADMIN_TOKEN`: the same value as `ADMIN_TOKEN` in
      `device-simulator/.env.docker` (leave empty if the Simulator is not used).
-2. `docker compose up -d --build api-gateway admin-console`
-   (`db-initialize` adds migration 213 first).
-3. Create the root, once:
+2. The system: `docker compose up -d --build` (`db-initialize` adds the
+   migrations first).
+3. The Console and the Simulator:
+   `docker compose -f docker-compose.admin-console.yml up -d --build`
+   (the file sits at the root so Compose reads the root `.env`).
+4. Create the root, once:
    `docker compose exec api-gateway node dist/tools/staff.js create-root <email> "<Họ tên>"`
    It prints a temporary password.
-4. Open http://localhost:4000, sign in, choose your own password.
-5. Simulator: `docker compose -f device-simulator/docker-compose.yml up -d --build --remove-orphans`
-   (`--remove-orphans` removes the old `simulator-dashboard` container, which
-   also used port 4000).
+5. Open http://localhost:4000, sign in, choose your own password.
 
 Forgotten root password, or root locked out:
 `docker compose exec api-gateway node dist/tools/staff.js reset-root`
