@@ -4000,13 +4000,26 @@ dd {
 }
 
 @media (min-width: 64rem) {
+  /* The menu scrolls between the brand and the signed-in staff member, which
+     stay in place however many items the staff member may see. */
   .app-rail {
-    overflow-y: auto;
+    overflow: hidden;
   }
 
   .primary-nav {
+    align-self: stretch;
+    min-height: 0;
     gap: var(--space-md);
     margin-block-start: var(--space-lg);
+    padding-block-end: var(--space-sm);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+
+  .primary-nav::-webkit-scrollbar {
+    display: block;
+    width: 6px;
   }
 
   .nav-group {
