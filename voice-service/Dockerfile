@@ -28,8 +28,12 @@ from app.asr import PhoWhisperTranscriber; noise = np.random.default_rng(0).norm
 v = EcapaEmbedder('/models/ecapa').embed_batch([noise]); assert v.shape == (1, 192), v.shape; \
 assert isinstance(PhoWhisperTranscriber('vinai/PhoWhisper-small').transcribe(noise), str)"
 
-RUN useradd --system --uid 10001 voice && mkdir -p /data && chown -R voice /data /models
-USER voice
+# Debian already has a system group named "voice" (audio modems), so the
+# service runs as its own "voicesvc" (uid/gid 10001, same as before).
+RUN groupadd --system --gid 10001 voicesvc \
+    && useradd --system --uid 10001 --gid voicesvc voicesvc \
+    && mkdir -p /data && chown -R voicesvc:voicesvc /data /models
+USER voicesvc
 
 ENV HF_HUB_OFFLINE=1 \
     VOICE_MODEL_DIR=/models/ecapa \
