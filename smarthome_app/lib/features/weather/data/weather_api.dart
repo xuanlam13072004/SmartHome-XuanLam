@@ -20,21 +20,10 @@ class WeatherApi {
         .toList(growable: false);
   }
 
-  Future<List<PlaceResult>> searchPlaces(String query) async {
-    final response = await _dio.get<Map<String, dynamic>>('/weather/places', queryParameters: {'q': query});
-    return (response.data!['places'] as List)
-        .map((item) => PlaceResult.fromJson(Map<String, dynamic>.from(item as Map)))
-        .toList(growable: false);
-  }
-
-  Future<void> setProvince(String code) async {
-    await _dio.put<void>('/me/home-location', data: {'province': code});
-  }
-
-  Future<void> setPlace(PlaceResult place) async {
-    await _dio.put<void>('/me/home-location', data: {
-      'place': {'name': place.fullName, 'latitude': place.latitude, 'longitude': place.longitude},
-    });
+  /// Puts the home in [area]; returns the home as the server names it.
+  Future<HomeLocation> setArea(String area) async {
+    final response = await _dio.put<Map<String, dynamic>>('/me/home-location', data: {'area': area});
+    return HomeLocation.fromJson(Map<String, dynamic>.from(response.data!['location'] as Map));
   }
 
   Future<void> clearLocation() async {

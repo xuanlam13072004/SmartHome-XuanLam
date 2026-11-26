@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/core.dart';
 import '../../../core/utils/app_error_mapper.dart';
@@ -12,8 +13,9 @@ import '../data/weather_models.dart';
 import '../providers/weather_providers.dart';
 import '../weather_labels.dart';
 
-/// "Vị trí nhà & thời tiết": where the home is (a province or a ward found by
-/// name, never the phone's GPS) and the forecast automations and the assistant read.
+/// "Vị trí nhà & thời tiết": where the home is (one of 63 areas, the provinces
+/// before the 2025 merger; never the phone's GPS) and the forecast automations
+/// and the assistant read.
 class HomeLocationScreen extends ConsumerStatefulWidget {
   const HomeLocationScreen({super.key});
 
@@ -22,28 +24,18 @@ class HomeLocationScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeLocationScreenState extends ConsumerState<HomeLocationScreen> {
-  final _query = TextEditingController();
-  List<PlaceResult>? _places;
-  bool _searching = false;
   bool _saving = false;
-  String? _searchError;
 
-  @override
-  void dispose() {
-    _query.dispose();
-    super.dispose();
-  }
-
-  Future<void> _run(Future<void> Function() action, String done) async {
+  /// Runs [action]; its result is the message shown when it is done.
+  Future<void> _run(Future<String> Function() action) async {
     final messenger = ScaffoldMessenger.of(context);
     setState(() => _saving = true);
     try {
-      await action();
+      final done = await action();
       ref.invalidate(homeWeatherProvider);
       ref.invalidate(automationOptionsProvider);
       ref.invalidate(automationSuggestionsProvider);
       messenger.showSnackBar(SnackBar(content: Text(done)));
-      if (mounted) setState(() => _places = null);
     } catch (error) {
       messenger.showSnackBar(SnackBar(content: Text(AppErrorMapper.mapError(error))));
     } finally {
@@ -51,37 +43,19 @@ class _HomeLocationScreenState extends ConsumerState<HomeLocationScreen> {
     }
   }
 
-  Future<void> _search() async {
-    final query = _query.text.trim();
-    if (query.length < 2) {
-      setState(() => _searchError = 'Nhập ít nhất 2 chữ');
-      return;
-    }
-    FocusScope.of(context).unfocus();
-    setState(() {
-      _searching = true;
-      _searchError = null;
-    });
-    try {
-      final places = await ref.read(weatherApiProvider).searchPlaces(query);
-      if (mounted) setState(() => _places = places);
-    } catch (error) {
-      if (mounted) setState(() => _searchError = AppErrorMapper.mapError(error));
-    } finally {
-      if (mounted) setState(() => _searching = false);
-    }
-  }
-
-  Future<void> _pickProvince() async {
-    final province = await showModalBottomSheet<Province>(
+  Future<void> _pickArea(HomeLocation? current) async {
+    final area = await showModalBottomSheet<WeatherArea>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       useRootNavigator: true,
-      builder: (_) => const _ProvinceSheet(),
+      builder: (_) => _AreaSheet(current: current?.area),
     );
-    if (province == null || !mounted) return;
-    await _run(() => ref.read(weatherApiProvider).setProvince(province.code), 'Đã đặt vị trí nhà: ${province.name}');
+    if (area == null || !mounted) return;
+    await _run(() async {
+      final location = await ref.read(weatherApiProvider).setArea(area.code);
+      return 'Đã đặt vị trí nhà: ${location.place}';
+    });
   }
 
   Future<void> _clear() async {
@@ -93,7 +67,16 @@ class _HomeLocationScreenState extends ConsumerState<HomeLocationScreen> {
       destructive: true,
     );
     if (!confirmed || !mounted) return;
-    await _run(() => ref.read(weatherApiProvider).clearLocation(), 'Đã xóa vị trí nhà');
+    await _run(() async {
+      await ref.read(weatherApiProvider).clearLocation();
+      return 'Đã xóa vị trí nhà';
+    });
+  }
+
+  Future<void> _open(Uri url) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final opened = await launchUrl(url, mode: LaunchMode.externalApplication).catchError((_) => false);
+    if (!opened) messenger.showSnackBar(SnackBar(content: Text('Không mở được ${url.host}')));
   }
 
   @override
@@ -142,75 +125,25 @@ class _HomeLocationScreenState extends ConsumerState<HomeLocationScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
                   child: Text(
                     'Đặt nơi có nhà để tự động hóa chạy theo mưa, nắng và để hỏi trợ lý về thời tiết. '
-                    'Chỉ cần vị trí gần đúng (tỉnh/thành phố hoặc phường/xã); ứng dụng không dùng GPS.',
+                    'Chọn tỉnh/thành phố rồi chọn khu vực theo tỉnh, thành cũ; dự báo lấy ở trung tâm khu vực. '
+                    'Ứng dụng không dùng GPS.',
                     style: muted,
                   ),
                 ),
                 const SizedBox(height: AppSpacing.md),
                 _CurrentCard(home: data, busy: _saving, onClear: _clear),
-                const SectionTitle(title: 'Chọn tỉnh/thành phố'),
+                const SectionTitle(title: 'Khu vực của nhà'),
                 NeuCard(
                   padding: EdgeInsets.zero,
                   child: ListTile(
                     leading: const Icon(LucideIcons.map),
-                    title: const Text('34 tỉnh, thành phố'),
-                    subtitle: const Text('Dùng dự báo ở trung tâm tỉnh'),
+                    title: Text(data.location == null ? 'Chọn khu vực' : 'Đổi khu vực'),
+                    subtitle: const Text('34 tỉnh, thành phố · 63 khu vực theo tỉnh, thành cũ'),
                     trailing: const Icon(LucideIcons.chevronRight),
                     enabled: !_saving,
-                    onTap: _pickProvince,
+                    onTap: () => _pickArea(data.location),
                   ),
                 ),
-                const SectionTitle(title: 'Hoặc tìm phường, xã'),
-                TextField(
-                  controller: _query,
-                  enabled: !_saving,
-                  textInputAction: TextInputAction.search,
-                  maxLength: 60,
-                  decoration: InputDecoration(
-                    hintText: 'Ví dụ: Ba Đình, Hòa Khánh',
-                    counterText: '',
-                    errorText: _searchError,
-                    border: const OutlineInputBorder(),
-                    suffixIcon: _searching
-                        ? const Padding(
-                            padding: EdgeInsets.all(AppSpacing.smMd),
-                            child: SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-                          )
-                        : IconButton(
-                            tooltip: 'Tìm',
-                            icon: const Icon(LucideIcons.search),
-                            onPressed: _search,
-                          ),
-                  ),
-                  onSubmitted: (_) => _search(),
-                ),
-                if (_places != null) ...[
-                  const SizedBox(height: AppSpacing.sm),
-                  if (_places!.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.all(AppSpacing.md),
-                      child: Text('Không tìm thấy nơi nào. Thử tên khác hoặc chọn tỉnh/thành phố.', style: muted),
-                    )
-                  else
-                    NeuCard(
-                      padding: EdgeInsets.zero,
-                      child: Column(
-                        children: [
-                          for (final place in _places!)
-                            ListTile(
-                              leading: const Icon(LucideIcons.mapPin),
-                              title: Text(place.name),
-                              subtitle: place.detail == null ? null : Text(place.detail!),
-                              enabled: !_saving,
-                              onTap: () => _run(
-                                () => ref.read(weatherApiProvider).setPlace(place),
-                                'Đã đặt vị trí nhà: ${place.fullName}',
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                ],
                 const SizedBox(height: AppSpacing.lg),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
@@ -218,10 +151,7 @@ class _HomeLocationScreenState extends ConsumerState<HomeLocationScreen> {
                 ),
                 if (data.attribution != null) ...[
                   const SizedBox(height: AppSpacing.xs),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
-                    child: Text(data.attribution!, style: context.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
-                  ),
+                  _Attribution(attribution: data.attribution!, onOpen: _open),
                 ],
               ],
             ],
@@ -251,7 +181,7 @@ class _CurrentCard extends StatelessWidget {
           children: [
             Icon(LucideIcons.mapPinOff, color: scheme.onSurfaceVariant),
             const SizedBox(width: AppSpacing.smMd),
-            const Expanded(child: Text('Chưa đặt vị trí nhà. Chọn tỉnh/thành phố hoặc tìm phường, xã bên dưới.')),
+            const Expanded(child: Text('Chưa đặt vị trí nhà. Chọn khu vực bên dưới.')),
           ],
         ),
       );
@@ -270,7 +200,8 @@ class _CurrentCard extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.sm),
           if (weather == null)
-            Text('Đang lấy dự báo, kéo xuống để tải lại.', style: context.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant))
+            Text('Chưa có dự báo cho khu vực này, kéo xuống để tải lại sau ít phút.',
+                style: context.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant))
           else ...[
             Row(
               children: [
@@ -332,16 +263,61 @@ class _CurrentCard extends StatelessWidget {
   }
 }
 
-/// The 34 provinces, filtered as the user types.
-class _ProvinceSheet extends ConsumerStatefulWidget {
-  const _ProvinceSheet();
+/// The source of the data; Open-Meteo's (CC BY 4.0) opens its site when tapped.
+class _Attribution extends StatelessWidget {
+  const _Attribution({required this.attribution, required this.onOpen});
+
+  final WeatherAttribution attribution;
+  final ValueChanged<Uri> onOpen;
 
   @override
-  ConsumerState<_ProvinceSheet> createState() => _ProvinceSheetState();
+  Widget build(BuildContext context) {
+    final scheme = context.colorScheme;
+    final url = attribution.url;
+    final style = context.textTheme.bodySmall?.copyWith(color: url == null ? scheme.onSurfaceVariant : scheme.primary);
+    if (url == null) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+        child: Text(attribution.text, style: style),
+      );
+    }
+    return Semantics(
+      link: true,
+      child: InkWell(
+        onTap: () => onOpen(url),
+        borderRadius: BorderRadius.circular(AppSpacing.xs),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: AppSpacing.xs),
+          child: Row(
+            children: [
+              Flexible(child: Text(attribution.text, style: style?.copyWith(decoration: TextDecoration.underline))),
+              const SizedBox(width: AppSpacing.xs),
+              Icon(LucideIcons.externalLink, size: 14, color: scheme.primary),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
-class _ProvinceSheetState extends ConsumerState<_ProvinceSheet> {
+/// Picks the home's area: the 34 provinces (filtered as the user types, old
+/// names included), then, for a merged province, one of its areas.
+class _AreaSheet extends ConsumerStatefulWidget {
+  const _AreaSheet({required this.current});
+
+  /// The home's area now, marked in the lists.
+  final String? current;
+
+  @override
+  ConsumerState<_AreaSheet> createState() => _AreaSheetState();
+}
+
+class _AreaSheetState extends ConsumerState<_AreaSheet> {
   String _filter = '';
+
+  /// The merged province whose areas are shown (null: the province list).
+  Province? _province;
 
   static String _fold(String text) {
     const from = 'àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ';
@@ -356,61 +332,128 @@ class _ProvinceSheetState extends ConsumerState<_ProvinceSheet> {
     return buffer.toString();
   }
 
+  bool _matches(Province province) =>
+      _filter.isEmpty ||
+      _fold(province.name).contains(_filter) ||
+      province.areas.any((area) => _fold(area.name).contains(_filter));
+
+  void _choose(Province province) {
+    if (province.merged) {
+      setState(() => _province = province);
+    } else if (province.areas.isNotEmpty) {
+      Navigator.of(context).pop(province.areas.first);
+    }
+  }
+
+  Widget? _mark(bool current) =>
+      current ? Icon(LucideIcons.check, color: context.colorScheme.primary) : null;
+
   @override
   Widget build(BuildContext context) {
     final provinces = ref.watch(provincesProvider);
+    final muted = context.textTheme.bodyMedium?.copyWith(color: context.colorScheme.onSurfaceVariant);
+    final province = _province;
     return ConstrainedBox(
       constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.85),
       child: Padding(
         padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.sm),
-              child: Text('Tỉnh/thành phố', style: context.textTheme.titleLarge),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-              child: TextField(
-                decoration: const InputDecoration(
-                  prefixIcon: Icon(LucideIcons.search),
-                  hintText: 'Lọc theo tên',
-                  border: OutlineInputBorder(),
-                ),
-                onChanged: (value) => setState(() => _filter = _fold(value.trim())),
-              ),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            Flexible(
-              child: provinces.when(
-                loading: () => const Padding(
-                  padding: EdgeInsets.all(AppSpacing.xl),
-                  child: Center(child: CircularProgressIndicator()),
-                ),
-                error: (error, _) => Padding(
-                  padding: const EdgeInsets.all(AppSpacing.lg),
-                  child: Text(AppErrorMapper.mapError(error)),
-                ),
-                data: (items) {
-                  final shown = items.where((item) => _filter.isEmpty || _fold(item.name).contains(_filter)).toList();
-                  return ListView(
-                    shrinkWrap: true,
-                    padding: const EdgeInsets.only(bottom: AppSpacing.lg),
-                    children: [
-                      for (final province in shown)
-                        ListTile(
-                          title: Text(province.name),
-                          onTap: () => Navigator.of(context).pop(province),
+        child: province != null
+            ? Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(AppSpacing.sm, 0, AppSpacing.lg, AppSpacing.xs),
+                    child: Row(
+                      children: [
+                        IconButton(
+                          tooltip: 'Quay lại danh sách tỉnh',
+                          icon: const Icon(LucideIcons.arrowLeft),
+                          onPressed: () => setState(() => _province = null),
                         ),
-                    ],
-                  );
-                },
+                        Expanded(child: Text(province.name, style: context.textTheme.titleLarge)),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.sm),
+                    child: Text('Tỉnh này gồm ${province.areas.length} tỉnh, thành cũ. Chọn nơi gần nhà nhất.', style: muted),
+                  ),
+                  Flexible(
+                    child: ListView(
+                      shrinkWrap: true,
+                      padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+                      children: [
+                        for (final area in province.areas)
+                          ListTile(
+                            leading: const Icon(LucideIcons.mapPin),
+                            title: Text(area.name),
+                            trailing: _mark(area.code == widget.current),
+                            onTap: () => Navigator.of(context).pop(area),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              )
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.sm),
+                    child: Text('Tỉnh/thành phố', style: context.textTheme.titleLarge),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+                    child: TextField(
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(LucideIcons.search),
+                        hintText: 'Lọc theo tên, cả tên tỉnh cũ',
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (value) => setState(() => _filter = _fold(value.trim())),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  Flexible(
+                    child: provinces.when(
+                      loading: () => const Padding(
+                        padding: EdgeInsets.all(AppSpacing.xl),
+                        child: Center(child: CircularProgressIndicator()),
+                      ),
+                      error: (error, _) => Padding(
+                        padding: const EdgeInsets.all(AppSpacing.lg),
+                        child: Text(AppErrorMapper.mapError(error)),
+                      ),
+                      data: (items) {
+                        final shown = items.where(_matches).toList();
+                        if (shown.isEmpty) {
+                          return Padding(
+                            padding: const EdgeInsets.all(AppSpacing.lg),
+                            child: Text('Không có tỉnh, thành phố nào có tên này.', style: muted),
+                          );
+                        }
+                        return ListView(
+                          shrinkWrap: true,
+                          padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+                          children: [
+                            for (final item in shown)
+                              ListTile(
+                                title: Text(item.name),
+                                subtitle: item.merged ? Text(item.areas.map((area) => area.name).join(' · ')) : null,
+                                trailing: item.merged
+                                    ? const Icon(LucideIcons.chevronRight)
+                                    : _mark(item.areas.any((area) => area.code == widget.current)),
+                                onTap: () => _choose(item),
+                              ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ],
-        ),
       ),
     );
   }

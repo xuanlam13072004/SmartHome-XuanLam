@@ -66,5 +66,10 @@
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE"/>
         </intent>
+        <!-- Web links opened in the browser (url_launcher: the weather data's source). -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
     </queries>
 </manifest>

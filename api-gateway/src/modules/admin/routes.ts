@@ -28,7 +28,7 @@ import {
 import { env } from '../../config/env';
 import { httpError } from '../../utils/httpError';
 import { PROVINCES } from '../weather/provinces';
-import { listMocks, setMock } from '../weather/service';
+import { listMocks, setMock, weatherStatus } from '../weather/service';
 import {
     actOnStaff,
     actorOf,
@@ -242,9 +242,10 @@ const adminRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         return { success: true };
     });
 
-    // ── Mock weather (docs/architecture/weather.md) ─────────────────────────
-    // Only with WEATHER_MODE=mock: demos and tests set the weather of an area
-    // (a province, or every area) instead of waiting for real rain.
+    // ── Weather (docs/architecture/weather.md) ──────────────────────────────
+    // Live: how fresh the 63 areas' forecasts are and today's Open-Meteo calls.
+    // Mock (WEATHER_MODE=mock): demos and tests set the weather of a province
+    // (or of every area) instead of waiting for real rain.
 
     app.get('/admin/weather', {
         config: { adminPermission: 'simulator.view' },
@@ -253,6 +254,7 @@ const adminRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         mode: env.WEATHER_MODE,
         provinces: PROVINCES.map(({ code, name }) => ({ code, name })),
         mocks: env.WEATHER_MODE === 'mock' ? await listMocks(app) : {},
+        live: env.WEATHER_MODE === 'live' ? await weatherStatus(app) : null,
     }));
 
     const assertMock = () => {

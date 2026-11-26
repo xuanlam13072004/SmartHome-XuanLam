@@ -6,15 +6,31 @@ Map<String, dynamic> _map(Object? value) =>
 
 int? _int(Object? value) => value is num ? value.round() : null;
 
-/// Where the forecast is for: a province centre or a searched place, rounded to about 1 km.
+/// Where the forecast is for: one of 63 areas (the provinces before the 2025
+/// merger), at its former centre. Never the phone's GPS.
 class HomeLocation {
-  const HomeLocation({required this.place, required this.latitude, required this.longitude});
+  const HomeLocation({
+    required this.area,
+    required this.province,
+    required this.place,
+    required this.latitude,
+    required this.longitude,
+  });
 
+  /// The area's code ("binh_duong").
+  final String area;
+
+  /// Today's province ("ho_chi_minh").
+  final String province;
+
+  /// "Bình Dương (TP. Hồ Chí Minh)".
   final String place;
   final double latitude;
   final double longitude;
 
   factory HomeLocation.fromJson(Map<String, dynamic> json) => HomeLocation(
+        area: json['area'] as String? ?? '',
+        province: json['province'] as String? ?? '',
         place: json['place'] as String? ?? '',
         latitude: (json['latitude'] as num).toDouble(),
         longitude: (json['longitude'] as num).toDouble(),
@@ -103,45 +119,60 @@ class HomeWeather {
 
   /// Null while the forecast is not available yet.
   final WeatherSummary? weather;
-  final String? attribution;
+  final WeatherAttribution? attribution;
 
   factory HomeWeather.fromJson(Map<String, dynamic> json) => HomeWeather(
         enabled: json['enabled'] as bool? ?? false,
         location: json['location'] is Map ? HomeLocation.fromJson(_map(json['location'])) : null,
         weather: json['weather'] is Map ? WeatherSummary.fromJson(_map(json['weather'])) : null,
-        attribution: json['attribution'] as String?,
+        attribution: WeatherAttribution.fromJson(json['attribution']),
       );
 }
 
+/// Where the data comes from. Open-Meteo's data is CC BY 4.0: shown with a link to it.
+class WeatherAttribution {
+  const WeatherAttribution({required this.text, required this.url});
+
+  final String text;
+
+  /// Null for mock weather.
+  final Uri? url;
+
+  static WeatherAttribution? fromJson(Object? json) {
+    if (json is String) return WeatherAttribution(text: json, url: null);
+    if (json is! Map || json['text'] is! String) return null;
+    final url = json['url'] is String ? Uri.tryParse(json['url'] as String) : null;
+    return WeatherAttribution(text: json['text'] as String, url: url != null && url.isScheme('https') ? url : null);
+  }
+}
+
+/// One of today's 34 provinces and cities, with its areas (the provinces before 2025), its centre first.
 class Province {
-  const Province({required this.code, required this.name});
+  const Province({required this.code, required this.name, required this.areas});
+
+  final String code;
+  final String name;
+  final List<WeatherArea> areas;
+
+  factory Province.fromJson(Map<String, dynamic> json) => Province(
+        code: json['code'] as String,
+        name: json['name'] as String? ?? json['code'] as String,
+        areas: (json['areas'] as List? ?? const [])
+            .map((item) => WeatherArea.fromJson(_map(item)))
+            .toList(growable: false),
+      );
+
+  /// More than one area: it was merged in 2025 and the user picks the area.
+  bool get merged => areas.length > 1;
+}
+
+/// An area a home can be in: a province or city as it was before the 2025 merger.
+class WeatherArea {
+  const WeatherArea({required this.code, required this.name});
 
   final String code;
   final String name;
 
-  factory Province.fromJson(Map<String, dynamic> json) =>
-      Province(code: json['code'] as String, name: json['name'] as String? ?? json['code'] as String);
-}
-
-/// A ward, commune or town found by name.
-class PlaceResult {
-  const PlaceResult({required this.name, required this.detail, required this.latitude, required this.longitude});
-
-  final String name;
-  final String? detail;
-  final double latitude;
-  final double longitude;
-
-  factory PlaceResult.fromJson(Map<String, dynamic> json) => PlaceResult(
-        name: json['name'] as String? ?? '',
-        detail: json['detail'] as String?,
-        latitude: (json['latitude'] as num).toDouble(),
-        longitude: (json['longitude'] as num).toDouble(),
-      );
-
-  /// What is kept as the home's name: "Phường Ba Đình, Hà Nội".
-  String get fullName {
-    final area = detail?.split(',').last.trim();
-    return area == null || area.isEmpty || area == name || area == 'Tỉnh/thành phố' ? name : '$name, $area';
-  }
+  factory WeatherArea.fromJson(Map<String, dynamic> json) =>
+      WeatherArea(code: json['code'] as String, name: json['name'] as String? ?? json['code'] as String);
 }

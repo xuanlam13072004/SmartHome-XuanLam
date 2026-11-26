@@ -49,8 +49,9 @@ state, event or time → scene and/or notification) and suggestions:
 
 ## Weather
 
-The weather at the account's home (a province or a ward, never GPS) from
-Open-Meteo, kept per 0.1° area and refreshed within a daily call budget:
+The weather at the account's home (one of 63 fixed areas, the provinces
+before the 2025 merger; never GPS) from Open-Meteo, all 63 refreshed every
+30 minutes whatever the number of users (about 3,000 calls a day):
 weather conditions in automations ("Nếu", never "Khi"), the assistant's
 weather answers, the app's weather line; mock weather set in the Admin
 Console for demos and tests: [weather.md](weather.md).

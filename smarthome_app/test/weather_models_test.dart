@@ -9,7 +9,13 @@ void main() {
       'success': true,
       'enabled': true,
       'mode': 'mock',
-      'location': {'latitude': 21.03, 'longitude': 105.85, 'place': 'Hà Nội'},
+      'location': {
+        'area': 'binh_duong',
+        'province': 'ho_chi_minh',
+        'place': 'Bình Dương (TP. Hồ Chí Minh)',
+        'latitude': 10.98,
+        'longitude': 106.65,
+      },
       'weather': {
         'source': 'mock',
         'updated_at': '2026-11-23T13:14:00.000Z',
@@ -21,10 +27,13 @@ void main() {
           {'at': '2026-11-23T15:00:00.000Z', 'temperature': 26.6, 'precipitation_probability': 90, 'rain': true},
         ],
       },
-      'attribution': 'Thời tiết giả lập (thử nghiệm)',
+      'attribution': {'text': 'Thời tiết giả lập (thử nghiệm)', 'url': null},
     });
     expect(home.enabled, isTrue);
-    expect(home.location!.place, 'Hà Nội');
+    expect([home.location!.area, home.location!.province, home.location!.place],
+        ['binh_duong', 'ho_chi_minh', 'Bình Dương (TP. Hồ Chí Minh)']);
+    expect(home.attribution!.text, 'Thời tiết giả lập (thử nghiệm)');
+    expect(home.attribution!.url, isNull);
     final weather = home.weather!;
     expect(weather.isMock, isTrue);
     expect([weather.temperature, weather.todayMin, weather.todayMax], [28, 24, 30]);
@@ -35,14 +44,36 @@ void main() {
     final off = HomeWeather.fromJson({'success': true, 'enabled': false, 'location': null, 'weather': null});
     expect(off.enabled, isFalse);
     expect(off.location, isNull);
+    expect(off.attribution, isNull);
   });
 
-  test('a searched place keeps its province in the name', () {
-    final place = PlaceResult.fromJson({'name': 'Ba Đình', 'detail': 'Hà Nội', 'latitude': 21.03, 'longitude': 105.81});
-    expect(place.fullName, 'Ba Đình, Hà Nội');
-    final province = PlaceResult.fromJson(
-        {'name': 'Huế', 'detail': 'Tỉnh/thành phố', 'latitude': 16.46, 'longitude': 107.59});
-    expect(province.fullName, 'Huế');
+  test('Open-Meteo is credited with a link; only https links are opened', () {
+    final live = WeatherAttribution.fromJson({'text': 'Dữ liệu thời tiết: Open-Meteo.com (CC BY 4.0)', 'url': 'https://open-meteo.com/'})!;
+    expect(live.url, Uri.parse('https://open-meteo.com/'));
+    expect(WeatherAttribution.fromJson({'text': 'x', 'url': 'javascript:alert(1)'})!.url, isNull);
+    expect(WeatherAttribution.fromJson('Dữ liệu thời tiết: Open-Meteo.com (CC BY 4.0)')!.url, isNull, reason: 'an older server');
+  });
+
+  test('a province with its areas: merged ones ask which area', () {
+    final merged = Province.fromJson({
+      'code': 'ho_chi_minh',
+      'name': 'TP. Hồ Chí Minh',
+      'areas': [
+        {'code': 'ho_chi_minh', 'name': 'TP. Hồ Chí Minh'},
+        {'code': 'binh_duong', 'name': 'Bình Dương'},
+        {'code': 'ba_ria_vung_tau', 'name': 'Bà Rịa – Vũng Tàu'},
+      ],
+    });
+    expect(merged.merged, isTrue);
+    expect(merged.areas.map((area) => area.code), ['ho_chi_minh', 'binh_duong', 'ba_ria_vung_tau']);
+    final single = Province.fromJson({
+      'code': 'ha_noi',
+      'name': 'Hà Nội',
+      'areas': [
+        {'code': 'ha_noi', 'name': 'Hà Nội'},
+      ],
+    });
+    expect(single.merged, isFalse);
   });
 
   test('a weather condition is saved and shown as one', () {

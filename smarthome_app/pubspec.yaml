@@ -34,6 +34,8 @@ dependencies:
   flutter_tts: ^4.2.0
   # VietQR payment codes (Gói dịch vụ → Thanh toán).
   qr_flutter: ^4.1.0
+  # Opens the weather data's source (Open-Meteo, CC BY 4.0) in the browser.
+  url_launcher: ^6.3.1
   # Push notifications when the app is closed (docs/architecture/push.md).
   firebase_core: ^3.6.0
   firebase_messaging: ^15.1.3

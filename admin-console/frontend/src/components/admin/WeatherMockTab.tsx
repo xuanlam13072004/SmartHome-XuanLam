@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ApiError, clearAdminWeatherMock, fetchAdminWeather, setAdminWeatherMock } from '../../api'
 import { explain, useConsole } from '../../console/ConsoleContext'
-import type { AdminWeather, WeatherMock, WeatherScenario } from '../../types'
-import { readError } from '../format'
+import type { AdminWeather, WeatherLiveStatus, WeatherMock, WeatherScenario } from '../../types'
+import { formatNumber, formatRelative, readError } from '../format'
 
 const SCENARIOS: Array<{ id: WeatherScenario; label: string; hint: string; temperature: number }> = [
   { id: 'sunny', label: 'Nắng', hint: 'Không mưa trong 3 ngày', temperature: 31 },
@@ -29,6 +29,7 @@ function describe(mock: WeatherMock): string {
  * "Thời tiết giả lập": with WEATHER_MODE=mock the Gateway plays the weather
  * set here (per province or everywhere), so weather automations and the
  * assistant can be shown without waiting for real rain. Every change is logged.
+ * With WEATHER_MODE=live it shows how fresh the 63 areas' real forecasts are.
  */
 export function WeatherMockTab() {
   const access = useConsole()
@@ -114,13 +115,12 @@ export function WeatherMockTab() {
           </p>
         </div>
       </header>
-      {!mock && (
+      {data.mode === 'off' && (
         <p className="notice notice--warning" role="status">
-          {data.mode === 'live'
-            ? 'Gateway đang dùng dự báo thật từ Open-Meteo (WEATHER_MODE=live). Muốn giả lập, đặt WEATHER_MODE=mock cho API Gateway rồi khởi động lại.'
-            : 'Thời tiết đang tắt trên Gateway (WEATHER_MODE=off): ứng dụng không hiện thời tiết và không dùng được điều kiện thời tiết.'}
+          Thời tiết đang tắt trên Gateway (WEATHER_MODE=off): ứng dụng không hiện thời tiết và không dùng được điều kiện thời tiết.
         </p>
       )}
+      {data.live && <LiveStatus status={data.live} />}
       {mock && !canManage && (
         <p className="notice notice--warning console-readonly">Bạn chỉ có quyền xem: đặt hoặc bỏ thời tiết giả lập cần quyền quản lý Simulator.</p>
       )}
@@ -135,7 +135,7 @@ export function WeatherMockTab() {
               <option value="all">Mọi nơi</option>
               {data.provinces.map((province) => <option key={province.code} value={province.code}>{province.name}</option>)}
             </select>
-            <small>Nhà được tính theo tỉnh gần nhất; tỉnh không đặt riêng dùng “Mọi nơi”.</small>
+            <small>Nhà ở khu vực nào thì theo tỉnh chứa khu vực đó; tỉnh không đặt riêng dùng “Mọi nơi”.</small>
           </label>
           <fieldset className="chip-set">
             <legend>Tình huống</legend>
@@ -214,9 +214,43 @@ export function WeatherMockTab() {
         </section>
       )}
       <p className="admin-footnote">
-        Thời tiết giả lập bắt đầu từ lúc đặt và kéo dài 3 ngày (hôm nay và 2 ngày tới). Khi chạy thật (WEATHER_MODE=live), dữ liệu lấy từ
-        Open-Meteo.com (CC BY 4.0).
+        {mock && 'Thời tiết giả lập bắt đầu từ lúc đặt và kéo dài 3 ngày (hôm nay và 2 ngày tới). '}
+        Khi chạy thật (WEATHER_MODE=live), dữ liệu thời tiết lấy từ{' '}
+        <a href="https://open-meteo.com/" rel="noreferrer" target="_blank">Open-Meteo.com</a> (
+        <a href="https://creativecommons.org/licenses/by/4.0/" rel="noreferrer" target="_blank">CC BY 4.0</a>).
       </p>
+    </section>
+  )
+}
+
+/** Live mode: are the 63 areas' forecasts fresh, and how many Open-Meteo calls today. */
+function LiveStatus({ status }: { status: WeatherLiveStatus }) {
+  const stale = status.areas - status.fresh_areas
+  const share = status.daily_call_limit > 0 ? status.calls_today / status.daily_call_limit : 1
+  return (
+    <section aria-label="Dự báo thật">
+      <p className="notice" role="status">
+        Gateway đang dùng dự báo thật từ Open-Meteo (WEATHER_MODE=live): {status.areas} khu vực (63 tỉnh, thành cũ) được làm mới
+        mỗi {status.refresh_minutes} phút, dù có bao nhiêu người dùng. Muốn giả lập, đặt WEATHER_MODE=mock cho API Gateway rồi khởi
+        động lại.
+      </p>
+      <dl className="live-grid">
+        <div className={`live-metric${stale > 0 ? ' live-metric--error' : ''}`}>
+          <dt>Khu vực có dự báo</dt>
+          <dd><strong>{status.fresh_areas}/{status.areas}</strong></dd>
+          <dd className="live-metric__note">{stale > 0 ? `${stale} khu vực chưa có hoặc đã cũ quá 3 giờ` : 'Tất cả còn mới'}</dd>
+        </div>
+        <div className="live-metric">
+          <dt>Làm mới lần cuối</dt>
+          <dd><strong>{status.refreshed_at ? formatRelative(status.refreshed_at) : 'Chưa có'}</strong></dd>
+          <dd className="live-metric__note">Lỗi thì thử lại sau 5, 10, 20… phút</dd>
+        </div>
+        <div className={`live-metric${share >= 0.9 ? ' live-metric--error' : ''}`}>
+          <dt>Lượt gọi hôm nay</dt>
+          <dd><strong>{formatNumber(status.calls_today)}</strong></dd>
+          <dd className="live-metric__note">Trần {formatNumber(status.daily_call_limit)}/ngày (bản miễn phí: 10.000)</dd>
+        </div>
+      </dl>
     </section>
   )
 }

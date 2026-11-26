@@ -30,9 +30,18 @@ import {
     weatherSummary,
     weatherValue,
 } from '../src/modules/weather/forecast';
-import { findProvince, nearestProvince, PROVINCES } from '../src/modules/weather/provinces';
+import {
+    AREAS,
+    areasOf,
+    findArea,
+    findProvince,
+    mainAreaOf,
+    nearestArea,
+    placeOf,
+    PROVINCES,
+} from '../src/modules/weather/provinces';
 import weatherRoutes from '../src/modules/weather/routes';
-import { cellOf, refreshForecasts, setMock } from '../src/modules/weather/service';
+import { locationOf, refreshForecasts, setMock } from '../src/modules/weather/service';
 import { FIXTURE_DEVICES, FIXTURE_SHADOWS, fixtureContext, loadCatalog } from './assistant/fixture';
 import { createTestDatabase, skipWithoutMongo, TEST_MONGO_URL, TestDatabase } from './helpers/testDatabase';
 import { buildTestApp, signUp, SignedInUser } from './helpers/testApp';
@@ -149,15 +158,33 @@ test('Open-Meteo answers become forecasts in UTC', () => {
     assert.equal(summary.rain_in_hours, 0);
 });
 
-test('34 provinces; areas of 0.1°', () => {
+test('34 provinces, 63 areas (the provinces before 2025), each province centred on one of its areas', () => {
     assert.equal(PROVINCES.length, 34);
     assert.equal(new Set(PROVINCES.map(item => item.code)).size, 34);
-    assert.equal(findProvince('ha_noi')?.name, 'Hà Nội');
+    assert.equal(AREAS.length, 63);
+    assert.equal(new Set(AREAS.map(item => item.code)).size, 63);
+    for (const province of PROVINCES) {
+        const areas = areasOf(province.code);
+        assert.ok(areas.length >= 1 && areas.length <= 3, province.code);
+        assert.equal(areas[0], mainAreaOf(province), `${province.code}: its centre first`);
+    }
+    assert.equal(PROVINCES.filter(province => areasOf(province.code).length > 1).length, 23, '23 provinces were merged');
+    assert.deepEqual(areasOf('ho_chi_minh').map(item => item.name), ['TP. Hồ Chí Minh', 'Bình Dương', 'Bà Rịa – Vũng Tàu']);
+    assert.equal(mainAreaOf(findProvince('lao_cai')!).code, 'yen_bai', 'Lào Cai is run from Yên Bái');
     assert.equal(findProvince('Hà Nội'), null, 'by code only');
-    assert.equal(nearestProvince(10.8, 106.7).code, 'ho_chi_minh');
-    assert.equal(nearestProvince(21.0, 105.8).code, 'ha_noi');
-    assert.equal(cellOf(21.028, 105.854), '21.0,105.9');
-    assert.equal(cellOf(10.78, 106.7), '10.8,106.7');
+    assert.equal(findArea('binh_duong')?.province, 'ho_chi_minh');
+    assert.equal(placeOf(findArea('binh_duong')!), 'Bình Dương (TP. Hồ Chí Minh)');
+    assert.equal(placeOf(findArea('ha_noi')!), 'Hà Nội');
+    for (const area of AREAS) assert.equal(nearestArea(area.latitude, area.longitude), area, area.code);
+
+    // A home stored by ward before the areas existed reads as the area around it.
+    assert.equal(locationOf({ home_latitude: 21.03, home_longitude: 105.81 })?.area, 'ha_noi', 'Ba Đình');
+    assert.equal(locationOf({ home_latitude: 21.02, home_longitude: 105.93 })?.area, 'ha_noi', 'Gia Lâm');
+    assert.deepEqual(locationOf({ home_latitude: '10.98', home_longitude: '106.67' }), {
+        area: 'binh_duong', province: 'ho_chi_minh', place: 'Bình Dương (TP. Hồ Chí Minh)', latitude: 10.98, longitude: 106.65,
+    }, 'Thủ Dầu Một, as Postgres returns numerics');
+    assert.equal(locationOf({ home_latitude: null, home_longitude: null }), null);
+    assert.equal(locationOf(undefined), null);
 });
 
 // ── The assistant ─────────────────────────────────────────────────────────
@@ -314,20 +341,18 @@ test.describe('weather', { skip: skipWithoutMongo }, () => {
     let rootSession = '';
     /** Stand-ins for Open-Meteo and Gemini on one local server. */
     let server: http.Server;
+    /** Each location asked for ("10.98,106.65"), and how many requests. */
     const forecastCalls: string[] = [];
+    let forecastRequests = 0;
+    /** Open-Meteo answers 500 while true. */
+    let failing = false;
     let plan: (home: any) => any = () => [];
     let answer: (facts: any[]) => string = () => '';
     const planned: any[] = [];
 
     function openMeteo(url: URL) {
-        if (url.pathname.endsWith('/search')) {
-            return {
-                results: [
-                    { name: 'Ba Đình', latitude: 21.03456, longitude: 105.81421, country_code: 'VN', admin1: 'Hà Nội' },
-                    { name: 'Ba Dinh', latitude: 48.85, longitude: 2.35, country_code: 'FR' },
-                ],
-            };
-        }
+        forecastRequests += 1;
+        if (failing) return null;
         const latitudes = url.searchParams.get('latitude')!.split(',');
         const longitudes = url.searchParams.get('longitude')!.split(',');
         const day = new Date(Date.now() + 7 * HOUR).toISOString().slice(0, 10);
@@ -377,14 +402,14 @@ test.describe('weather', { skip: skipWithoutMongo }, () => {
                 const url = new URL(req.url!, 'http://local');
                 const body = url.pathname.startsWith('/gemini')
                     ? gemini(JSON.parse(Buffer.concat(chunks).toString('utf8'))) : openMeteo(url);
-                res.writeHead(200, { 'content-type': 'application/json' });
+                res.writeHead(body === null ? 500 : 200, { 'content-type': 'application/json' });
                 res.end(JSON.stringify(body));
             });
         });
         await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
         const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
         Object.assign(env, {
-            WEATHER_API_URL: `${base}/v1`, WEATHER_GEOCODING_URL: `${base}/geocoding/v1`,
+            WEATHER_API_URL: `${base}/v1`,
             GEMINI_API_KEY: 'test-key', GEMINI_API_URL: `${base}/gemini`,
         });
 
@@ -416,30 +441,46 @@ test.describe('weather', { skip: skipWithoutMongo }, () => {
     const row = async (id: string) => (await db.pool.query('SELECT * FROM automations WHERE id = $1', [id])).rows[0];
     const due = (id: string) => db.pool.query(`UPDATE automations SET next_run_at = NOW() - interval '1 minute' WHERE id = $1`, [id]);
 
-    test('the home: a province or a searched place, rounded; removing it clears it', async () => {
+    test('the home: a province or one of its areas; an old home reads as its area; removing it clears it', async () => {
         const user = await signUp(app);
         const empty = (await call(user, 'GET', '/weather')).json();
         assert.deepEqual([empty.enabled, empty.location, empty.weather], [true, null, null]);
-        assert.equal((await call(user, 'GET', '/weather/provinces')).json().provinces.length, 34);
-        const found = (await call(user, 'GET', `/weather/places?q=${encodeURIComponent('hà')}`)).json().places;
-        assert.ok(found.some((place: any) => place.name === 'Hà Nội'), 'mock mode searches the provinces');
+        const provinces = (await call(user, 'GET', '/weather/provinces')).json().provinces;
+        assert.equal(provinces.length, 34);
+        assert.equal(provinces.reduce((sum: number, province: any) => sum + province.areas.length, 0), 63);
+        assert.deepEqual(provinces.find((province: any) => province.code === 'ho_chi_minh').areas,
+            [{ code: 'ho_chi_minh', name: 'TP. Hồ Chí Minh' }, { code: 'binh_duong', name: 'Bình Dương' },
+                { code: 'ba_ria_vung_tau', name: 'Bà Rịa – Vũng Tàu' }]);
+        assert.equal((await call(user, 'GET', '/weather/places?q=ha')).statusCode, 404, 'no search by ward or commune');
 
         const set = await call(user, 'PUT', '/me/home-location', { province: 'ha_noi' });
         assert.equal(set.statusCode, 200, set.body);
-        assert.equal(set.json().location.place, 'Hà Nội');
+        assert.deepEqual(set.json().location, { area: 'ha_noi', province: 'ha_noi', place: 'Hà Nội', latitude: 21.03, longitude: 105.85 });
         const weather = (await call(user, 'GET', '/weather')).json();
         assert.equal(weather.location.place, 'Hà Nội');
         assert.equal(weather.weather.current.temperature, 31, 'a sunny mock day by default');
-        assert.equal(weather.attribution, 'Thời tiết giả lập (thử nghiệm)');
+        assert.deepEqual(weather.attribution, { text: 'Thời tiết giả lập (thử nghiệm)', url: null });
 
-        const place = await call(user, 'PUT', '/me/home-location', {
-            place: { name: '  Phường   Ba Đình ', latitude: 21.034567, longitude: 105.812345 },
+        const area = await call(user, 'PUT', '/me/home-location', { area: 'binh_duong' });
+        assert.deepEqual(area.json().location, {
+            area: 'binh_duong', province: 'ho_chi_minh', place: 'Bình Dương (TP. Hồ Chí Minh)', latitude: 10.98, longitude: 106.65,
         });
-        assert.deepEqual(place.json().location, { latitude: 21.03, longitude: 105.81, place: 'Phường Ba Đình' });
-        assert.equal((await call(user, 'PUT', '/me/home-location', { place: { name: 'Paris', latitude: 48.85, longitude: 2.35 } }))
-            .json().error.code, 'WEATHER_LOCATION_OUTSIDE');
+        assert.equal((await call(user, 'GET', '/weather')).json().location.area, 'binh_duong');
+        assert.equal((await call(user, 'PUT', '/me/home-location', { province: 'lao_cai' })).json().location.area, 'yen_bai',
+            'only the province: the area at its centre');
+        assert.equal((await call(user, 'PUT', '/me/home-location', { area: 'atlantis' })).json().error.code, 'WEATHER_AREA_UNKNOWN');
         assert.equal((await call(user, 'PUT', '/me/home-location', { province: 'atlantis' })).json().error.code, 'WEATHER_PROVINCE_UNKNOWN');
-        assert.equal((await call(user, 'PUT', '/me/home-location', { province: 'ha_noi', latitude: 1 })).statusCode, 400);
+        assert.equal((await call(user, 'PUT', '/me/home-location', { province: 'ha_noi', area: 'ha_noi' })).statusCode, 400);
+        assert.equal((await call(user, 'PUT', '/me/home-location', {
+            place: { name: 'Phường Ba Đình', latitude: 21.03, longitude: 105.81 },
+        })).statusCode, 400, 'no free place any more');
+
+        // A home saved by ward before the areas existed.
+        await db.pool.query(
+            `UPDATE account_preferences SET home_latitude = 21.03, home_longitude = 105.81, home_place = 'Phường Ba Đình'
+             WHERE account_id = $1`, [user.id],
+        );
+        assert.equal((await call(user, 'GET', '/weather')).json().location.place, 'Hà Nội');
 
         assert.equal((await call(user, 'DELETE', '/me/home-location')).statusCode, 200);
         assert.equal((await call(user, 'GET', '/weather')).json().location, null);
@@ -535,14 +576,15 @@ test.describe('weather', { skip: skipWithoutMongo }, () => {
     test('the Console sets mock weather: simulator.manage, mock mode only, audited', async () => {
         const overview = await admin('GET', '/admin/weather');
         assert.equal(overview.statusCode, 200, overview.body);
-        assert.deepEqual([overview.json().mode, overview.json().provinces.length, overview.json().mocks], ['mock', 34, {}]);
+        assert.deepEqual([overview.json().mode, overview.json().provinces.length, overview.json().mocks, overview.json().live],
+            ['mock', 34, {}, null]);
 
-        const set = await admin('PUT', '/admin/weather/mock', { area: 'ha_noi', scenario: 'rain_soon', rain_in_hours: 3 });
+        const set = await admin('PUT', '/admin/weather/mock', { area: 'ho_chi_minh', scenario: 'rain_soon', rain_in_hours: 3 });
         assert.equal(set.statusCode, 200, set.body);
-        assert.deepEqual(set.json().mocks, { ha_noi: { scenario: 'rain_soon', rain_in_hours: 3 } });
+        assert.deepEqual(set.json().mocks, { ho_chi_minh: { scenario: 'rain_soon', rain_in_hours: 3 } });
         const user = await signUp(app);
-        await call(user, 'PUT', '/me/home-location', { place: { name: 'Gia Lâm', latitude: 21.02, longitude: 105.93 } });
-        assert.equal((await call(user, 'GET', '/weather')).json().weather.rain_in_hours, 3, 'the nearest province\'s mock');
+        await call(user, 'PUT', '/me/home-location', { area: 'binh_duong' });
+        assert.equal((await call(user, 'GET', '/weather')).json().weather.rain_in_hours, 3, 'the mock of the area\'s province');
 
         assert.equal((await admin('PUT', '/admin/weather/mock', { area: 'atlantis', scenario: 'sunny' })).json().error.code,
             'WEATHER_PROVINCE_UNKNOWN');
@@ -571,67 +613,83 @@ test.describe('weather', { skip: skipWithoutMongo }, () => {
         } finally {
             env.WEATHER_MODE = 'mock';
         }
-        const cleared = await admin('DELETE', '/admin/weather/mock/ha_noi');
+        const cleared = await admin('DELETE', '/admin/weather/mock/ho_chi_minh');
         assert.deepEqual(cleared.json().mocks, {});
         const log = (await db.pool.query(
             `SELECT action, details FROM admin_audit_log WHERE action LIKE 'weather.%' ORDER BY created_at`,
         )).rows;
         assert.deepEqual(log.map(item => item.action), ['weather.mock_set', 'weather.mock_cleared']);
-        assert.deepEqual(log[0].details, { area: 'ha_noi', scenario: 'rain_soon', rain_in_hours: 3 });
+        assert.deepEqual(log[0].details, { area: 'ho_chi_minh', scenario: 'rain_soon', rain_in_hours: 3 });
     });
 
-    test('live forecasts: one request per area, kept, refreshed in rounds, within the daily limit', async () => {
+    test('live forecasts: all 63 areas in 2 requests a round, read from Redis, retried sooner after a failure, within the daily limit', async () => {
         const user = await signUp(app);
         const limit = env.WEATHER_DAILY_CALL_LIMIT;
+        const age = async (code: string) => {
+            const stored = JSON.parse((await app.redis.get(`weather:area:${code}`))!);
+            stored.fetched_at = new Date(Date.now() - 2 * HOUR).toISOString();
+            await app.redis.set(`weather:area:${code}`, JSON.stringify(stored));
+        };
+        /** The next round may start (the lock of the last one is gone). */
+        const nextRound = () => app.redis.del('weather:refresh');
         try {
             env.WEATHER_MODE = 'live';
-            const places = (await call(user, 'GET', `/weather/places?q=${encodeURIComponent('Ba Đình')}`)).json().places;
-            assert.deepEqual(places, [{ name: 'Ba Đình', detail: 'Hà Nội', latitude: 21.03, longitude: 105.81 }], 'Vietnam only, rounded');
+            await call(user, 'PUT', '/me/home-location', { area: 'binh_duong' });
+            assert.equal((await call(user, 'GET', '/weather')).json().weather, null, 'before the first round: nothing to read');
+            assert.equal(forecastRequests, 0, 'the app never calls Open-Meteo itself');
 
-            const location = (await call(user, 'PUT', '/me/home-location', { province: 'ho_chi_minh' })).json().location;
-            const cell = cellOf(location.latitude, location.longitude);
-            let weather: any = null;
-            for (let tries = 0; tries < 40 && !weather; tries += 1) {
-                weather = (await call(user, 'GET', '/weather')).json().weather;
-                if (!weather) await new Promise(resolve => setTimeout(resolve, 50));
-            }
-            assert.equal(weather?.current.temperature, 28);
-            assert.equal((await call(user, 'GET', '/weather')).json().attribution, 'Dữ liệu thời tiết: Open-Meteo.com (CC BY 4.0)');
-            const calls = () => forecastCalls.filter(item => item === cell).length;
-            assert.equal(calls(), 1, 'opening the app again reads the stored forecast');
-
-            // Rounds refresh the areas of homes with a weather automation.
-            await refreshForecasts(app);
-            assert.equal(calls(), 1, 'no weather automation, no round');
-            const automation = await call(user, 'POST', '/automations', {
-                name: 'Mưa thì báo', timezone: ZONE, notify_message: 'Sắp mưa, cất đồ vào',
-                trigger: { kind: 'time', time: '17:00', days: [1, 2, 3, 4, 5, 6, 7] },
-                conditions: [{ weather: 'rain_next_3h', operator: 'eq', value: true }],
-            });
-            assert.equal(automation.statusCode, 200, automation.body);
-            await app.redis.del('weather:refresh');
-            await refreshForecasts(app);
-            assert.equal(calls(), 1, 'still fresh');
-
-            const age = async () => {
-                const stored = JSON.parse((await app.redis.get(`weather:cell:${cell}`))!);
-                stored.fetched_at = new Date(Date.now() - 2 * HOUR).toISOString();
-                await app.redis.set(`weather:cell:${cell}`, JSON.stringify(stored));
-                await app.redis.del('weather:refresh');
-            };
-            await age();
-            assert.ok(await refreshForecasts(app) >= 1);
-            assert.equal(calls(), 2);
+            assert.equal(await refreshForecasts(app), 63);
+            assert.equal(forecastRequests, 2, '50 + 13 areas');
+            assert.equal(new Set(forecastCalls).size, 63);
+            assert.ok(forecastCalls.includes('10.98,106.65'), 'Bình Dương at Thủ Dầu Một');
+            const body = (await call(user, 'GET', '/weather')).json();
+            assert.equal(body.weather.current.temperature, 28);
+            assert.deepEqual(body.attribution, { text: 'Dữ liệu thời tiết: Open-Meteo.com (CC BY 4.0)', url: 'https://open-meteo.com/' });
+            await call(user, 'GET', '/weather');
             assert.equal(await refreshForecasts(app), 0, 'one round per interval');
+            await nextRound();
+            assert.equal(await refreshForecasts(app), 0, 'nothing is old yet');
+            assert.equal(forecastRequests, 2);
+
+            const status = (await admin('GET', '/admin/weather')).json().live;
+            assert.deepEqual([status.areas, status.fresh_areas, status.calls_today, status.refresh_minutes], [63, 63, 63, 30]);
+            assert.ok(Date.now() - Date.parse(status.refreshed_at) < 60_000);
+
+            // Only the old forecasts are fetched again.
+            await age('binh_duong');
+            await nextRound();
+            assert.equal(await refreshForecasts(app), 1);
+            assert.deepEqual([forecastRequests, forecastCalls.at(-1)], [3, '10.98,106.65']);
+
+            // Open-Meteo fails: the round is tried again in 5 minutes, then 10, not after the whole interval.
+            failing = true;
+            await age('binh_duong');
+            await nextRound();
+            assert.equal(await refreshForecasts(app), 0);
+            let wait = await app.redis.ttl('weather:refresh');
+            assert.ok(wait > 0 && wait <= 300, `retry in ${wait} s`);
+            assert.equal(await refreshForecasts(app), 0, 'not before then');
+            await nextRound();
+            await refreshForecasts(app);
+            wait = await app.redis.ttl('weather:refresh');
+            assert.ok(wait > 300 && wait <= 600, `then in ${wait} s`);
+            failing = false;
+            await nextRound();
+            assert.equal(await refreshForecasts(app), 1);
+            assert.equal(await app.redis.get('weather:refresh:failures'), null, 'a good round resets the wait');
+            assert.ok(await app.redis.ttl('weather:refresh') > 600);
 
             const day = new Date(Date.now() + 7 * HOUR).toISOString().slice(0, 10);
             env.WEATHER_DAILY_CALL_LIMIT = Number(await app.redis.get(`weather:calls:${day}`));
-            await age();
+            await age('binh_duong');
+            await nextRound();
+            const before = forecastRequests;
             assert.equal(await refreshForecasts(app), 0);
-            assert.equal(calls(), 2, 'the daily limit stops the requests');
+            assert.equal(forecastRequests, before, 'the daily limit stops the requests');
         } finally {
             env.WEATHER_MODE = 'mock';
             env.WEATHER_DAILY_CALL_LIMIT = limit;
+            failing = false;
         }
     });
 

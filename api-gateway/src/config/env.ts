@@ -43,9 +43,9 @@ const envSchema = z.object({
     // no key); mock = weather set in the Admin Console (demos, tests); off = no weather at all.
     WEATHER_MODE: z.enum(['off', 'live', 'mock']).default('live'),
     WEATHER_API_URL: z.string().url().default('https://api.open-meteo.com/v1'),
-    WEATHER_GEOCODING_URL: z.string().url().default('https://geocoding-api.open-meteo.com/v1'),
-    // How often forecasts in use are refreshed, and the most Open-Meteo calls a day (free limit 10,000).
-    WEATHER_REFRESH_MINUTES: z.coerce.number().int().min(10).max(180).default(30),
+    // How often the 63 areas' forecasts are refreshed (63 calls a round: 3,024 a day at 30 minutes),
+    // and the most Open-Meteo calls a day (free limit 10,000).
+    WEATHER_REFRESH_MINUTES: z.coerce.number().int().min(15).max(180).default(30),
     WEATHER_DAILY_CALL_LIMIT: z.coerce.number().int().min(0).max(100000).default(8000),
     // Payments (docs/architecture/payments.md): off · mock (no real money, for testing) · bank (VietQR).
     PAYMENT_MODE: z.enum(['off', 'mock', 'bank']).default('off'),

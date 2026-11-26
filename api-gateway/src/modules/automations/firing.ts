@@ -10,7 +10,7 @@ import {
 import { advanceRun, insertRun } from '../scenes/runs';
 import { skipReason } from '../scenes/schedules';
 import { compareWeather, weatherValue } from '../weather/forecast';
-import { readForecast } from '../weather/service';
+import { locationOf, readForecast } from '../weather/service';
 import { compare, shadowValue } from './catalog';
 import { isWeatherCondition, type StoredCondition } from './service';
 
@@ -91,11 +91,10 @@ async function conditionsHold(app: FastifyInstance, client: PoolClient, row: Fir
     if (devicesOnly.length > 0 && !(await deviceConditionsHold(app, client, row.account_id, devicesOnly))) return false;
     if (weather.length === 0) return true;
     const home = (await client.query(
-        'SELECT home_latitude, home_longitude, home_place FROM account_preferences WHERE account_id = $1',
+        'SELECT home_latitude, home_longitude FROM account_preferences WHERE account_id = $1',
         [row.account_id],
     )).rows[0];
-    const location = home?.home_latitude === null || home?.home_latitude === undefined ? null
-        : { latitude: Number(home.home_latitude), longitude: Number(home.home_longitude), place: home.home_place };
+    const location = locationOf(home);
     const now = new Date();
     const forecast = await readForecast(app, location, now);
     const values = weather.map(condition => weatherValue(forecast, condition.weather, now));

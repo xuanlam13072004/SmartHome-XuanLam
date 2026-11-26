@@ -656,11 +656,23 @@ export interface WeatherMock {
   rain_in_hours?: number
 }
 
+/** Live mode: the 63 areas' forecasts (refreshed in rounds) and today's Open-Meteo calls. */
+export interface WeatherLiveStatus {
+  areas: number
+  /** Areas whose forecast is usable now (younger than 3 hours). */
+  fresh_areas: number
+  refreshed_at: string | null
+  calls_today: number
+  daily_call_limit: number
+  refresh_minutes: number
+}
+
 export interface AdminWeather {
   mode: 'off' | 'live' | 'mock'
   provinces: Array<{ code: string; name: string }>
   /** 'all' or a province code → what is played there. */
   mocks: Record<string, WeatherMock>
+  live: WeatherLiveStatus | null
 }
 
 export interface OwnSession {

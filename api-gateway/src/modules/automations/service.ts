@@ -18,7 +18,7 @@ import {
 } from './catalog';
 import type { AutomationInput, DeviceConditionInput } from './schemas';
 import { findWeatherCondition, validWeatherComparison, weatherConditionOptions } from '../weather/forecast';
-import { ensureForecast, homeLocation, weatherEnabled } from '../weather/service';
+import { homeLocation, weatherEnabled } from '../weather/service';
 
 /**
  * Automations ("Tự động"): Khi (a device state, a device event or a time) →
@@ -381,11 +381,6 @@ export async function resolveAutomation(
     return { input, triggerDeviceId, triggerMac, conditions };
 }
 
-/** Saved with a weather condition: make sure its area's forecast is kept fresh from now on. */
-function watchWeather(app: FastifyInstance, accountId: string, resolved: ResolvedAutomation) {
-    if (resolved.conditions.some(isWeatherCondition)) void ensureForecast(app, accountId);
-}
-
 /** Whether a state trigger already holds (it fires only when it becomes true). */
 async function holdsNow(app: FastifyInstance, resolved: ResolvedAutomation): Promise<boolean> {
     const trigger = resolved.input.trigger;
@@ -471,7 +466,6 @@ export async function createAutomation(app: FastifyInstance, accountId: string, 
     const resolved = await resolveAutomation(app, accountId, input);
     const id = await inTransaction(app, client => insertAutomation(app, client, accountId, resolved));
     await announceChange(app, id);
-    watchWeather(app, accountId, resolved);
     return getAutomation(app, accountId, id);
 }
 
@@ -496,7 +490,6 @@ export async function replaceAutomation(
         if (!updated.rows[0]) throw httpError(404, 'AUTOMATION_NOT_FOUND', 'Automation not found');
     });
     await announceChange(app, automationId);
-    watchWeather(app, accountId, resolved);
     return getAutomation(app, accountId, automationId);
 }
 
