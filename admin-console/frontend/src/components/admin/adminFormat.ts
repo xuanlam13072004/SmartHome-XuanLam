@@ -61,7 +61,11 @@ export const auditActionLabel: Record<string, string> = {
   'simulator.request': 'Thao tác Simulator',
   'weather.mock_set': 'Đặt thời tiết giả lập',
   'weather.mock_cleared': 'Bỏ thời tiết giả lập',
+  'weather.account_mock_set': 'Giả lập thời tiết cho tài khoản',
+  'weather.account_mock_cleared': 'Kết thúc giả lập thời tiết của tài khoản',
 }
+
+const weatherScenarioLabel: Record<string, string> = { sunny: 'Nắng', rain_soon: 'Sắp mưa', raining: 'Đang mưa', heat: 'Nắng nóng' }
 
 /** Who did it: the staff member's name, a CLI tool, or the page before staff accounts existed. */
 export const actorLabel = (actor: AdminAuditItem['actor']): string => {
@@ -96,9 +100,12 @@ export const auditDetail = (item: AdminAuditItem): string => {
   }
   if (item.action === 'payment.cancelled') return String(details.code)
   if (item.action === 'simulator.request') return `${String(details.method)} ${String(details.path)}`
+  if (item.action.startsWith('weather.account_')) {
+    return details.scenario ? `${weatherScenarioLabel[String(details.scenario)] ?? String(details.scenario)} · ${String(details.hours)} giờ` : ''
+  }
   if (item.action.startsWith('weather.')) {
     const area = details.area === 'all' ? 'Mọi nơi' : String(details.area)
-    return details.scenario ? `${area} · ${String(details.scenario)}` : area
+    return details.scenario ? `${area} · ${weatherScenarioLabel[String(details.scenario)] ?? String(details.scenario)}` : area
   }
   const staff = details.staff as { email?: string } | undefined
   if (item.action.startsWith('staff.') && staff?.email) return staff.email

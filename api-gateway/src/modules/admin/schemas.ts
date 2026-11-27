@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { MOCK_SCENARIOS } from '../weather/forecast';
+import { ACCOUNT_MOCK_HOURS } from '../weather/service';
 import { PAYMENT_TABS } from './payments';
 import { PERMISSION_CODES, type StaffPermission } from './permissions';
 
@@ -107,18 +108,30 @@ export const staffActionSchema = z.object({
     body: z.object({ reason }),
 });
 
-// ── Mock weather (WEATHER_MODE=mock) ──────────────────────────────────────
+// ── Mock weather ──────────────────────────────────────────────────────────
 
 const weatherArea = z.string().regex(/^(all|[a-z][a-z_]{1,39})$/);
+const mockFields = {
+    scenario: z.enum(MOCK_SCENARIOS),
+    temperature: z.number().finite().min(-10).max(50).optional(),
+    rain_in_hours: z.number().int().min(1).max(12).optional(),
+};
 
+/** A province or everywhere (WEATHER_MODE=mock only). */
 export const weatherMockSchema = z.object({
+    body: z.object({ area: weatherArea, ...mockFields }).strict(),
+});
+
+/** One account, found by its email, for [hours] (default 2, at most 24). */
+export const weatherAccountMockSchema = z.object({
     body: z.object({
-        area: weatherArea,
-        scenario: z.enum(MOCK_SCENARIOS),
-        temperature: z.number().finite().min(-10).max(50).optional(),
-        rain_in_hours: z.number().int().min(1).max(12).optional(),
+        email: z.string().trim().toLowerCase().email().max(320),
+        ...mockFields,
+        hours: z.number().int().min(1).max(ACCOUNT_MOCK_HOURS.max).default(ACCOUNT_MOCK_HOURS.default),
     }).strict(),
 });
+
+export const weatherAccountParams = z.object({ params: accountParams });
 
 export const weatherAreaSchema = z.object({
     params: z.object({ area: weatherArea }),

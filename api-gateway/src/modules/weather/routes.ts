@@ -34,7 +34,8 @@ export default async function weatherRoutes(app: FastifyInstance) {
             mode: env.WEATHER_MODE,
             location,
             weather: snapshot ? weatherSummary(snapshot, new Date()) : null,
-            attribution: env.WEATHER_MODE === 'live' ? ATTRIBUTION : MOCK_ATTRIBUTION,
+            // Mock weather (the server's, or this account's for a demo) is never credited to Open-Meteo.
+            attribution: env.WEATHER_MODE === 'live' && snapshot?.source !== 'mock' ? ATTRIBUTION : MOCK_ATTRIBUTION,
         };
     });
 

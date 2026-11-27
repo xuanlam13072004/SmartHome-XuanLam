@@ -667,11 +667,23 @@ export interface WeatherLiveStatus {
   refresh_minutes: number
 }
 
+/** Mock weather for one account (a demo): only it sees it, until expires_at. */
+export interface WeatherAccountMock extends WeatherMock {
+  account_id: string
+  email: string
+  full_name: string
+  /** Its home; null: no home yet, so the mock does nothing. */
+  place: string | null
+  expires_at: string
+}
+
 export interface AdminWeather {
   mode: 'off' | 'live' | 'mock'
   provinces: Array<{ code: string; name: string }>
-  /** 'all' or a province code → what is played there. */
+  /** WEATHER_MODE=mock only: 'all' or a province code → what is played there. */
   mocks: Record<string, WeatherMock>
+  /** Accounts with their own mock (live or mock mode), the one ending first first. */
+  accounts: WeatherAccountMock[]
   live: WeatherLiveStatus | null
 }
 

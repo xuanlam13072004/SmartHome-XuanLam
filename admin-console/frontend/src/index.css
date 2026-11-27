@@ -4129,8 +4129,16 @@ dd {
   gap: var(--space-md);
 }
 
+/* Which account, and for how long. */
+.weather-mock__who {
+  display: grid;
+  grid-template-columns: minmax(0, 22rem) minmax(0, 10rem);
+  gap: var(--space-md);
+}
+
 @media (max-width: 640px) {
-  .weather-mock__numbers {
+  .weather-mock__numbers,
+  .weather-mock__who {
     grid-template-columns: minmax(0, 1fr);
   }
 }

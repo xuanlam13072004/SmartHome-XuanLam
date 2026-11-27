@@ -36,6 +36,7 @@ import type {
   SimulatorEvent,
   Staff,
   StaffMember,
+  WeatherAccountMock,
   WeatherMock,
 } from './types'
 
@@ -499,7 +500,8 @@ export const fetchAdminAudit = (query: { page: number; action?: string; accountI
 export const fetchAdminAuditFor = (query: { page: number; staffId: string }) =>
   request<Page<AdminAuditItem>>(`/admin/audit${adminQuery({ page: query.page, staff_id: query.staffId })}`)
 
-// Mock weather (WEATHER_MODE=mock on the Gateway): per province, or 'all'.
+// Mock weather: for one account (live or mock mode, ends by itself), or, with
+// WEATHER_MODE=mock on the Gateway, per province or 'all'.
 export const fetchAdminWeather = () => request<AdminWeather>('/admin/weather')
 
 export const setAdminWeatherMock = (area: string, mock: WeatherMock) =>
@@ -507,6 +509,12 @@ export const setAdminWeatherMock = (area: string, mock: WeatherMock) =>
 
 export const clearAdminWeatherMock = (area: string) =>
   request<{ mocks: Record<string, WeatherMock> }>(`/admin/weather/mock/${encodeURIComponent(area)}`, { method: 'DELETE' })
+
+export const setAdminWeatherAccountMock = (body: WeatherMock & { email: string; hours: number }) =>
+  request<{ accounts: WeatherAccountMock[] }>('/admin/weather/account-mock', { method: 'PUT', body: JSON.stringify(body) })
+
+export const clearAdminWeatherAccountMock = (accountId: string) =>
+  request<{ accounts: WeatherAccountMock[] }>(`/admin/weather/account-mock/${encodeURIComponent(accountId)}`, { method: 'DELETE' })
 
 // ── Session and staff ──────────────────────────────────────────────────────
 

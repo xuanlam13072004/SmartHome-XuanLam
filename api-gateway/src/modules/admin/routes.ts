@@ -22,13 +22,23 @@ import {
     staffActionSchema,
     staffLoginSchema,
     updateStaffSchema,
+    weatherAccountMockSchema,
+    weatherAccountParams,
     weatherAreaSchema,
     weatherMockSchema,
 } from './schemas';
 import { env } from '../../config/env';
 import { httpError } from '../../utils/httpError';
 import { PROVINCES } from '../weather/provinces';
-import { listMocks, setMock, weatherStatus } from '../weather/service';
+import {
+    clearAccountMock,
+    listAccountMocks,
+    listMocks,
+    locationOf,
+    setAccountMock,
+    setMock,
+    weatherStatus,
+} from '../weather/service';
 import {
     actOnStaff,
     actorOf,
@@ -244,8 +254,30 @@ const adminRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
 
     // ── Weather (docs/architecture/weather.md) ──────────────────────────────
     // Live: how fresh the 63 areas' forecasts are and today's Open-Meteo calls.
-    // Mock (WEATHER_MODE=mock): demos and tests set the weather of a province
-    // (or of every area) instead of waiting for real rain.
+    // Mock weather for demos and tests instead of waiting for real rain: for
+    // one account (live or mock, ends by itself), or, with WEATHER_MODE=mock
+    // only, for a province or every area.
+
+    /** The accounts with a mock, with their email and home (a mock does nothing without a home). */
+    const accountMocks = async () => {
+        if (env.WEATHER_MODE === 'off') return [];
+        const mocks = await listAccountMocks(app);
+        if (mocks.length === 0) return [];
+        const rows = new Map((await app.pg.query(
+            `SELECT account.id, account.email, account.full_name, preference.home_latitude, preference.home_longitude
+             FROM accounts AS account
+             LEFT JOIN account_preferences AS preference ON preference.account_id = account.id
+             WHERE account.id = ANY($1::uuid[])`,
+            [mocks.map(mock => mock.account_id)],
+        )).rows.map(row => [row.id as string, row]));
+        return mocks.flatMap(({ account_id, ...mock }) => {
+            const row = rows.get(account_id);
+            return row ? [{
+                account_id, email: row.email as string, full_name: row.full_name as string,
+                place: locationOf(row)?.place ?? null, ...mock,
+            }] : [];
+        });
+    };
 
     app.get('/admin/weather', {
         config: { adminPermission: 'simulator.view' },
@@ -254,8 +286,43 @@ const adminRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         mode: env.WEATHER_MODE,
         provinces: PROVINCES.map(({ code, name }) => ({ code, name })),
         mocks: env.WEATHER_MODE === 'mock' ? await listMocks(app) : {},
+        accounts: await accountMocks(),
         live: env.WEATHER_MODE === 'live' ? await weatherStatus(app) : null,
     }));
+
+    const assertWeatherOn = () => {
+        if (env.WEATHER_MODE === 'off') throw httpError(409, 'WEATHER_OFF', 'Weather is turned off on the API Gateway');
+    };
+
+    app.put('/admin/weather/account-mock', {
+        config: typedRouteConfig({ zodSchema: weatherAccountMockSchema, adminPermission: 'simulator.manage' }),
+    }, async (request) => {
+        assertWeatherOn();
+        const { email, hours, ...mock } = request.body as any;
+        const account = (await app.pg.query('SELECT id, email FROM accounts WHERE lower(email) = $1', [email])).rows[0];
+        if (!account) throw httpError(404, 'ACCOUNT_NOT_FOUND', 'Không tìm thấy tài khoản.');
+        await setAccountMock(app, account.id, mock, hours);
+        await recordAdminAction(app.pg, {
+            actor: actorOf(staffOf(request)), action: 'weather.account_mock_set', reason: 'Thời tiết giả lập cho một tài khoản',
+            targetAccountId: account.id, targetEmail: account.email, details: { ...mock, hours },
+        });
+        return { success: true, accounts: await accountMocks() };
+    });
+
+    app.delete('/admin/weather/account-mock/:id', {
+        config: typedRouteConfig({ zodSchema: weatherAccountParams, adminPermission: 'simulator.manage' }),
+    }, async (request) => {
+        assertWeatherOn();
+        const { id } = request.params as { id: string };
+        if (await clearAccountMock(app, id)) {
+            const account = (await app.pg.query('SELECT email FROM accounts WHERE id = $1', [id])).rows[0];
+            await recordAdminAction(app.pg, {
+                actor: actorOf(staffOf(request)), action: 'weather.account_mock_cleared', reason: 'Thời tiết giả lập cho một tài khoản',
+                targetAccountId: id, targetEmail: account?.email ?? null,
+            });
+        }
+        return { success: true, accounts: await accountMocks() };
+    });
 
     const assertMock = () => {
         if (env.WEATHER_MODE !== 'mock') {

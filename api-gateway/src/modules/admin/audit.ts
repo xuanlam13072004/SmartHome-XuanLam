@@ -20,7 +20,9 @@ export type AdminAction =
     | 'staff.signed_out'
     | 'simulator.request'
     | 'weather.mock_set'
-    | 'weather.mock_cleared';
+    | 'weather.mock_cleared'
+    | 'weather.account_mock_set'
+    | 'weather.account_mock_cleared';
 
 /** A staff member signed in to the Admin Console, or a tool run inside the Gateway container. */
 export type AdminActor = { kind: 'staff'; id: string; email: string } | { kind: 'cli' };

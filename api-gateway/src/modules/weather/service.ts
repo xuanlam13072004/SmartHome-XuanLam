@@ -26,6 +26,10 @@ import {
  * two Open-Meteo requests: the cost does not grow with the number of homes.
  * The app, the assistant and automations only read what is stored, so none of
  * them ever waits for the network or spends a call.
+ *
+ * Mock weather, set in the Admin Console: for one account (any mode but off;
+ * it ends by itself after a few hours) or, with WEATHER_MODE=mock only, for a
+ * province or everywhere.
  */
 
 export interface HomeLocation {
@@ -44,6 +48,11 @@ const AREA_TTL_SECONDS = 6 * 3600;
 /** Locations per Open-Meteo request: 63 areas → 2 requests. */
 const BATCH = 50;
 const MOCK_PREFIX = 'weather:mock:';
+const ACCOUNT_MOCK_PREFIX = 'weather:mock:account:';
+/** Accounts with a mock: account id → when it ends (ms), so the Console can list them. */
+const ACCOUNT_MOCKS = 'weather:mock:accounts';
+/** How long an account's mock lasts unless said otherwise, and at most (hours). */
+export const ACCOUNT_MOCK_HOURS = { default: 2, max: 24 } as const;
 const ROUND_KEY = 'weather:refresh';
 const FAILURES_KEY = 'weather:refresh:failures';
 const REFRESHED_KEY = 'weather:refreshed_at';
@@ -132,31 +141,73 @@ export async function setMock(app: Pick<FastifyInstance, 'redis'>, area: string,
     else await app.redis.del(`${MOCK_PREFIX}${area}`);
 }
 
-/** The mock of the home's province, else the one for every area, else a sunny day. */
-async function mockFor(app: Pick<FastifyInstance, 'redis'>, location: HomeLocation): Promise<MockWeather> {
-    const [own, all] = await app.redis.mget(`${MOCK_PREFIX}${location.province}`, `${MOCK_PREFIX}all`);
-    const raw = own ?? all;
-    return raw ? JSON.parse(raw) : { scenario: 'sunny' };
+/** A mock set for one account: what it plays and when it ends. */
+export interface AccountMock extends MockWeather {
+    expires_at: string;
+}
+
+/**
+ * Plays [mock] for this account alone for [hours] (whatever the mode, but
+ * off): its automations, its assistant and its app read it; every other
+ * account keeps its own weather. Setting it again replaces it.
+ */
+export async function setAccountMock(app: Pick<FastifyInstance, 'redis'>, accountId: string, mock: MockWeather, hours: number):
+    Promise<AccountMock> {
+    const endsAt = Date.now() + hours * 3_600_000;
+    const stored: AccountMock = { ...mock, expires_at: new Date(endsAt).toISOString() };
+    await app.redis.multi()
+        .set(`${ACCOUNT_MOCK_PREFIX}${accountId}`, JSON.stringify(stored), 'EX', hours * 3600)
+        .zadd(ACCOUNT_MOCKS, endsAt, accountId)
+        .exec();
+    return stored;
+}
+
+/** Ends an account's mock now; false when it had none. */
+export async function clearAccountMock(app: Pick<FastifyInstance, 'redis'>, accountId: string): Promise<boolean> {
+    const [[, removed]] = (await app.redis.multi()
+        .del(`${ACCOUNT_MOCK_PREFIX}${accountId}`)
+        .zrem(ACCOUNT_MOCKS, accountId)
+        .exec())!;
+    return Number(removed) > 0;
+}
+
+/** The accounts with a mock now (at most 200), the one ending first first. */
+export async function listAccountMocks(app: Pick<FastifyInstance, 'redis'>): Promise<Array<AccountMock & { account_id: string }>> {
+    await app.redis.zremrangebyscore(ACCOUNT_MOCKS, '-inf', Date.now());
+    const ids = await app.redis.zrange(ACCOUNT_MOCKS, 0, 199);
+    if (ids.length === 0) return [];
+    const raws = await app.redis.mget(ids.map(id => `${ACCOUNT_MOCK_PREFIX}${id}`));
+    return ids.flatMap((id, index) => (raws[index] ? [{ account_id: id, ...JSON.parse(raws[index]!) as AccountMock }] : []));
 }
 
 // ── Forecasts ─────────────────────────────────────────────────────────────
 
 /**
- * The forecast of the home as stored (live) or as set (mock); null without
- * one. Only Redis is read: safe inside a transaction (automation firing).
+ * The forecast of the account's home; null without a home or a forecast.
+ * The account's own mock comes first; then, live, the area's stored forecast,
+ * or, in mock mode, the mock of the home's province, else of every area, else
+ * a sunny day. One Redis read: safe inside a transaction (automation firing).
  */
-export async function readForecast(app: Pick<FastifyInstance, 'redis'>, location: HomeLocation | null, now = new Date()):
-    Promise<WeatherSnapshot | null> {
+export async function readForecast(
+    app: Pick<FastifyInstance, 'redis'>, accountId: string, location: HomeLocation | null, now = new Date(),
+): Promise<WeatherSnapshot | null> {
     if (!location || env.WEATHER_MODE === 'off') return null;
-    if (env.WEATHER_MODE === 'mock') return mockSnapshot(await mockFor(app, location), now);
-    const raw = await app.redis.get(`${AREA_PREFIX}${location.area}`);
-    return raw ? JSON.parse(raw) as WeatherSnapshot : null;
+    if (env.WEATHER_MODE === 'mock') {
+        const [own, province, all] = await app.redis.mget(
+            `${ACCOUNT_MOCK_PREFIX}${accountId}`, `${MOCK_PREFIX}${location.province}`, `${MOCK_PREFIX}all`,
+        );
+        const raw = own ?? province ?? all;
+        return mockSnapshot(raw ? JSON.parse(raw) as MockWeather : { scenario: 'sunny' }, now);
+    }
+    const [own, stored] = await app.redis.mget(`${ACCOUNT_MOCK_PREFIX}${accountId}`, `${AREA_PREFIX}${location.area}`);
+    if (own) return mockSnapshot(JSON.parse(own) as MockWeather, now);
+    return stored ? JSON.parse(stored) as WeatherSnapshot : null;
 }
 
 /** The account's home and its forecast for the app and the assistant (null when unknown or old). */
 export async function weatherForAccount(app: WithStores, accountId: string) {
     const location = await homeLocation(app, accountId);
-    const snapshot = await readForecast(app, location);
+    const snapshot = await readForecast(app, accountId, location);
     return { location, snapshot: isFresh(snapshot, new Date()) ? snapshot : null };
 }
 

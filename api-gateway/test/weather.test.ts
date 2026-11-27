@@ -41,7 +41,7 @@ import {
     PROVINCES,
 } from '../src/modules/weather/provinces';
 import weatherRoutes from '../src/modules/weather/routes';
-import { locationOf, refreshForecasts, setMock } from '../src/modules/weather/service';
+import { clearAccountMock, locationOf, refreshForecasts, setMock } from '../src/modules/weather/service';
 import { FIXTURE_DEVICES, FIXTURE_SHADOWS, fixtureContext, loadCatalog } from './assistant/fixture';
 import { createTestDatabase, skipWithoutMongo, TEST_MONGO_URL, TestDatabase } from './helpers/testDatabase';
 import { buildTestApp, signUp, SignedInUser } from './helpers/testApp';
@@ -690,6 +690,92 @@ test.describe('weather', { skip: skipWithoutMongo }, () => {
             env.WEATHER_MODE = 'mock';
             env.WEATHER_DAILY_CALL_LIMIT = limit;
             failing = false;
+        }
+    });
+
+    test('mock weather for one account: only that account, live or mock, ends by itself, audited', async () => {
+        const demo = await signUp(app);
+        const other = await signUp(app);
+        const rainingNow = {
+            name: 'Mưa thì báo', timezone: ZONE, notify_message: 'Trời đang mưa',
+            trigger: { kind: 'time', time: '17:00', days: [1, 2, 3, 4, 5, 6, 7] },
+            conditions: [{ weather: 'rain_now', operator: 'eq', value: true }],
+        };
+        const run = async (id: string) => {
+            await due(id);
+            await runDueAutomations(app);
+            return (await row(id)).last_result;
+        };
+        try {
+            env.WEATHER_MODE = 'live';
+            await app.redis.set('weather:area:ha_noi', JSON.stringify(liveSnapshot(new Date())));
+            for (const user of [demo, other]) await call(user, 'PUT', '/me/home-location', { area: 'ha_noi' });
+            const demoRule = (await call(demo, 'POST', '/automations', rainingNow)).json().automation.id;
+            const otherRule = (await call(other, 'POST', '/automations', rainingNow)).json().automation.id;
+            assert.equal((await admin('PUT', '/admin/weather/mock', { area: 'ha_noi', scenario: 'raining' })).json().error.code,
+                'WEATHER_NOT_MOCK', 'live: never a whole province');
+
+            const set = await admin('PUT', '/admin/weather/account-mock', { email: demo.email.toUpperCase(), scenario: 'raining' });
+            assert.equal(set.statusCode, 200, set.body);
+            assert.equal(set.json().accounts.length, 1);
+            const listed = set.json().accounts[0];
+            assert.deepEqual([listed.account_id, listed.email, listed.place, listed.scenario], [demo.id, demo.email, 'Hà Nội', 'raining']);
+            const left = Date.parse(listed.expires_at) - Date.now();
+            assert.ok(left > 119 * 60_000 && left <= 120 * 60_000, `2 hours by default (${left} ms)`);
+            const ttl = await app.redis.ttl(`weather:mock:account:${demo.id}`);
+            assert.ok(ttl > 7100 && ttl <= 7200, 'Redis drops it by itself');
+
+            const mine = (await call(demo, 'GET', '/weather')).json();
+            assert.deepEqual([mine.weather.source, mine.weather.current.raining], ['mock', true]);
+            assert.deepEqual(mine.attribution, { text: 'Thời tiết giả lập (thử nghiệm)', url: null });
+            const theirs = (await call(other, 'GET', '/weather')).json();
+            assert.deepEqual([theirs.weather.source, theirs.weather.current.temperature], ['open-meteo', 30], 'everyone else: the real forecast');
+            assert.equal(theirs.attribution.url, 'https://open-meteo.com/');
+            assert.equal(await run(demoRule), 'notified', 'the demo account\'s automation sees the rain');
+            assert.equal(await run(otherRule), 'skipped_conditions');
+
+            // Set again: replaced, here for 5 hours; a few checks on what is accepted.
+            const again = await admin('PUT', '/admin/weather/account-mock', { email: demo.email, scenario: 'heat', hours: 5 });
+            assert.equal(again.json().accounts[0].scenario, 'heat');
+            assert.ok(Date.parse(again.json().accounts[0].expires_at) - Date.now() > 4.9 * 3_600_000);
+            assert.equal((await admin('PUT', '/admin/weather/account-mock', { email: demo.email, scenario: 'heat', hours: 25 })).statusCode, 400);
+            assert.equal((await admin('PUT', '/admin/weather/account-mock', { email: demo.email, scenario: 'heat', hours: 0 })).statusCode, 400);
+            assert.equal((await admin('PUT', '/admin/weather/account-mock', { email: 'nobody@example.com', scenario: 'heat' })).json().error.code,
+                'ACCOUNT_NOT_FOUND');
+
+            // Its time is up: Redis has dropped the mock; the list forgets it too.
+            await app.redis.del(`weather:mock:account:${demo.id}`);
+            await app.redis.zadd('weather:mock:accounts', Date.now() - 1, demo.id);
+            assert.deepEqual((await admin('GET', '/admin/weather')).json().accounts, []);
+            assert.equal((await call(demo, 'GET', '/weather')).json().weather.source, 'open-meteo');
+
+            // Mock mode: the account's own mock comes before its province's.
+            env.WEATHER_MODE = 'mock';
+            await setMock(app, 'ha_noi', { scenario: 'sunny' });
+            await admin('PUT', '/admin/weather/account-mock', { email: demo.email, scenario: 'raining' });
+            assert.equal((await call(demo, 'GET', '/weather')).json().weather.current.raining, true);
+            assert.equal((await call(other, 'GET', '/weather')).json().weather.current.raining, false);
+
+            const cleared = await admin('DELETE', `/admin/weather/account-mock/${demo.id}`);
+            assert.deepEqual(cleared.json().accounts, []);
+            assert.equal((await call(demo, 'GET', '/weather')).json().weather.current.raining, false);
+            assert.equal((await admin('DELETE', `/admin/weather/account-mock/${demo.id}`)).statusCode, 200, 'nothing to end: fine');
+
+            env.WEATHER_MODE = 'off';
+            assert.equal((await admin('PUT', '/admin/weather/account-mock', { email: demo.email, scenario: 'heat' })).json().error.code, 'WEATHER_OFF');
+
+            const log = (await db.pool.query(
+                `SELECT action, target_account_id, target_email, details FROM admin_audit_log
+                 WHERE action LIKE 'weather.account_%' ORDER BY id`,
+            )).rows;
+            assert.deepEqual(log.map(item => item.action),
+                ['weather.account_mock_set', 'weather.account_mock_set', 'weather.account_mock_set', 'weather.account_mock_cleared']);
+            assert.deepEqual([log[0].target_account_id, log[0].target_email, log[0].details], [demo.id, demo.email, { scenario: 'raining', hours: 2 }]);
+        } finally {
+            env.WEATHER_MODE = 'mock';
+            await setMock(app, 'ha_noi', null);
+            await clearAccountMock(app, demo.id);
+            await app.redis.del('weather:area:ha_noi');
         }
     });
 

@@ -96,7 +96,7 @@ async function conditionsHold(app: FastifyInstance, client: PoolClient, row: Fir
     )).rows[0];
     const location = locationOf(home);
     const now = new Date();
-    const forecast = await readForecast(app, location, now);
+    const forecast = await readForecast(app, row.account_id, location, now);
     const values = weather.map(condition => weatherValue(forecast, condition.weather, now));
     if (values.some(value => value === undefined)) return 'weather_unavailable';
     return weather.every((condition, index) => compareWeather(values[index], condition.operator, condition.value));

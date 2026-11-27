@@ -38,8 +38,10 @@ Admin Console page "Thời tiết giả lập".
   minute; each location of a request counts as one call. The free API is for
   non-commercial use: a commercial deployment runs Open-Meteo itself (open
   source) or takes a paid plan, and points `WEATHER_API_URL` at it.
-- **Mock weather** for demos and tests (`WEATHER_MODE=mock`), set in the Admin
-  Console and logged.
+- **Mock weather** for demos and tests, set in the Admin Console and logged:
+  for **one account** whatever the mode (live included; it ends by itself,
+  2 hours by default), so a demo never gives real users fake weather; per
+  province or everywhere only with `WEATHER_MODE=mock`.
 - **The assistant never guesses the weather**: it reads the forecast and its
   answer goes through the same number check as history answers.
 
@@ -194,22 +196,39 @@ conditions, other cities and next week refused).
 
 ## Mock weather
 
-With `WEATHER_MODE=mock` the Gateway plays, for each home, the weather set for
-the province of its area, else for "Mọi nơi", else a sunny day. Set in the Admin
-Console → Simulator → **Thời tiết giả lập** (`simulator.view` to see,
-`simulator.manage` to change; each change is logged as `weather.mock_set` /
-`weather.mock_cleared`):
+Like a rain machine on a film set: rain on cue for the scene, not for the
+whole city. Set in the Admin Console → Simulator → **Thời tiết giả lập**
+(`simulator.view` to see, `simulator.manage` to change).
 
-| Scenario | Weather from the moment it is set |
+**For one account** (`live` or `mock`): found by its email, for 1–24 hours (2
+by default). Only that account's automations, assistant and app read it; the
+app shows "Thời tiết giả lập (thử nghiệm)" instead of the Open-Meteo credit.
+It needs the account to have a home (the Console warns when it has none).
+Stored as `weather:mock:account:<id>` with a Redis expiry, and listed through
+the sorted set `weather:mock:accounts` (score: when it ends); setting it again
+replaces it, "Kết thúc" ends it early. Logged as `weather.account_mock_set` /
+`weather.account_mock_cleared` with the account as target (also shown on the
+account's page in the Console).
+
+**Per province or everywhere** (`mock` only): the Gateway plays, for each
+home, the weather set for the province of its area, else for "Mọi nơi", else a
+sunny day. Logged as `weather.mock_set` / `weather.mock_cleared`.
+
+Reading a forecast: the account's own mock first; then, live, the area's
+stored forecast; in mock mode, the province's mock, else "Mọi nơi", else
+sunny. One Redis read (MGET), so automation firing stays as cheap as before.
+
+| Scenario | What is played (always counted from now) |
 |---|---|
 | `sunny` (Nắng) | no rain for 3 days, 31°C now |
 | `rain_soon` (Sắp mưa) | rain after `rain_in_hours` (1–12, default 2) for 4 hours, 28°C |
 | `raining` (Đang mưa) | rain now for 4 hours, 25°C |
 | `heat` (Nắng nóng) | no rain, 37°C, hottest about 14:00 |
 
-`temperature` overrides the scenario's temperature now. In other modes the
-Console only shows the mode (`409 WEATHER_NOT_MOCK` on changes). Tests run in
-mock mode.
+`temperature` overrides the scenario's temperature now. A mock is played from
+the moment it is read, so "Sắp mưa sau 2 giờ" stays "rain in 2 hours" until it
+ends. Per province in live mode: `409 WEATHER_NOT_MOCK`; any mock with weather
+off: `409 WEATHER_OFF`. Tests run in mock mode.
 
 ## API
 
@@ -218,8 +237,10 @@ mock mode.
 | GET | `/weather` | `enabled`, `mode`, `location`, `weather` (now, today, rain in hours, next 12 hours), `attribution` `{text, url}` (`url` null for mock weather) |
 | GET | `/weather/provinces` | the 34 provinces and cities, each with its `areas` (`{code, name}`, its centre first) |
 | PUT / DELETE | `/me/home-location` | set (`{area}` or `{province}`) / clear the home |
-| GET | `/admin/weather` | mode, provinces, mocks; `live` (live mode only): `areas`, `fresh_areas`, `refreshed_at`, `calls_today`, `daily_call_limit`, `refresh_minutes` (`simulator.view`) |
-| PUT | `/admin/weather/mock` | `{area, scenario, temperature?, rain_in_hours?}` (`simulator.manage`) |
+| GET | `/admin/weather` | mode, provinces, `mocks` (per province), `accounts` (`{account_id, email, full_name, place, scenario, …, expires_at}`); `live` (live mode only): `areas`, `fresh_areas`, `refreshed_at`, `calls_today`, `daily_call_limit`, `refresh_minutes` (`simulator.view`) |
+| PUT | `/admin/weather/account-mock` | `{email, scenario, temperature?, rain_in_hours?, hours?}` (hours 1–24, default 2; `404 ACCOUNT_NOT_FOUND`) (`simulator.manage`) |
+| DELETE | `/admin/weather/account-mock/:id` | end an account's mock now (`simulator.manage`) |
+| PUT | `/admin/weather/mock` | `{area, scenario, temperature?, rain_in_hours?}`, mock mode only (`simulator.manage`) |
 | DELETE | `/admin/weather/mock/:area` | clear one area (`simulator.manage`) |
 
 ## Settings
@@ -255,7 +276,9 @@ lookups, facts, number check and fallback, the planner and the home data;
 through the API: the home location (`{area}`, `{province}`, errors, an old
 ward home), automations with weather conditions saved and fired (met, not
 met, `weather_unavailable`), weather suggestions, the Console's mock pages,
-permissions and live status, live mode against a local stand-in (63 areas in
+permissions and live status, a mock for one account (live: only it sees it,
+its automation fires and another's does not, 2 hours by default, replaced,
+ended early or by its expiry, before its province's mock, audited), live mode against a local stand-in (63 areas in
 2 requests, read without calls, one round per interval, only old areas
 fetched, retry after 5 then 10 minutes, daily limit), and the assistant
 answering and drafting. App: `test/weather_models_test.dart`.
