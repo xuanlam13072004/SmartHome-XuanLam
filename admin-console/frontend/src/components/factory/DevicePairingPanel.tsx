@@ -68,9 +68,7 @@ export function DevicePairingPanel({
         <p className={`notice ${pairing.claimable ? 'notice--success' : 'notice--warning'}`}>
           {pairing.claimable
             ? 'Thiết bị chưa có chủ: quét tem trong app SmartHome để ghép nối.'
-            : pairing.owner
-              ? `Đang thuộc “${pairing.owner.device_name}” của ${pairing.owner.account_email || 'một tài khoản'}. App sẽ báo thiết bị đã có chủ cho tới khi chủ hiện tại gỡ thiết bị.`
-              : 'Thiết bị đang có chủ. App sẽ báo thiết bị đã có chủ cho tới khi chủ hiện tại gỡ thiết bị.'}
+            : 'Thiết bị đang có chủ. App sẽ báo thiết bị đã có chủ cho tới khi chủ hiện tại gỡ thiết bị.'}
         </p>
 
         {pairing.origin === 'run' && (

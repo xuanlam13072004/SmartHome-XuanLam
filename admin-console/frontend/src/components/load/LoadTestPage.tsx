@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { fetchCatalog, fetchOverview, fetchRuns } from '../../api'
-import type { CatalogProduct, Overview, SimulationRun } from '../../types'
+import { fetchCatalog, fetchIngestLatency, fetchOverview, fetchRuns } from '../../api'
+import type { CatalogProduct, IngestLatency, Overview, SimulationRun } from '../../types'
 import { EmptyState } from '../EmptyState'
 import { readError } from '../format'
 import { LiveBoard, type OverviewSample } from './LiveBoard'
@@ -21,6 +21,8 @@ export function LoadTestPage({
   onOpenDevices: (runId: string) => void
 }) {
   const [overview, setOverview] = useState<Overview | null>(null)
+  // From the API Gateway; null when it has no telemetry in 30 s or cannot be read.
+  const [ingest, setIngest] = useState<IngestLatency | null>(null)
   const [history, setHistory] = useState<OverviewSample[]>([])
   const [overviewError, setOverviewError] = useState('')
   const [runs, setRuns] = useState<SimulationRun[]>([])
@@ -53,6 +55,9 @@ export function LoadTestPage({
     if (!enabled) return
     let stopped = false
     const poll = async () => {
+      void fetchIngestLatency().then((value) => { if (!stopped) setIngest(value) }).catch(() => {
+        if (!stopped) setIngest(null)
+      })
       try {
         const next = await fetchOverview()
         if (stopped) return
@@ -109,7 +114,7 @@ export function LoadTestPage({
         </div>
       </header>
 
-      <LiveBoard error={overviewError} history={history} overview={overview} />
+      <LiveBoard error={overviewError} history={history} ingest={ingest} overview={overview} />
 
       <div className="load-layout" ref={scenarioRef}>
         <ScenarioForm

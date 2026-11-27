@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import type { Overview } from '../../types'
+import type { IngestLatency, Overview } from '../../types'
 import { formatBytes, formatDecimal, formatNumber } from '../format'
 
 export interface OverviewSample {
@@ -8,13 +8,18 @@ export interface OverviewSample {
   connected: number
 }
 
-/** Live health of the load test: what the simulator sends and how the backend keeps up. */
+/**
+ * Live health of the load test: what the simulator sends (its own numbers)
+ * and how the backend keeps up (ingest latency, measured by the API Gateway).
+ */
 export function LiveBoard({
   overview,
+  ingest,
   history,
   error,
 }: {
   overview: Overview | null
+  ingest: IngestLatency | null
   history: OverviewSample[]
   error: string
 }) {
@@ -25,9 +30,13 @@ export function LiveBoard({
       </section>
     )
   }
-  const { runtime, rates, process, ingest_latency: ingest, registry } = overview
-  const overloaded = process.event_loop_delay_p99_ms > 200 || process.cpu_percent > 90
+  const { runtime, rates, process, registry, connects } = overview
+  // Overloaded = the Simulator cannot keep up with its own work (event loop
+  // late). CPU above 100 % alone is not overload: Node uses more than one core
+  // for TLS, crypto and the database driver.
+  const overloaded = process.event_loop_delay_p99_ms > 200
   const lagging = runtime.scheduler_due > Math.max(100, runtime.connected * 0.05)
+  const opening = connects.queued + connects.connecting + connects.retrying
 
   return (
     <section aria-labelledby="live-title" className="live-board">
@@ -42,7 +51,7 @@ export function LiveBoard({
       {(overloaded || lagging) && (
         <p className="notice notice--warning" role="status">
           {overloaded
-            ? 'Simulator đang quá tải (CPU hoặc event loop cao). Số liệu lúc này phản ánh giới hạn của Simulator, không phải của backend: giảm số thiết bị hoặc tăng chu kỳ telemetry.'
+            ? `Simulator đang quá tải (event loop trễ ${formatDecimal(process.event_loop_delay_p99_ms)} ms). Số liệu lúc này phản ánh giới hạn của Simulator, không phải của backend: giảm số thiết bị, tăng chu kỳ telemetry hoặc chạy Simulator trên máy riêng.`
             : `Simulator gửi chậm hơn lịch: ${formatNumber(runtime.scheduler_due)} thiết bị đang trễ lượt gửi.`}
         </p>
       )}
@@ -56,6 +65,18 @@ export function LiveBoard({
             runtime.awaiting_claim ? `${formatNumber(runtime.awaiting_claim)} chờ ghép` : '',
             runtime.paused ? `${formatNumber(runtime.paused)} tạm dừng` : '',
           ].filter(Boolean).join(' · ') || 'Đang chạy trong Simulator'}
+        />
+        <Metric
+          label="Đang mở kết nối"
+          value={formatNumber(opening)}
+          note={opening === 0 && connects.refused_total === 0
+            ? `Mở tối đa ${formatNumber(overview.limits.mqtt_connects_per_second)} kết nối/giây`
+            : [
+              connects.queued ? `${formatNumber(connects.queued)} chờ lượt` : '',
+              connects.retrying ? `${formatNumber(connects.retrying)} chờ thử lại` : '',
+              connects.refused_total ? `${formatNumber(connects.refused_total)} bị từ chối đăng nhập` : '',
+            ].filter(Boolean).join(' · ') || `${formatNumber(connects.connecting)} đang chờ CONNACK`}
+          tone={connects.refused_total > 0 ? 'error' : undefined}
         />
         <Metric
           label="Telemetry"
@@ -76,15 +97,14 @@ export function LiveBoard({
           label="Độ trễ ingest"
           value={ingest ? formatNumber(ingest.p50_ms) : '—'}
           unit={ingest ? 'ms' : ''}
-          note={ingest ? `p95 ${formatNumber(ingest.p95_ms)} ms · ${formatNumber(ingest.samples)} mẫu / 30 s` : 'Chưa có telemetry trong 30 s'}
+          note={ingest ? `p95 ${formatNumber(ingest.p95_ms)} ms · ${formatNumber(ingest.samples)} mẫu / 30 s · đo ở backend` : 'Chưa có telemetry trong 30 s (đo ở backend)'}
           tone={ingest && ingest.p95_ms > 2000 ? 'error' : undefined}
         />
         <Metric
           label="CPU Simulator"
           value={formatDecimal(process.cpu_percent)}
           unit="%"
-          tone={process.cpu_percent > 90 ? 'error' : undefined}
-          note={`Một lõi = 100 %`}
+          note="Một lõi = 100 %; vượt 100 % là dùng nhiều lõi, chưa phải quá tải"
         />
         <Metric label="Bộ nhớ" value={formatBytes(process.rss_bytes)} note={`Heap ${formatBytes(process.heap_used_bytes)}`} />
         <Metric

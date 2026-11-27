@@ -25,6 +25,7 @@ const knownLabels: Record<string, string> = {
   contract_error: 'Lỗi phiên bản Product',
   awaiting_claim: 'Chờ ghép nối',
   mqtt_error: 'Lỗi MQTT',
+  auth_rejected: 'Broker từ chối đăng nhập',
   connecting: 'Đang kết nối',
   locked: 'Đã khóa',
   unlocked: 'Đã mở khóa',

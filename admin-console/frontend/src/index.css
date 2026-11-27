@@ -2270,6 +2270,32 @@ dd {
   gap: var(--space-2xs);
 }
 
+/* Background cleanup: progress and the users it could not clean. */
+.run-row__cleanup {
+  display: grid;
+  gap: var(--space-xs);
+  padding-top: var(--space-xs);
+  border-top: 1px solid var(--color-rule);
+}
+
+.run-row__blocked {
+  display: grid;
+  gap: var(--space-2xs);
+  margin: var(--space-xs) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-sm);
+}
+
+.run-row__blocked li {
+  display: grid;
+  gap: 2px;
+}
+
+.run-row__blocked span {
+  color: var(--color-muted);
+}
+
 /* Registry tables */
 
 .registry {

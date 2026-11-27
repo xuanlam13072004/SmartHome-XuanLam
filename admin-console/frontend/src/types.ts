@@ -52,6 +52,23 @@ export interface SimulationRun {
   started_at?: string
   completed_at?: string
   cleanup_after?: string
+  /** Written by the background cleanup ("Dọn dữ liệu"), user by user. */
+  cleanup_progress?: CleanupProgress
+  last_cleanup_error?: string | null
+}
+
+export interface CleanupProgress {
+  users_total: number
+  users_done: number
+  /** Need a person (a device added with the app, a device owned by someone else). */
+  users_blocked: number
+  /** Failed on errors; "Dọn dữ liệu" again retries them. */
+  users_failed: number
+  devices_total: number
+  devices_retired: number
+  started_at: string
+  updated_at: string
+  blocked?: Array<{ account_id?: string; email: string; reason: string }>
 }
 
 export interface SimulatedUser {
@@ -284,6 +301,7 @@ export interface DeviceStatePatch {
 }
 
 export interface DeviceDetailPayload {
+  /** Read as the device's simulated user (public API); null for factory devices or when unavailable. */
   device: SimulatedDevice
   product: ProductContract
   product_contract_compatible: boolean
@@ -340,10 +358,13 @@ export interface CameraSegment {
   size: number
 }
 
+/**
+ * What the factory knows about a sold device: that it was claimed and when.
+ * Who bought it stays in the system; the Simulator, like a real factory,
+ * does not read the buyer's account.
+ */
 export interface DeviceOwner {
-  device_id: string
-  device_name: string
-  account_email: string | null
+  device_id: string | null
   claimed_at: string | null
 }
 
@@ -392,6 +413,14 @@ export interface Page<T> {
   items: T[]
 }
 
+/** Device clock → system database, measured by the API Gateway on its own data (last 30 s). */
+export interface IngestLatency {
+  samples: number
+  p50_ms: number
+  p95_ms: number
+  max_ms: number
+}
+
 export interface Overview {
   sampled_at: string
   process: {
@@ -423,13 +452,18 @@ export interface Overview {
     users_total: number
     active_runs: number
   }
-  ingest_latency: {
-    samples: number
-    p50_ms: number
-    p95_ms: number
-    max_ms: number
-  } | null
+  /** MQTT connections waiting, opening or retrying (the Simulator's connect scheduler). */
+  connects: {
+    queued: number
+    connecting: number
+    retrying: number
+    connected_total: number
+    failed_attempts_total: number
+    refused_total: number
+  }
   limits: {
+    mqtt_connects_per_second: number
+    mqtt_connect_concurrency: number
     gateway_register_per_minute: number
     gateway_login_per_minute: number
     gateway_claim_per_account_per_minute: number

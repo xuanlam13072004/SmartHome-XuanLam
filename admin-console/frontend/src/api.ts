@@ -15,12 +15,12 @@ import type {
   CatalogProduct,
   DeviceDetailPayload,
   DeviceLivePayload,
-  DeviceOperation,
   DevicePairing,
   DeviceStatePatch,
   FactoryBatch,
   FactoryDevice,
   OwnSession,
+  IngestLatency,
   Overview,
   Page,
   PermissionInfo,
@@ -127,6 +127,10 @@ export const fetchRun = async (id: string): Promise<SimulationRun> =>
 
 export const fetchOverview = () => sim<Overview>('/overview')
 
+/** Measured by the API Gateway (the Simulator does not read the system's database). */
+export const fetchIngestLatency = async (): Promise<IngestLatency | null> =>
+  (await request<{ ingest_latency: IngestLatency | null }>('/admin/load/ingest-latency')).ingest_latency
+
 export interface UserQuery {
   runId?: string
   q?: string
@@ -148,8 +152,6 @@ export const fetchUser = async (accountId: string) =>
   sim<{
     user: SimulatedUser
     devices: SimulatedDevice[]
-    telemetry: Record<string, unknown>[]
-    operations: DeviceOperation[]
   }>(
     `/users/${encodeURIComponent(accountId)}`,
   )

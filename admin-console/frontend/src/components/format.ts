@@ -41,7 +41,7 @@ export const runtimeTone = (state: string): Tone => {
   if (state === 'online') return 'online'
   if (state === 'awaiting_claim') return 'pairing'
   if (state === 'paused' || state === 'connecting') return 'paused'
-  if (state === 'mqtt_error' || state === 'contract_error') return 'error'
+  if (state === 'mqtt_error' || state === 'contract_error' || state === 'auth_rejected') return 'error'
   return 'offline'
 }
 

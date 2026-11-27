@@ -332,8 +332,8 @@ export function FactoryPage({
                     <FactoryStatus device={device} />
                     {device.owner ? (
                       <p className="factory-card__owner">
-                        <strong>{device.owner.device_name}</strong>
-                        <span>{device.owner.account_email || 'Tài khoản không xác định'}</span>
+                        <strong>Đã có người dùng nhận</strong>
+                        <span>{device.owner.claimed_at ? `Ghép nối lúc ${formatDate(device.owner.claimed_at)}` : 'Đang thuộc một tài khoản'}</span>
                       </p>
                     ) : (
                       <p className="factory-card__owner factory-card__owner--empty">

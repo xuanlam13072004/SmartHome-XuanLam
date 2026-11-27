@@ -987,7 +987,7 @@ function HistoryView({
         <DeviceEventRows events={deviceEvents} />
       </section>
       <section className="history-panel">
-        <header className="work-panel__heading"><div><h3>Lệnh từ backend</h3><p>{operations.length} lệnh gần nhất được tải.</p></div></header>
+        <header className="work-panel__heading"><div><h3>Lệnh thiết bị đã nhận</h3><p>{operations.length} lệnh gần nhất và kết quả thiết bị trả về.</p></div></header>
         {operations.length > 0 ? (
           <ol className="operation-list">
             {operations.map((operation) => (

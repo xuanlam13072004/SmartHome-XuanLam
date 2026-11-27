@@ -84,8 +84,8 @@ export function PreflightPanel({
 
 const dependencyName = (value: string): string => ({
   api_gateway: 'API Gateway',
-  postgres: 'PostgreSQL',
-  mongodb: 'MongoDB',
-  mqtt: 'MQTT Broker',
+  factory_api: 'API xưởng (FACTORY_API_KEY)',
+  mongodb: 'MongoDB của Simulator',
+  mqtt: 'Cổng MQTT của broker',
   catalog: 'Product Catalog',
 }[value] || value.replaceAll('_', ' '))
