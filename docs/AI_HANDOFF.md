@@ -1,6 +1,6 @@
 # SmartHome-XuanLam — tài liệu bàn giao cho AI tiếp tục dự án
 
-> Cập nhật: 2026-11-03. Đây là bản tóm lược định hướng và bản đồ đọc code, không thay cho việc kiểm tra trạng thái Git, test hoặc code liên quan trước mỗi lần sửa.
+> Cập nhật: 2026-11-27 (mục đầu: broker EMQX, API xưởng, Simulator đứng ngoài hệ thống). Đây là bản tóm lược định hướng và bản đồ đọc code, không thay cho việc kiểm tra trạng thái Git, test hoặc code liên quan trước mỗi lần sửa.
 
 ## Hướng dẫn nhanh cho AI nhận bàn giao
 
@@ -13,6 +13,47 @@ Bạn đang làm việc trong monorepo SmartHome-XuanLam. Trước khi sửa:
 5. Khi test simulator, dùng DB/test data được giới hạn rõ ràng; không để lại user, device, file video hoặc dữ liệu rác trong hệ thống người dùng.
 
 Không được giả định dịch vụ Docker hiện đang chạy hoặc image đã được rebuild. Kiểm tra trạng thái thực tế trước khi hướng dẫn/chạy.
+
+## Thay đổi ngày 2026-11-27: broker EMQX, API xưởng, Simulator đứng ngoài hệ thống
+
+Người dùng chọn phương án B sau lần thử 10 000 thiết bị dừng ở ~3 400 (connack
+timeout: Mosquitto Dynamic Security ghi lại cả file JSON mỗi lần thêm thiết bị,
+~150 ms ở 30 000 thiết bị, chặn luồng broker; Simulator mở kết nối dồn dập).
+
+- **Broker: EMQX 5.8.9** (Apache-2.0) thay Mosquitto. Đăng nhập MQTT là các dòng của
+  bảng `mqtt_accounts` (migration 215): thêm thiết bị = thêm một dòng, không ghi
+  lại gì. EMQX đọc qua role chỉ-đọc `emqx_auth` (chỉ 3 cột của 1 bảng; tạo bởi
+  `database/initialize_v2.js`). ACL `emqx/acl.conf` theo `${username}` = MAC.
+  Xem `docs/architecture/mqtt-security.md`. Đã xóa `mosquitto/`, `mosquitto.conf`,
+  dịch vụ `mqtt-initialize`, công cụ dynsec của worker.
+- **API xưởng** (`api-gateway/src/modules/factory`): `POST /factory/devices`,
+  `/factory/devices/status`, `/factory/devices/retire`, khóa `X-Factory-Key`
+  (`FACTORY_API_KEY`), không đi qua tunnel. Thiết bị thật: CLI
+  `node dist/tools/factory.js mqtt-password|mqtt-revoke <MAC>`. Gateway thêm
+  `GET /admin/load/ingest-latency` (Console hiển thị).
+- **Simulator viết lại phần chạm hệ thống**: chỉ dùng API công khai (với phiên của
+  từng user ảo, `security/user-session.ts`), API xưởng và MQTT; không còn
+  PostgreSQL/MongoDB chính trong code và env. Có MongoDB riêng
+  (`simulator-mongodb`). Mọi kết nối MQTT hàng loạt qua
+  `runtime/connect-scheduler.ts` (50/giây, 200 chờ CONNACK, thử lại 5 s→5 phút,
+  bị từ chối đăng nhập thì không thử lại, trạng thái `auth_rejected`). Sinh dữ
+  liệu: một lần gọi xưởng cho mọi thiết bị của user, claim mất phản hồi thì tìm
+  trong danh sách thiết bị của user, đăng ký mất phản hồi thì đăng nhập bằng mật
+  khẩu ngẫu nhiên để chứng minh tài khoản là của Simulator. Dọn dữ liệu chạy nền
+  (`cleanup/cronjob.ts`, `CLEANUP_CONCURRENCY`): tắt thiết bị → gỡ thiết bị và
+  `DELETE /me` với tư cách user → retire ở xưởng → quên bản ghi; user bị chặn/lỗi
+  được liệt kê, user khác vẫn chạy tiếp; tiến độ `cleanup_progress` trên run.
+  Khởi động lại kiểm quyền sở hữu bằng `/factory/devices/status` (500/lần).
+- **Console**: độ trễ ingest lấy từ Gateway; "quá tải" chỉ theo event loop
+  (> 200 ms); ô "Đang mở kết nối"; tiến độ và danh sách user chưa dọn được; trang
+  thiết bị đọc shadow/sự kiện qua API với tư cách user, lệnh từ nhật ký Simulator.
+  Xưởng không còn hiện email người mua (nhà máy không biết người mua).
+- **Docker: ba nhóm** — `docker-compose.yml` (hệ thống), `docker-compose.admin-console.yml`
+  (Console, `SIMULATOR_URL`), `docker-compose.simulator.yml` (Simulator + MongoDB riêng,
+  cùng máy qua `host-gateway` hoặc máy thứ hai qua `SMARTHOME_SYSTEM_HOST`). Dữ liệu
+  trong **named volume** (ổ đĩa ảo Docker Desktop đặt trên E:), không còn bind mount
+  `E:\smarthome_data\…`; sao lưu `scripts/backup.ps1` → `E:\smarthome_data\backups`.
+  Hướng dẫn hai máy: `docs/architecture/load-testing.md`.
 
 ## Nguyên tắc cốt lõi và mục tiêu quy mô (người dùng xác nhận 2026-11-03)
 
@@ -88,9 +129,10 @@ MongoDB riêng `DeviceSimulatorDB`, kết nối API Gateway/MQTT và điều khi
 | `firmware/entrance-controller/` | Firmware tham chiếu ESP32 cho cửa: PIN, servo, MPU6050, LCD, keypad và MQTT | `README.md`, `src/`, `include/`, `test/` |
 | `smarthome_app/` | Flutter/Riverpod UI, REST/WS, product-specific UI và capability mapping | `lib/main.dart`, `lib/features/dashboard/`, `lib/features/products/`, `lib/domain/mappers/capability_assembler.dart` |
 | `firmware/hazard-controller/` | Firmware tham chiếu ESP32 cho báo cháy/khí gas: MQ2, lửa, DHT11, còi, nút tắt âm | `README.md`, `src/`, `include/`, `test/` |
-| `mosquitto/` | Cấu hình broker (Dynamic Security) | `mosquitto.conf`, `docs/architecture/mqtt-security.md` |
-| `docker-compose.yml` | Hệ thống chính: PostgreSQL, MongoDB, Redis, Mosquitto, initializer (DB + MQTT) và services | Compose root |
-| `docker-compose.admin-console.yml` | Nhóm Docker riêng `admin-console`: Admin Console + Simulator backend (giao diện Simulator nằm trong Console), nối vào Docker network của hệ thống chính | `docker compose -f docker-compose.admin-console.yml up -d --build` |
+| `emqx/` | Cấu hình broker EMQX (đăng nhập từ `mqtt_accounts`, ACL) | `emqx.conf`, `acl.conf`, `docs/architecture/mqtt-security.md` |
+| `docker-compose.yml` | Hệ thống chính: PostgreSQL, MongoDB, Redis, EMQX, initializer DB và services; dữ liệu trong named volume | Compose root |
+| `docker-compose.admin-console.yml` | Nhóm Docker riêng `admin-console`: Admin Console, nối vào Docker network của hệ thống chính, gọi Simulator ở `SIMULATOR_URL` | `docker compose -f docker-compose.admin-console.yml up -d --build` |
+| `docker-compose.simulator.yml` | Nhóm Docker riêng `simulator`: Simulator backend + MongoDB riêng, cùng máy hoặc máy thứ hai | `docker compose -f docker-compose.simulator.yml up -d --build` |
 
 ## Ranh giới sở hữu dữ liệu
 
@@ -98,8 +140,8 @@ MongoDB riêng `DeviceSimulatorDB`, kết nối API Gateway/MQTT và điều khi
 - **MongoDB chính** giữ Product Catalog đã publish, device shadow, telemetry, device events, incidents, active-operation projection và ingest receipts. Reported physical state có authority từ firmware/device runtime.
 - **Redis** là cache/route/lease và realtime transport; không phải source of truth.
 - **MQTT** chuyên chở telemetry/presence/operation/ACK/credential/event theo contract; không chở video frame.
-- **DeviceSimulatorDB** được cấu hình riêng khỏi MongoDB chính bằng `SIMULATOR_MONGO_DB_NAME=DeviceSimulatorDB`; database name riêng, dù có thể cùng MongoDB server.
-- Docker Compose root bind-mount PostgreSQL/MongoDB data dưới `E:\smarthome_data`. Không xóa hoặc reset vùng này để “dọn test”.
+- **DeviceSimulatorDB** nằm trong MongoDB riêng của Simulator (`simulator-mongodb`); Simulator không mở database nào của hệ thống (chỉ API công khai, API xưởng, MQTT).
+- Dữ liệu Docker nằm trong named volume (`postgres_data`, `mongodb_data`, `emqx_data`…, trong ổ đĩa ảo của Docker Desktop đặt trên E:). Không chạy `docker compose down -v` để “dọn test”; sao lưu bằng `scripts/backup.ps1`.
 - Schema PostgreSQL V2 dùng migration/schema version `201`; initializer từ chối schema cũ/thiếu thay vì tự xóa dữ liệu.
 
 ## Hợp đồng Product Catalog và tính nhất quán
@@ -184,7 +226,7 @@ thuẫn:
   thế hệ chủ), `runtime/security-camera.ts` (trạng thái, `list_recordings`,
   `delete_recordings`, sự kiện `recordings_deleted`/`storage_recycled`/`recordings_wiped`).
   Live/xem lại trả `MEDIA_INGEST_UNAVAILABLE` cho tới bước 3 (`media-relay-service`).
-  Docker mount `E:/smarthome_data/device-simulator/media`.
+  Docker: volume `simulator_media` (trước 2026-11-27 là thư mục trên E:).
 - **Bước 3 + 5 đã làm (2026-11-06):** dịch vụ mới `media-relay-service` (cổng 8090,
   HLS live dùng chung tối đa 5 người, VOD xem lại lấy file từ camera khi cần, kiểm vé
   qua Redis projection, thu hồi qua `media.session.revoked`); camera ảo mở ingest
@@ -269,10 +311,10 @@ backend), gọn còn ít trang. Đã làm:
   `runtime_state` bằng `bulkWrite` (thao tác tay thì ghi ngay, kèm phần đang chờ);
   `events/service.ts` gom sự kiện bằng `insertMany`; API chi tiết/danh sách thiết bị
   phủ trạng thái sống từ runtime. Danh tính broker không đăng ký lại mỗi lần khởi
-  động; bị broker từ chối đăng nhập thì `repairBrokerIdentity`. Reconnect có jitter.
+  động (2026-11-27: thay bằng EMQX + `mqtt_accounts`, xem mục đầu file). Reconnect có jitter.
   Khôi phục sau restart kiểm quyền sở hữu theo lô và chạy song song 64
-  (`runtime/restore-run.ts`). Docker: `UV_THREADPOOL_SIZE=16`, `ulimits nofile 65536`
-  cho simulator-backend và mosquitto.
+  (`runtime/restore-run.ts`). Docker: `UV_THREADPOOL_SIZE=16`, `ulimits nofile`
+  cho simulator-backend và broker.
 - **Sinh dữ liệu**: bỏ chờ cố định `REGISTRATION_DELAY_MS`/`CLAIM_DELAY_MS`; chạy
   `GENERATION_CONCURRENCY` user song song, nhịp theo `generation/pacer.ts`
   (token bucket: đăng ký/đăng nhập theo IP, claim theo tài khoản) khớp rate limit

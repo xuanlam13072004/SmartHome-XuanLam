@@ -322,8 +322,8 @@ File được đặt tên theo giờ UTC.
   - đóng gói fMP4 mảnh 2 giây, ghi file 1 phút vào thẻ SD ảo;
   - nhận operation qua MQTT bằng danh tính của chính thiết bị ảo;
   - mở ingest tới máy chủ media giống hệt camera thật.
-- Thẻ SD ảo: `E:/smarthome_data/device-simulator/media/<run_id>/<mac>/<storage_generation>/...`,
-  mount bền vững vào container Simulator. Một camera ảo không đọc được thư mục
+- Thẻ SD ảo: `<SIMULATOR_MEDIA_ROOT>/<run_id>/<mac>/<storage_generation>/...`,
+  trong volume Docker `simulator_media` của container Simulator. Một camera ảo không đọc được thư mục
   của camera khác.
 - Tổng dung lượng toàn bộ camera ảo tối đa 10 GB (`SIMULATOR_MEDIA_QUOTA_BYTES`),
   ghi vòng trên toàn kho khi chạm trần. Ở 1080p khoảng 5 Mbps, mức này lưu được
@@ -490,8 +490,8 @@ Cách triển khai mục 9, kèm các chi tiết đã chốt khi làm:
 - **Live và xem lại:** khi có nguồn hình, `create_stream_session` trả
   `MEDIA_INGEST_UNAVAILABLE`. Khi có bản ghi trong khoảng, `create_playback_session`
   cũng trả `MEDIA_INGEST_UNAVAILABLE`. Hai lệnh này chạy được ở bước 3.
-- **Docker:** thư mục `E:/smarthome_data/device-simulator/media` (đổi bằng
-  `SIMULATOR_MEDIA_HOST_DIR`) mount vào `/var/lib/simulator-media`.
+- **Docker:** volume `simulator_media` (`docker-compose.simulator.yml`) mount vào
+  `/var/lib/simulator-media`.
 - **Kiểm thử:** file ghi từ H.264 + AAC thật (ffmpeg) giải mã sạch. Pipeline trình
   duyệt đã chạy với camera giả của Chromium: 1080p H.264, file giải mã đúng.
   Phần AAC chỉ kiểm được trên Chrome/Edge thật.

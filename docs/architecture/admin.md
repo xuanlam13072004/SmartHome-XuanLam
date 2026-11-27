@@ -16,15 +16,17 @@ section of it**. Customers never see it. Staff sign in with their own account:
 
 ```
 Browser ──cookie sh_console──▶ Admin Console (admin-console/, port 4000)
-                                 ├─ /api/admin/*     ──X-Admin-Key + staff session──▶ API Gateway /admin/*
-                                 └─ /api/simulator/* ──Bearer SIMULATOR_TOKEN───────▶ Simulator backend /api/*
-                                        (both inside the Docker network smarthome_net)
+                                 ├─ /api/admin/*     ──X-Admin-Key + staff session──▶ API Gateway /admin/*  (Docker network smarthome_net)
+                                 └─ /api/simulator/* ──Bearer SIMULATOR_TOKEN───────▶ Simulator backend /api/*  (SIMULATOR_URL)
 ```
 
-The Console and the Simulator backend run as their own Docker group,
-`admin-console` (`docker-compose.admin-console.yml` at the repository root),
-apart from the smart home system (`docker-compose.yml`); they join the
-system's network `smarthome-xuanlam_smarthome_net`.
+The Console runs as its own Docker group, `admin-console`
+(`docker-compose.admin-console.yml` at the repository root), apart from the
+smart home system (`docker-compose.yml`); it joins the system's network
+`smarthome-xuanlam_smarthome_net`. The Simulator is a third group,
+`simulator` (`docker-compose.simulator.yml`), on this computer or on a second
+one; the Console reaches it at `SIMULATOR_URL` (default
+`http://host.docker.internal:4001`, docs/architecture/load-testing.md).
 
 - **Console backend** (`admin-console/backend`, Fastify): signs staff in,
   keeps the session in an httpOnly cookie, forwards calls and adds the server
@@ -33,7 +35,8 @@ system's network `smarthome-xuanlam_smarthome_net`.
   staff, sessions and permissions; it checks the permission of every `/admin`
   call itself.
 - **Simulator backend** (`device-simulator/`): no web page of its own any
-  more. Its API is published on `127.0.0.1:4001` only, for debugging; the
+  more. Its API is published on `127.0.0.1:4001` (on a second computer,
+  `0.0.0.0:4001` behind a firewall rule for the system's computer only); the
   Console is its only user.
 - **Web app** (`admin-console/frontend`, React + Vite): built into the same
   container and served by the backend.
@@ -125,9 +128,10 @@ Rules:
      `device-simulator/.env.docker` (leave empty if the Simulator is not used).
 2. The system: `docker compose up -d --build` (`db-initialize` adds the
    migrations first).
-3. The Console and the Simulator:
-   `docker compose -f docker-compose.admin-console.yml up -d --build`
-   (the file sits at the root so Compose reads the root `.env`).
+3. The Console: `docker compose -f docker-compose.admin-console.yml up -d --build`
+   (the file sits at the root so Compose reads the root `.env`); the Simulator:
+   `docker compose -f docker-compose.simulator.yml up -d --build`
+   (device-simulator/README.md).
 4. Create the root, once:
    `docker compose exec api-gateway node dist/tools/staff.js create-root <email> "<Họ tên>"`
    It prints a temporary password.

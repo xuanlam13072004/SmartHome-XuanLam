@@ -1,7 +1,7 @@
 # Current SmartHome architecture
 
 This repository has one active contract: Product Catalog V2 and database schema
-version 214 (baseline 203 + incremental migrations in
+version 215 (baseline 203 + incremental migrations in
 `database/postgres/migrations`). There is no V1 compatibility layer.
 
 ## Authority boundaries
@@ -19,10 +19,18 @@ version 214 (baseline 203 + incremental migrations in
 
 ## MQTT identity
 
-Every MQTT client authenticates; anonymous access is disabled. Devices (real or
-virtual) log in with username = MAC and a per-device factory password, and the
-broker ACL limits each device to `smarthome/<its MAC>/...`. Details, roles and
-provisioning: [mqtt-security.md](mqtt-security.md).
+Every MQTT client authenticates; anonymous access is disabled. The broker is
+EMQX; logins are rows of the PostgreSQL table `mqtt_accounts`. Devices (real
+or virtual) log in with username = MAC and a per-device factory password, and
+the broker ACL limits each device to `smarthome/<its MAC>/...`. Devices are
+made through the factory API ("API xưởng"). Details:
+[mqtt-security.md](mqtt-security.md).
+
+## Load testing
+
+The Device Simulator uses only the public API, the factory API and MQTT, with
+its own database, so it can run on a second computer:
+[load-testing.md](load-testing.md).
 
 ## Account center
 

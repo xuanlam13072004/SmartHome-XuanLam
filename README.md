@@ -14,20 +14,27 @@ App và backend không phân biệt thiết bị thật hay ảo.
 | `real-time-service/` | WebSocket đẩy sự kiện tới app |
 | `media-relay-service/` | Chuyển tiếp video camera (HLS) |
 | `voice-service/` | Python: xác minh giọng nói, chuyển giọng thành chữ (PhoWhisper) |
-| `database/` | Schema PostgreSQL (baseline 203 + migrations, hiện **214**), catalog sản phẩm, khởi tạo |
+| `database/` | Schema PostgreSQL (baseline 203 + migrations, hiện **215**), catalog sản phẩm, khởi tạo |
 | `admin-console/` | Admin Console: trang web nội bộ của công ty (quản trị, nhân viên và phân quyền, phần Simulator) |
-| `device-simulator/` | Simulator: tạo người dùng và thiết bị ảo qua API công khai (giao diện nằm trong Admin Console) |
-| `docker-compose.yml` / `docker-compose.admin-console.yml` | Hệ thống nhà thông minh / nhóm công cụ của công ty (Admin Console + Simulator) |
+| `device-simulator/` | Simulator: tạo người dùng và thiết bị ảo chỉ qua API công khai, API xưởng và MQTT (giao diện nằm trong Admin Console) |
+| `emqx/` | Cấu hình broker MQTT EMQX (đăng nhập lấy từ bảng `mqtt_accounts`, ACL theo MAC) |
+| `docker-compose.yml` / `docker-compose.admin-console.yml` / `docker-compose.simulator.yml` | Hệ thống nhà thông minh / Admin Console / Simulator (cùng máy hoặc máy thứ hai) |
 | `smarthome_app/` | Ứng dụng Flutter |
 | `firmware/` | Firmware ESP32 |
 | `docs/` | Kiến trúc (`docs/architecture/`), Cloudflare Tunnel, bàn giao (`AI_HANDOFF.md`) |
 
 ## Khởi chạy
 
-1. Docker Desktop. Dữ liệu lưu ở `E:/smarthome_data` (sửa trong `docker-compose.yml` nếu khác ổ).
+1. Docker Desktop. Dữ liệu nằm trong các volume của Docker (ổ đĩa ảo của Docker
+   Desktop): đặt ổ đĩa ảo đó lên ổ E: một lần ở Settings → Resources → Advanced →
+   Disk image location. Sao lưu ra `E:\smarthome_data\backups`:
+   `powershell -ExecutionPolicy Bypass -File scripts\backup.ps1`
+   (`docs/architecture/load-testing.md`, mục "Storage, backups and restore").
 2. Tạo `.env` ở thư mục gốc từ `.env.example`:
-   - bắt buộc: `MQTT_ADMIN_PASSWORD`, `MQTT_WORKER_PASSWORD`, `MQTT_FACTORY_PASSWORD`,
-     `VOICE_SERVICE_TOKEN` (chuỗi ngẫu nhiên ≥ 16 ký tự);
+   - bắt buộc: `MQTT_WORKER_PASSWORD`, `EMQX_AUTH_DB_PASSWORD`, `EMQX_DASHBOARD_PASSWORD`,
+     `EMQX_NODE_COOKIE`, `VOICE_SERVICE_TOKEN` (chuỗi ngẫu nhiên ≥ 16 ký tự);
+   - Simulator: `FACTORY_API_KEY` ngẫu nhiên ≥ 32 ký tự (API xưởng,
+     `docs/architecture/mqtt-security.md`);
    - trợ lý: `GEMINI_API_KEY` (Google AI Studio; để trống = tắt trợ lý);
    - thanh toán: mặc định `PAYMENT_MODE=mock` (không tiền thật); tiền thật xem
      `docs/architecture/payments.md`;
@@ -44,13 +51,16 @@ App và backend không phân biệt thiết bị thật hay ảo.
      `mqtt-worker-service/.env.docker` tạo từ các file `.env.docker.example`.
 3. `docker compose up -d --build` (lần đầu lâu: voice-service tải PyTorch, ECAPA,
    PhoWhisper ~1,5 GB; cần khoảng 1,5 GB RAM cho riêng dịch vụ này).
-4. Admin Console + Simulator (nhóm riêng `admin-console` trong Docker), chạy sau hệ thống:
+4. Admin Console (nhóm riêng `admin-console` trong Docker), chạy sau hệ thống:
    `docker compose -f docker-compose.admin-console.yml up -d --build`.
    Tạo admin gốc một lần
    `docker compose exec api-gateway node dist/tools/staff.js create-root <email> "<Họ tên>"`
    (in ra mật khẩu tạm), mở http://localhost:4000, đăng nhập rồi đặt mật khẩu mới. Nhân viên khác do
    admin gốc tạo ở trang Nhân viên; quên mật khẩu admin gốc: `staff.js reset-root`.
-5. Simulator: nằm trong Admin Console (nhóm menu SIMULATOR); chi tiết `device-simulator/README.md`.
+5. Simulator (nhóm riêng `simulator`, máy này hoặc máy thứ hai):
+   `docker compose -f docker-compose.simulator.yml up -d --build`; giao diện nằm trong
+   Admin Console (nhóm menu SIMULATOR). Chi tiết `device-simulator/README.md`; chạy trên hai
+   máy: `docs/architecture/load-testing.md`, mục "One computer or two".
 6. Kiểm thử tải (không bắt buộc): `docker compose --profile monitoring up -d` thêm
    Prometheus + Grafana (http://localhost:3005); cách đo và số liệu cho báo cáo:
    `docs/architecture/load-testing.md`.
