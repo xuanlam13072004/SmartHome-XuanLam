@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const { Client } = require('pg');
 const { MongoClient } = require('mongodb');
 
@@ -51,6 +52,7 @@ const REQUIRED_POSTGRES_TABLES = [
     'credential_outbox',
     'device_shadow_outbox',
     'topology_outbox',
+    'mqtt_accounts',
 ];
 
 const ALLOWED_MONGO_COLLECTIONS = new Set([
@@ -64,6 +66,42 @@ const ALLOWED_MONGO_COLLECTIONS = new Set([
     'active_operations',
     'telemetry_ingest_receipts',
 ]);
+
+/** hex(sha256(password || salt)): how EMQX checks an MQTT password (docs/architecture/mqtt-security.md). */
+function mqttPasswordHash(password, salt) {
+    return crypto.createHash('sha256').update(password + salt).digest('hex');
+}
+
+/**
+ * The broker's access to PostgreSQL: EMQX logs in as `emqx_auth`, which may
+ * only read the three columns it checks in mqtt_accounts. The backend's own
+ * MQTT account is written from the root .env (kept when the password did not
+ * change), so rotating MQTT_WORKER_PASSWORD only needs another initialization.
+ */
+async function ensureMqttAccess(client, { brokerPassword, workerUsername, workerPassword }) {
+    const literal = client.escapeLiteral(brokerPassword);
+    const role = await client.query(`SELECT 1 FROM pg_roles WHERE rolname = 'emqx_auth'`);
+    await client.query(role.rows.length > 0
+        ? `ALTER ROLE emqx_auth WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD ${literal}`
+        : `CREATE ROLE emqx_auth WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD ${literal}`);
+    await client.query('GRANT SELECT (username, password_hash, salt) ON public.mqtt_accounts TO emqx_auth');
+
+    const existing = (await client.query(
+        'SELECT kind, password_hash, salt FROM mqtt_accounts WHERE username = $1',
+        [workerUsername],
+    )).rows[0];
+    if (existing && existing.kind !== 'service') {
+        throw new Error(`MQTT account ${workerUsername} exists and is not a service account.`);
+    }
+    if (existing && mqttPasswordHash(workerPassword, existing.salt) === existing.password_hash) return;
+    const salt = crypto.randomBytes(16).toString('hex');
+    await client.query(
+        `INSERT INTO mqtt_accounts (username, kind, password_hash, salt)
+         VALUES ($1, 'service', $2, $3)
+         ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash, salt = EXCLUDED.salt`,
+        [workerUsername, mqttPasswordHash(workerPassword, salt), salt],
+    );
+}
 
 async function initializePostgres() {
     const client = new Client({
@@ -106,6 +144,13 @@ async function initializePostgres() {
                 + 'Clear the configured PostgreSQL data directory and initialize again.',
             );
         }
+        if (process.env.EMQX_AUTH_DB_PASSWORD && process.env.MQTT_WORKER_PASSWORD) {
+            await ensureMqttAccess(client, {
+                brokerPassword: process.env.EMQX_AUTH_DB_PASSWORD,
+                workerUsername: process.env.MQTT_WORKER_USERNAME || 'mqtt-worker-service',
+                workerPassword: process.env.MQTT_WORKER_PASSWORD,
+            });
+        }
         process.stdout.write(
             `PostgreSQL schema ${POSTGRES_SCHEMA_VERSION}: ${fresh ? 'installed' : 'kept existing data'}`
             + `${newlyApplied.length > 0 ? `, applied ${newlyApplied.join(', ')}` : ''}.\n`,
@@ -142,8 +187,15 @@ async function initializeMongo() {
 
 async function main() {
     assertInitializationGate();
-    for (const required of ['PG_HOST', 'PG_DATABASE', 'PG_USER', 'PG_PASSWORD', 'MONGO_URI', 'MONGO_DB_NAME']) {
+    for (const required of [
+        'PG_HOST', 'PG_DATABASE', 'PG_USER', 'PG_PASSWORD', 'MONGO_URI', 'MONGO_DB_NAME',
+        // The broker's read-only database login and the backend's own MQTT account.
+        'EMQX_AUTH_DB_PASSWORD', 'MQTT_WORKER_PASSWORD',
+    ]) {
         if (!process.env[required]) throw new Error(`${required} is required.`);
+    }
+    for (const secret of ['EMQX_AUTH_DB_PASSWORD', 'MQTT_WORKER_PASSWORD']) {
+        if (process.env[secret].length < 16) throw new Error(`${secret} must be at least 16 characters.`);
     }
 
     await initializePostgres();
@@ -160,6 +212,8 @@ if (require.main === module) {
 
 module.exports = {
     assertInitializationGate,
+    ensureMqttAccess,
+    mqttPasswordHash,
     ALLOWED_MONGO_COLLECTIONS,
     POSTGRES_SCHEMA_VERSION,
     initializeMongo,

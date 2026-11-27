@@ -4,6 +4,7 @@ import { typedRouteConfig } from '../../plugins/validation';
 import { accountDetail, disableAccount, enableAccount, giftPlan, listAccounts, signOutAccount } from './accounts';
 import { listAdminActions, recordAdminAction } from './audit';
 import { adminGuard, STAFF_CLIENT_HEADER, STAFF_CLIENT_IP_HEADER, staffOf } from './guard';
+import { recentIngestLatency } from './load';
 import { adminAssistant, adminOverview, giftablePlans } from './overview';
 import { cancelPayment, confirmPayment, listPayments } from './payments';
 import { STAFF_PERMISSIONS, STAFF_PRESETS, staffCan } from './permissions';
@@ -152,6 +153,10 @@ const adminRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
     });
 
     // ── Numbers ────────────────────────────────────────────────────────────
+
+    // Load tests: how fast telemetry reaches the database (the Console shows it beside the Simulator's numbers).
+    app.get('/admin/load/ingest-latency', { config: { adminPermission: 'simulator.view' } },
+        async () => ({ success: true, ingest_latency: await recentIngestLatency(app) }));
 
     app.get('/admin/overview', { config: { adminPermission: 'overview.view' } },
         async () => ({ success: true, ...(await adminOverview(app)) }));

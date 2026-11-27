@@ -16,6 +16,7 @@ import paymentRoutes from './modules/payments/routes';
 import pushRoutes from './modules/push/routes';
 import adminRoutes from './modules/admin/routes';
 import weatherRoutes from './modules/weather/routes';
+import factoryRoutes from './modules/factory/routes';
 import jwtPlugin from './plugins/jwt';
 import errorHandlerPlugin from './plugins/errorHandler';
 import validationPlugin from './plugins/validation';
@@ -85,6 +86,7 @@ export function buildApp(): FastifyInstance {
     app.register(pushRoutes);
     // Home location and forecasts (docs/architecture/weather.md).
     app.register(weatherRoutes);
+    app.register(factoryRoutes);
     // Administration API for the Admin Console (off without ADMIN_API_KEY).
     app.register(adminRoutes);
 

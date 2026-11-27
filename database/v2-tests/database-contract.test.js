@@ -180,6 +180,9 @@ test('coordinated initializer enforces the target contract and is wired into Doc
     assert.match(initializer, /PostgreSQL contains an incompatible schema/);
     assert.match(initializer, /MongoDB contains incompatible collections/);
     assert.match(initializer, /name\.startsWith\('system\.'\)/);
+    // The broker reads only the columns it checks; the backend's MQTT login comes from the root .env.
+    assert.match(initializer, /GRANT SELECT \(username, password_hash, salt\) ON public\.mqtt_accounts TO emqx_auth/);
+    assert.match(initializer, /'EMQX_AUTH_DB_PASSWORD', 'MQTT_WORKER_PASSWORD'/);
     assert.equal(compose.includes('initialize_v2.js'), true);
     assert.equal(compose.includes('db-initialize'), true);
 });
@@ -235,4 +238,9 @@ test('PostgreSQL upgrade steps are numbered after the baseline, additive and tra
     assert.match(weather, /CONSTRAINT account_preferences_home_complete/);
     assert.match(weather, /ADD COLUMN last_skip_reason text/);
     assert.match(weather, /conditions @> '\[\{"kind": "weather"\}\]'/);
+    const mqtt = fs.readFileSync(migrations.find(item => item.name === 'mqtt_accounts').file, 'utf8');
+    // One row per broker login, read by EMQX; a device's login goes with its factory record.
+    assert.match(mqtt, /factory_mac varchar\(17\) UNIQUE REFERENCES public\.factory_devices\(mac\) ON DELETE CASCADE/);
+    assert.match(mqtt, /CONSTRAINT mqtt_accounts_kind_identity/);
+    assert.match(mqtt, /password_hash ~ '\^\[0-9a-f\]\{64\}\$'/);
 });

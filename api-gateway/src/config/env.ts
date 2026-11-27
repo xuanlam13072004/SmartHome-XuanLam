@@ -73,6 +73,12 @@ const envSchema = z.object({
     ADMIN_API_KEY: z.string().refine(value => value === '' || value.length >= 32, {
         message: 'must be empty (administration off) or at least 32 characters',
     }).default(''),
+    // Factory API /factory/* (docs/architecture/mqtt-security.md): how a factory (the
+    // Simulator's virtual one) registers and retires devices. Empty = the API does not
+    // exist; set a random key of 32+ characters (the Simulator gets the same value).
+    FACTORY_API_KEY: z.string().refine(value => value === '' || value.length >= 32, {
+        message: 'must be empty (factory API off) or at least 32 characters',
+    }).default(''),
 
     PG_HOST: z.string(),
     PG_PORT: z.coerce.number().int().positive().default(5432),
