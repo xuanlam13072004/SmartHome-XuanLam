@@ -8,7 +8,7 @@ import {
     ProbeRun,
     summarize,
 } from '../src/workload/probe';
-import { tokenSecondsLeft } from '../src/workload/probe-service';
+import { tokenSecondsLeft } from '../src/security/user-session';
 
 test('probe commands are safe to repeat and answered at once when possible', () => {
     const entrance = pickProbeCommand({
@@ -72,12 +72,11 @@ function fakeDeps(options: { users: number; devicesFail?: string; neverFinish?: 
             sent.set(id, start);
             return { status: 200, body: { success: true, operation_id: id, status: 'queued' } };
         },
-        finished: async ids => ids
-            .filter(id => !id.startsWith('never') && clock - sent.get(id)! >= 100)
-            .map(id => ({
-                id, status: 'succeeded',
-                accepted_at: new Date(sent.get(id)! + 10), completed_at: new Date(sent.get(id)! + 100),
-            })),
+        operation: async (token, mac, id) => {
+            assert.equal(token, `token-user-${Number(mac.slice(-1))}`, 'read back as the user who sent it');
+            if (id.startsWith('never') || clock - sent.get(id)! < 100) return { status: 'queued', created_at: new Date(sent.get(id)! + 10), completed_at: null };
+            return { status: 'succeeded', created_at: new Date(sent.get(id)! + 10), completed_at: new Date(sent.get(id)! + 100) };
+        },
         context: () => ({ devices_connected: 3, telemetry_per_second: 12.5 }),
         now: () => clock,
         sleep: async ms => {

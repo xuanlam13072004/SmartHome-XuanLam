@@ -13,11 +13,9 @@ import {
     type DeviceStatePatch,
     validateDeviceStatePatch,
 } from '../../generation/telemetry-generator';
-import {
-    getMainMongoDb,
-    getMongoDb,
-} from '../../infrastructure/mongodb/client';
-import { getPgPool } from '../../infrastructure/postgres/client';
+import { getMongoDb } from '../../infrastructure/mongodb/client';
+import { apiGateway } from '../../infrastructure/api-gateway/client';
+import { accessTokenFor } from '../../security/user-session';
 import { getRuntimeManager, type RuntimeManager } from '../../runtime/manager';
 import { decrypt } from '../../security/crypto';
 import { ensureAccessPin } from '../../security/device-pin';
@@ -179,13 +177,13 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
             .findOne({ mac }, { projection: deviceProjection });
         if (!device) return reply.status(404).send({ success: false, error: 'Device not found' });
 
-        const [backendShadow, telemetry, operations, events, deviceEvents] = await Promise.all([
-            loadBackendShadow(mac),
-            loadTelemetry(mac, 100),
+        const [backendShadow, operations, events, deviceEvents] = await Promise.all([
+            loadBackendShadow(device),
             loadOperations(mac, 100),
             loadEvents(mac, 100),
-            loadDeviceEvents(mac, 100),
+            loadDeviceEvents(device, 100),
         ]);
+        const telemetry = loadTelemetry(runtimeManager, mac);
         let productContractCompatible = true;
         let product;
         try {
@@ -222,10 +220,8 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
             .findOne({ mac }, { projection: deviceProjection });
         if (!device) return reply.status(404).send({ success: false, error: 'Device not found' });
 
-        const [backendShadow, latestTelemetry] = await Promise.all([
-            loadBackendShadow(mac),
-            loadTelemetry(mac, 1),
-        ]);
+        const backendShadow = await loadBackendShadow(device);
+        const latestTelemetry = loadTelemetry(runtimeManager, mac);
         const runtime = runtimeManager.getDevice(mac);
         reply.header('Cache-Control', 'no-store');
         return {
@@ -242,8 +238,7 @@ const devicesRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         if (!await deviceExists(mac)) {
             return reply.status(404).send({ success: false, error: 'Device not found' });
         }
-        const query = request.query as { limit?: string };
-        return { success: true, telemetry: await loadTelemetry(mac, parseLimit(query.limit)) };
+        return { success: true, telemetry: loadTelemetry(runtimeManager, mac) };
     });
 
     app.get('/api/devices/:mac/operations', async (request, reply) => {
@@ -619,31 +614,51 @@ const deviceExists = async (mac: string): Promise<boolean> =>
         { projection: { _id: 1 } },
     ));
 
-const loadBackendShadow = async (mac: string) =>
-    getMainMongoDb().collection(env.MAIN_MONGO_DEVICE_SHADOWS_COLLECTION).findOne({ _id: mac } as any);
+/**
+ * The system's view of a run device, read as its simulated user through the
+ * public API (what the user's app would show). A factory device belongs to a
+ * real account the Simulator cannot act as: its system view is not shown.
+ */
+const userTokenFor = async (device: Pick<SimulatedDeviceRecord, 'origin' | 'simulator_user_id' | 'provisioning_state'>) => {
+    if (device.origin === 'factory' || !device.simulator_user_id || device.provisioning_state !== 'claimed') return null;
+    return accessTokenFor(device.simulator_user_id).catch(() => null);
+};
 
-const loadTelemetry = async (mac: string, limit: number) =>
-    getMainMongoDb().collection(env.MAIN_MONGO_TELEMETRY_COLLECTION)
-        .find({ 'metadata.device_id': mac })
-        .sort({ observed_at: -1 })
+const loadBackendShadow = async (device: SimulatedDeviceRecord) => {
+    const token = await userTokenFor(device);
+    return token ? apiGateway.deviceState(token, device.mac).catch(() => null) as Promise<Record<string, unknown> | null> : null;
+};
+
+/** The last packet the virtual device published (it keeps no history; the system does). */
+const loadTelemetry = (manager: RuntimeManager, mac: string): Record<string, unknown>[] => {
+    const packet = manager.getDevice(mac)?.lastTelemetryPacket;
+    return packet ? [packet] : [];
+};
+
+/** Commands the device received and what it answered, from the Simulator's own event log. */
+const loadOperations = async (mac: string, limit: number) => {
+    const rows = await getMongoDb().collection('simulator_events')
+        .find({ mac, type: { $in: ['device.operation_applied', 'device.operation_rejected'] } })
+        .sort({ created_at: -1 })
         .limit(limit)
         .toArray();
-
-const loadOperations = async (mac: string, limit: number) => {
-    const result = await getPgPool().query(
-        `SELECT operation.id::text, operation.status, operation.instance_id,
-                operation.operation_name, operation.input, operation.risk,
-                operation.reason_code, operation.catalog_revision,
-                operation.accepted_at, operation.completed_at,
-                operation.created_at, operation.updated_at
-         FROM device_operations AS operation
-         JOIN device_metadata AS device ON device.id = operation.device_id
-         WHERE device.mac = $1
-         ORDER BY operation.created_at DESC
-         LIMIT $2`,
-        [mac, limit],
-    );
-    return result.rows;
+    return rows.map((row) => {
+        const data = (row.data ?? {}) as Record<string, unknown>;
+        const applied = row.type === 'device.operation_applied';
+        return {
+            id: String(data.operation_id ?? row._id),
+            mac,
+            status: applied ? 'succeeded' : 'rejected',
+            instance_id: String(data.instance_id ?? ''),
+            operation_name: String(data.operation_name ?? ''),
+            input: (data.input ?? {}) as Record<string, unknown>,
+            reason_code: applied ? null : String(data.reason_code ?? 'DEVICE_OPERATION_REJECTED'),
+            accepted_at: row.created_at,
+            completed_at: row.created_at,
+            created_at: row.created_at,
+            updated_at: row.created_at,
+        };
+    });
 };
 
 const loadEvents = async (mac: string, limit: number) =>
@@ -653,12 +668,11 @@ const loadEvents = async (mac: string, limit: number) =>
         .limit(limit)
         .toArray();
 
-const loadDeviceEvents = async (mac: string, limit: number) =>
-    getMainMongoDb().collection(env.MAIN_MONGO_DEVICE_EVENTS_COLLECTION)
-        .find({ device_id: mac })
-        .sort({ received_at: -1, _id: -1 })
-        .limit(limit)
-        .toArray();
+/** Physical events (door, keypad…) as the system stored them, read as the device's owner. */
+const loadDeviceEvents = async (device: SimulatedDeviceRecord, limit: number) => {
+    const token = await userTokenFor(device);
+    return token ? apiGateway.deviceEvents(token, device.mac, limit).catch(() => []) : [];
+};
 
 const loadVirtualAccessPin = async (mac: string): Promise<string | undefined> => {
     const device = await getMongoDb().collection<SimulatedDeviceRecord>('simulated_devices')
@@ -712,16 +726,18 @@ const requireClaimedDevice = async (mac: string, reply: any) => {
     // A factory device can always be switched on: unclaimed, it waits in pairing mode.
     if (context.device.origin === 'factory') return context;
     if (context.device.provisioning_state === 'unpaired') {
-        const claimed = await getPgPool().query<{ id: string }>(
-            'SELECT id::text FROM device_metadata WHERE mac = $1 AND owner_id = $2 AND is_active = true',
-            [mac, context.device.simulator_user_id],
-        );
-        if (claimed.rows[0]) {
+        // Claimed again by its simulated user (with the app, using the revealed credential)?
+        const token = await accessTokenFor(context.device.simulator_user_id).catch(() => null);
+        const owned = token
+            ? (await apiGateway.listDevices(token).catch(() => []))
+                .find((row) => row.mac === mac && row.owner_id === context.device.simulator_user_id)
+            : undefined;
+        if (owned) {
             context.device.provisioning_state = 'claimed';
-            context.device.device_id = claimed.rows[0].id;
+            context.device.device_id = owned.id;
             await getMongoDb().collection<SimulatedDeviceRecord>('simulated_devices').updateOne(
                 { mac },
-                { $set: { provisioning_state: 'claimed', device_id: claimed.rows[0].id, updated_at: new Date() } },
+                { $set: { provisioning_state: 'claimed', device_id: owned.id, updated_at: new Date() } },
             );
         }
     }

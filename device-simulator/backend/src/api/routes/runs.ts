@@ -315,13 +315,12 @@ export const createRunsRoutes = (cleanupJob: CleanupCronjob): FastifyPluginAsync
             };
         });
 
+        // Starts in the background (thousands of users take minutes); the run's
+        // status ('cleaning') and cleanup_progress show how it goes.
         app.post('/api/simulation-runs/:id/cleanup', async (request, reply) => {
             const { id } = request.params as { id: string };
-            const result = await cleanupJob.cleanupRun(id);
-            return reply.status(result.status === 'cleanup_blocked' ? 409 : 200).send({
-                success: result.status === 'cleaned',
-                ...result,
-            });
+            const result = await cleanupJob.startRunCleanup(id);
+            return reply.status(result.status === 'cleaned' ? 200 : 202).send({ success: true, ...result });
         });
 
         app.post('/api/simulation-runs/:id/extend', async (request, reply) => {

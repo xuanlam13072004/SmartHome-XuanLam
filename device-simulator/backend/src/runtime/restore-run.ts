@@ -9,7 +9,7 @@ import { resolveDeviceProduct } from '../catalog/device-contract';
 import { ensureAccessPin } from '../security/device-pin';
 import { verifyLiveOwnershipBatch } from '../provisioning/ownership';
 
-/** Devices restored at the same time; MQTT connects are also spread by the startup ramp. */
+/** Runtimes built at the same time (registry reads); their MQTT connections go through the connect scheduler. */
 const RESTORE_CONCURRENCY = 64;
 
 export const runWithConcurrency = async <T>(
@@ -30,8 +30,11 @@ export const runWithConcurrency = async <T>(
 
 /**
  * Starts the runtimes of claimed, switched-on devices of the given runs.
- * Ownership is checked in batches; devices unpaired while the simulator was
- * down are revoked instead of started.
+ * Ownership is checked in batches (factory API); devices unpaired while the
+ * simulator was down are revoked instead of started. Connections are queued
+ * with the connect scheduler, so a restart with 30 000 devices reaches the
+ * broker at MQTT_CONNECTS_PER_SECOND instead of all at once; `recovered`
+ * counts the devices queued, the overview shows how many are connected.
  */
 export const restoreDeviceRuntimes = async (
     runs: SimulationRun[],
@@ -63,8 +66,10 @@ export const restoreDeviceRuntimes = async (
                 await ensureAccessPin(device),
                 device.irrigation_session,
             );
-            await runtime.connect();
-            if (options.resume) await runtime.resume();
+            // A runtime that already exists (paused run resumed) continues at once;
+            // a new one is connected by the scheduler.
+            if (options.resume && runtime.paused) await runtime.resume();
+            else manager.scheduleConnect(runtime);
             recovered += 1;
         } catch (error) {
             failed += 1;

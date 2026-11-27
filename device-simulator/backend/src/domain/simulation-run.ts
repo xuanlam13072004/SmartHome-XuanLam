@@ -61,6 +61,27 @@ export interface SimulationRunMetrics {
     last_activity_at?: Date;
 }
 
+/**
+ * A run cleanup works user by user in the background (cleanup/cronjob.ts):
+ * unpair the user's devices, delete the account, retire the devices at the
+ * factory, forget the records. A user that cannot be cleaned is skipped and
+ * reported; the others are not held up.
+ */
+export interface CleanupProgress {
+    users_total: number;
+    users_done: number;
+    /** Need a person (a device added with the app, a device owned by someone else). */
+    users_blocked: number;
+    /** Failed on errors three times; pressing "Dọn dữ liệu" again retries them. */
+    users_failed: number;
+    devices_total: number;
+    devices_retired: number;
+    started_at: Date;
+    updated_at: Date;
+    /** Users blocked or failed, with the reason (at most 50 kept). */
+    blocked?: Array<{ account_id?: string; email: string; reason: string }>;
+}
+
 export interface SimulationRun {
     id: string;
     status: RunStatus;
@@ -73,7 +94,14 @@ export interface SimulationRun {
     completed_at?: Date;
     cleanup_after?: Date;
     cleanup_retries: number;
-    cleanup_unpaired_macs?: string[];
+    /**
+     * The cleanup in progress also removes users kept with "Giữ dữ liệu" (a cleanup
+     * someone asked for); a scheduled one keeps them. Read again when an interrupted
+     * cleanup resumes after a restart.
+     */
+    cleanup_includes_kept?: boolean;
+    /** Progress of the cleanup in progress (or the last one), shown by the Console. */
+    cleanup_progress?: CleanupProgress;
     last_cleanup_error?: string | null;
     created_at: Date;
     updated_at: Date;

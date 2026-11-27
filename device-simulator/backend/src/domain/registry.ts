@@ -1,6 +1,7 @@
 import type { DeviceState } from '../generation/telemetry-generator';
 import type { EncryptedAuthSession } from '../security/auth-session';
 import type { IrrigationSession } from '../runtime/irrigation-controller';
+import type { FactoryHashes } from '../provisioning/factory';
 
 export type RetentionPolicy = 'ttl' | 'permanent';
 export type UserGenerationState = 'planned' | 'registered' | 'provisioning' | 'ready' | 'failed';
@@ -15,7 +16,9 @@ export type DeviceRuntimeState =
     | 'mqtt_error'
     | 'contract_error'
     /** Factory device powered on without an owner: connected, waiting for a claim. */
-    | 'awaiting_claim';
+    | 'awaiting_claim'
+    /** The broker refused the device's login (retired, or its password changed): not retried. */
+    | 'auth_rejected';
 export type DeviceDesiredState = 'online' | 'offline';
 export type TopologyRole = 'hub' | 'node';
 export type TopologyState = 'stable' | 'degraded_direct' | 'electing' | 'empty';
@@ -31,8 +34,14 @@ export interface SimulatedUserRecord {
     run_id: string;
     generation_index: number;
     account_id?: string;
+    /**
+     * True once the Simulator knows the account is its own: it registered it,
+     * or signed in to it with the random password only the Simulator holds.
+     */
     account_created_by_simulator?: boolean;
     account_provenance?: 'registered' | 'recovered_after_register';
+    /** Set when cleanup deleted the account (DELETE /me), so a resumed cleanup does not sign in again. */
+    account_deleted_at?: Date;
     email: string;
     full_name: string;
     credential: EncryptedValue;
@@ -81,14 +90,20 @@ export interface SimulatedDeviceRecord {
     topology_state?: TopologyState;
     active_hub_mac?: string | null;
     transport_mode?: TransportMode;
+    /** Claim secret printed on the label (encrypted). */
     secret: EncryptedValue;
-    /** Device's own broker password (factory secret, encrypted). Username is the MAC. */
-    mqtt_secret?: EncryptedValue;
+    /** Device's own broker password (encrypted). Username is the MAC. */
+    mqtt_secret: EncryptedValue;
+    /**
+     * What the factory API received for this device (hashes only). Kept so a
+     * retried registration sends exactly the same data and is recognised.
+     */
+    factory: FactoryHashes;
     /** Simulator-only secure storage. Never published to the main backend or MQTT. */
     access_pin?: EncryptedValue;
     credential_private_key: EncryptedValue;
     credential_public_key_pem: string;
-    factory_owned: boolean;
+    /** planned → provisioned (registered with the factory API) → claimed (owned by its user). */
     provisioning_state: DeviceProvisioningState;
     runtime_state: DeviceRuntimeState;
     desired_state: DeviceDesiredState;

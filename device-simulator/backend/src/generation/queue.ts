@@ -6,12 +6,17 @@ import type {
 } from '../domain/registry';
 import { env } from '../config/env';
 import { getMongoDb } from '../infrastructure/mongodb/client';
-import { getPgPool } from '../infrastructure/postgres/client';
 import { generateUser } from './user-generator';
-import { apiGateway } from '../infrastructure/api-gateway/client';
+import {
+    apiGateway,
+    type ApiGatewayError,
+    type ClaimedDevice,
+} from '../infrastructure/api-gateway/client';
 import {
     createMockDeviceIdentity,
-    provisionMockDevice,
+    factoryBody,
+    provisionMockDevices,
+    type MockDeviceIdentity,
 } from '../provisioning/factory';
 import { decrypt, encrypt } from '../security/crypto';
 import { getRuntimeManager } from '../runtime/manager';
@@ -19,10 +24,7 @@ import {
     deterministicInteger,
     deterministicUnit,
 } from './deterministic';
-import { verifyRecoverableGeneratedAccount } from './account-ownership';
 import { recordSimulatorEvent } from '../events/service';
-import { encryptAuthSession } from '../security/auth-session';
-import type { ClaimedDevice } from '../infrastructure/api-gateway/client';
 import {
     assignmentFromClaim,
     chooseNetworkCount,
@@ -36,18 +38,27 @@ import {
 } from '../catalog/device-contract';
 import { ensureAccessPin } from '../security/device-pin';
 import { GenerationTaskLifecycle } from './task-lifecycle';
-import { verifyLiveDeviceOwnership } from '../provisioning/ownership';
+import { verifyLiveOwnershipBatch } from '../provisioning/ownership';
 import type { RequestOptions } from '../infrastructure/api-gateway/rate-limit-retry';
 import { getGatewayPacer, type GatewayPacer } from './pacer';
+import { signInUser, userAccessToken, userPassword } from '../security/user-session';
 
-interface AccountRow {
-    id: string;
-    email: string;
-    full_name: string | null;
-    created_at: Date;
-}
+/**
+ * Generation of a load-test run, user by user, through the system's official
+ * doors only (docs/architecture/load-testing.md):
+ *   1. the account is registered with the public API (as the app does);
+ *   2. the user's devices are made: identities kept in the Simulator's own
+ *      registry, hashes sent to the factory API in one call per user;
+ *   3. each device is claimed by its user with the secret on its label;
+ *   4. switched-on devices are queued with the connect scheduler, which opens
+ *      their MQTT connections at a steady rate. Connecting is not part of the
+ *      user's success: a device that cannot connect yet is retried later.
+ * Every step can be repeated: a resumed run continues where it stopped.
+ */
 
-type LoginSession = Awaited<ReturnType<typeof apiGateway.login>>;
+const MAX_IDENTITY_ATTEMPTS = 20;
+
+const errorStatus = (error: unknown): number => Number((error as ApiGatewayError | null)?.statusCode || 0);
 
 export class GenerationQueue {
     private readonly logger: FastifyBaseLogger;
@@ -59,6 +70,8 @@ export class GenerationQueue {
         private readonly registryDb = getMongoDb,
         private readonly concurrency = env.GENERATION_CONCURRENCY,
         private readonly pacer: GatewayPacer = getGatewayPacer(),
+        /** The simulated users' sessions (security/user-session.ts). */
+        private readonly sessions = { accessToken: userAccessToken, signIn: signInUser },
     ) {
         this.logger = logger.child({ module: 'GenerationQueue' });
     }
@@ -259,196 +272,48 @@ export class GenerationQueue {
     }
 
     private async processUserGeneration(run: SimulationRun, index: number): Promise<void> {
-        const db = this.registryDb();
-        const seed = run.config.random_seed || run.id;
-        let user: SimulatedUserRecord | null =
-            await db.collection<SimulatedUserRecord>('simulated_users').findOne({
-            run_id: run.id,
-            generation_index: index,
-        });
-
-        if (!user) {
-            const generated = generateUser(
-                index,
-                run.id,
-                run.config.email_domain,
-                run.config.email_prefix,
-                seed,
-            );
-            const targetDeviceCount = deterministicInteger(
-                seed,
-                `user:${index}:device-count`,
-                run.config.devices_min,
-                run.config.devices_max,
-            );
-            const now = new Date();
-            const record: SimulatedUserRecord = {
-                run_id: run.id,
-                generation_index: index,
-                email: generated.email,
-                full_name: generated.full_name,
-                credential: encrypt(generated.password),
-                target_device_count: targetDeviceCount,
-                generation_state: 'planned',
-                status: 'active',
-                retention_policy: run.config.cleanup_policy === 'auto_24h' ? 'ttl' : 'permanent',
-                created_at: now,
-                updated_at: now,
-            };
-            await db.collection<SimulatedUserRecord>('simulated_users').insertOne(record);
-            user = record;
-        }
-        if (!user) throw new Error(`Failed to initialize simulated user ${index}`);
+        const users = this.registryDb().collection<SimulatedUserRecord>('simulated_users');
+        const user = await this.loadOrPlanUser(run, index);
 
         // A retry creates only missing work; completed users do not need another login.
-        if (user.account_id && user.generation_state === 'ready') {
-            const settledDevices = await db.collection<SimulatedDeviceRecord>('simulated_devices').countDocuments({
-                run_id: run.id, simulator_user_id: user.account_id,
-                generation_index: { $gte: 0, $lt: user.target_device_count },
-                provisioning_state: { $in: ['claimed', 'unpaired'] },
-            });
-            if (settledDevices === user.target_device_count) return;
-        }
+        if (user.account_id && user.generation_state === 'ready' && await this.userSettled(run, user)) return;
         const options = this.requestOptions(run.id, user.account_id);
 
-        const password = decrypt(
-            user.credential.iv,
-            user.credential.encrypted,
-            user.credential.authTag,
-        );
-
-        let accountId = user.account_id;
-        let session: LoginSession | null = null;
-        let accountProvenance: SimulatedUserRecord['account_provenance'];
-        if (!accountId) {
-            const existingAccount = await getPgPool().query<AccountRow>(
-                `SELECT id::text, email, full_name, created_at
-                 FROM accounts
-                 WHERE email = $1`,
-                [user.email.toLowerCase()],
-            );
-            if (existingAccount.rows.length > 0) {
-                session = await this.loginForOwnershipRecovery(user.email, password, options);
-                const authenticated = await apiGateway.getCurrentUser(session.accessToken, options);
-                accountId = verifyRecoverableGeneratedAccount(
-                    {
-                        email: user.email,
-                        full_name: user.full_name,
-                        registry_created_at: user.created_at,
-                    },
-                    {
-                        ...existingAccount.rows[0],
-                        created_at: new Date(existingAccount.rows[0].created_at),
-                    },
-                    authenticated,
-                );
-                accountProvenance = 'recovered_after_register';
-            } else {
-                await this.pacer.register.take(this.tasks.signal(run.id));
-                const registered = await apiGateway.register({
-                    email: user.email,
-                    password,
-                    full_name: user.full_name,
-                }, options);
-                accountId = registered.id;
-                accountProvenance = 'registered';
-            }
-
-            await db.collection<SimulatedUserRecord>('simulated_users').updateOne(
-                { run_id: run.id, generation_index: index },
-                {
-                    $set: {
-                        account_id: accountId,
-                        account_created_by_simulator: true,
-                        account_provenance: accountProvenance,
-                        generation_state: 'registered',
-                        updated_at: new Date(),
-                    },
-                },
-            );
-            await this.safeEvent({
-                type: accountProvenance === 'registered'
-                    ? 'user.registered'
-                    : 'user.registration_recovered',
-                severity: 'info',
-                run_id: run.id,
-                account_id: accountId,
-                message: accountProvenance === 'registered'
-                    ? `Registered simulated user ${user.email}`
-                    : `Recovered previously registered simulated user ${user.email}`,
-            });
-        } else if (user.account_created_by_simulator !== true) {
-            const existingAccount = await getPgPool().query<AccountRow>(
-                `SELECT id::text, email, full_name, created_at
-                 FROM accounts
-                 WHERE id = $1`,
-                [accountId],
-            );
-            if (existingAccount.rows.length !== 1) {
-                throw new Error('ACCOUNT_OWNERSHIP_UNVERIFIED: registry account no longer exists');
-            }
-            session = await this.loginForOwnershipRecovery(user.email, password, options);
-            const authenticated = await apiGateway.getCurrentUser(session.accessToken, options);
-            accountId = verifyRecoverableGeneratedAccount(
-                {
-                    email: user.email,
-                    full_name: user.full_name,
-                    registry_created_at: user.created_at,
-                },
-                {
-                    ...existingAccount.rows[0],
-                    created_at: new Date(existingAccount.rows[0].created_at),
-                },
-                authenticated,
-            );
-            accountProvenance = 'recovered_after_register';
-            await db.collection<SimulatedUserRecord>('simulated_users').updateOne(
-                { run_id: run.id, generation_index: index },
-                {
-                    $set: {
-                        account_created_by_simulator: true,
-                        account_provenance: accountProvenance,
-                        updated_at: new Date(),
-                    },
-                },
-            );
-            await this.safeEvent({
-                type: 'user.ownership_verified',
-                severity: 'info',
-                run_id: run.id,
-                account_id: accountId,
-                message: `Recovered and verified simulator account ownership for ${user.email}`,
-            });
-        }
-
-        if (!session) {
-            await this.pacer.login.take(this.tasks.signal(run.id));
-            session = await apiGateway.login({ email: user.email, password }, options);
-        }
-        await db.collection<SimulatedUserRecord>('simulated_users').updateOne(
+        const accountId = user.account_id ?? await this.registerAccount(run, user, options);
+        const signal = this.tasks.signal(run.id);
+        await users.updateOne(
             { run_id: run.id, generation_index: index },
-            {
-                $set: {
-                    generation_state: 'provisioning',
-                    last_error: null,
-                    auth_session: encryptAuthSession(session),
-                    updated_at: new Date(),
-                },
-            },
+            { $set: { generation_state: 'provisioning', last_error: null, updated_at: new Date() } },
         );
 
-        for (let deviceIndex = 0; deviceIndex < user.target_device_count; deviceIndex += 1) {
+        const devices = await this.planDevices(run, user, accountId);
+        if (!this.tasks.isActive(run.id)) return;
+        await this.provisionDevices(run, accountId, devices, options);
+
+        // Devices claimed in an earlier pass: still claimed? (unpaired while stopped → revoked)
+        const resumed = devices.filter(device => device.provisioning_state === 'claimed');
+        const stillOwned = resumed.length > 0
+            ? await verifyLiveOwnershipBatch(resumed, getRuntimeManager(this.logger), undefined, options)
+            : new Set<string>();
+
+        let token = await this.sessions.accessToken(user, options);
+        const claimedNow = new Set<string>();
+        for (const device of devices) {
             if (!this.tasks.isActive(run.id)) return;
-            await this.ensureDevice(run, {
-                accountId,
-                userIndex: index,
-                deviceIndex,
-                targetDeviceCount: user.target_device_count,
-                accessToken: session.accessToken,
-            });
+            if (device.provisioning_state !== 'provisioned') continue;
+            await this.pacer.claim(accountId, signal);
+            token = await this.claimDevice(run, user, accountId, device, token, options);
+            claimedNow.add(device.mac);
         }
 
-        await db.collection<SimulatedUserRecord>('simulated_users').updateOne(
+        for (const device of devices) {
+            if (!this.tasks.isActive(run.id)) return;
+            if (device.provisioning_state !== 'claimed' || device.desired_state !== 'online') continue;
+            if (!claimedNow.has(device.mac) && !stillOwned.has(device.mac)) continue;
+            await this.startDevice(run, device);
+        }
+
+        await users.updateOne(
             { run_id: run.id, generation_index: index },
             {
                 $set: {
@@ -461,275 +326,398 @@ export class GenerationQueue {
         );
     }
 
-    private async loginForOwnershipRecovery(
-        email: string,
-        password: string,
+    private async loadOrPlanUser(run: SimulationRun, index: number): Promise<SimulatedUserRecord> {
+        const users = this.registryDb().collection<SimulatedUserRecord>('simulated_users');
+        const existing = await users.findOne({ run_id: run.id, generation_index: index });
+        if (existing) return existing;
+        const seed = run.config.random_seed || run.id;
+        const generated = generateUser(index, run.id, run.config.email_domain, run.config.email_prefix, seed);
+        const now = new Date();
+        const record: SimulatedUserRecord = {
+            run_id: run.id,
+            generation_index: index,
+            email: generated.email,
+            full_name: generated.full_name,
+            credential: encrypt(generated.password),
+            target_device_count: deterministicInteger(
+                seed,
+                `user:${index}:device-count`,
+                run.config.devices_min,
+                run.config.devices_max,
+            ),
+            generation_state: 'planned',
+            status: 'active',
+            retention_policy: run.config.cleanup_policy === 'auto_24h' ? 'ttl' : 'permanent',
+            created_at: now,
+            updated_at: now,
+        };
+        await users.insertOne({ ...record });
+        return record;
+    }
+
+    private async userSettled(run: SimulationRun, user: SimulatedUserRecord): Promise<boolean> {
+        const settled = await this.registryDb().collection<SimulatedDeviceRecord>('simulated_devices').countDocuments({
+            run_id: run.id, simulator_user_id: user.account_id,
+            generation_index: { $gte: 0, $lt: user.target_device_count },
+            provisioning_state: { $in: ['claimed', 'unpaired'] },
+        });
+        return settled === user.target_device_count;
+    }
+
+    /**
+     * Registers the account like the app does. When an earlier attempt was
+     * registered but its answer lost (409), signing in with the random
+     * password only this record holds proves the account is the Simulator's.
+     */
+    private async registerAccount(
+        run: SimulationRun,
+        user: SimulatedUserRecord,
         options: RequestOptions,
-    ): Promise<LoginSession> {
+    ): Promise<string> {
+        let accountId: string;
+        let provenance: NonNullable<SimulatedUserRecord['account_provenance']>;
         try {
-            await this.pacer.login.take(options.signal);
-            return await apiGateway.login({ email, password }, options);
+            await this.pacer.register.take(this.tasks.signal(run.id));
+            accountId = (await apiGateway.register({
+                email: user.email,
+                password: userPassword(user),
+                full_name: user.full_name,
+            }, options)).id;
+            provenance = 'registered';
         } catch (error) {
-            if ((error as { statusCode?: number }).statusCode !== 401) throw error;
-            throw new Error(
-                'ACCOUNT_IDENTITY_COLLISION: existing email is not controlled by this simulator identity',
-            );
+            if (errorStatus(error) !== 409) throw error;
+            let accessToken: string;
+            try {
+                accessToken = (await this.sessions.signIn(user, options)).accessToken;
+            } catch (loginError) {
+                if (errorStatus(loginError) === 401) {
+                    throw new Error('ACCOUNT_IDENTITY_COLLISION: the e-mail belongs to an account the Simulator did not create');
+                }
+                throw loginError;
+            }
+            const me = await apiGateway.getCurrentUser(accessToken, options);
+            if (me.email.trim().toLowerCase() !== user.email.trim().toLowerCase()) {
+                throw new Error('ACCOUNT_IDENTITY_COLLISION: signed in to a different account');
+            }
+            accountId = me.id;
+            provenance = 'recovered_after_register';
+        }
+
+        await this.registryDb().collection<SimulatedUserRecord>('simulated_users').updateOne(
+            { run_id: run.id, generation_index: user.generation_index },
+            {
+                $set: {
+                    account_id: accountId,
+                    account_created_by_simulator: true,
+                    account_provenance: provenance,
+                    generation_state: 'registered',
+                    updated_at: new Date(),
+                },
+            },
+        );
+        user.account_id = accountId;
+        user.account_created_by_simulator = true;
+        user.account_provenance = provenance;
+        await this.safeEvent({
+            type: provenance === 'registered' ? 'user.registered' : 'user.registration_recovered',
+            severity: 'info',
+            run_id: run.id,
+            account_id: accountId,
+            message: provenance === 'registered'
+                ? `Registered simulated user ${user.email}`
+                : `Recovered previously registered simulated user ${user.email}`,
+        });
+        return accountId;
+    }
+
+    /** All device records of the user, in index order; missing ones are made (identity included). */
+    private async planDevices(
+        run: SimulationRun,
+        user: SimulatedUserRecord,
+        accountId: string,
+    ): Promise<SimulatedDeviceRecord[]> {
+        const collection = this.registryDb().collection<SimulatedDeviceRecord>('simulated_devices');
+        const existing = await collection.find({ run_id: run.id, simulator_user_id: accountId }).toArray();
+        const byIndex = new Map<number, SimulatedDeviceRecord>(existing.map(device => [device.generation_index, device]));
+        const missing: SimulatedDeviceRecord[] = [];
+        for (let deviceIndex = 0; deviceIndex < user.target_device_count; deviceIndex += 1) {
+            if (!byIndex.has(deviceIndex)) missing.push(await this.newDeviceRecord(run, user, accountId, deviceIndex));
+        }
+        if (missing.length > 0) {
+            await this.avoidRegistryCollisions(run, user, missing);
+            await collection.insertMany(missing.map(device => ({ ...device })), { ordered: true });
+            for (const device of missing) byIndex.set(device.generation_index, device);
+        }
+        return [...byIndex.values()]
+            .filter(device => device.generation_index < user.target_device_count)
+            .sort((left, right) => left.generation_index - right.generation_index);
+    }
+
+    private identityScope(run: SimulationRun, user: SimulatedUserRecord, deviceIndex: number, attempt: number): string {
+        const base = `run:${run.id}:user:${user.generation_index}:device:${deviceIndex}`;
+        return `${base}:attempt:${attempt}`;
+    }
+
+    private async newDeviceRecord(
+        run: SimulationRun,
+        user: SimulatedUserRecord,
+        accountId: string,
+        deviceIndex: number,
+    ): Promise<SimulatedDeviceRecord> {
+        const seed = run.config.random_seed || run.id;
+        const userIndex = user.generation_index;
+        const networkCount = chooseNetworkCount(
+            user.target_device_count,
+            deterministicInteger(seed, `user:${userIndex}:network-count`, run.config.networks_min ?? 1, run.config.networks_max ?? 1),
+        );
+        const networkIndex = networkIndexForDevice(deviceIndex, networkCount);
+        const product = this.pickProduct(run, userIndex, deviceIndex);
+        const identity = await createMockDeviceIdentity(seed, this.identityScope(run, user, deviceIndex, 0));
+        const now = new Date();
+        return {
+            run_id: run.id,
+            simulator_user_id: accountId,
+            generation_index: deviceIndex,
+            name: `Virtual Device ${userIndex + 1}-${deviceIndex + 1}`,
+            product_id: product.product_id,
+            catalog_revision: getProduct(product.product_id).catalog_revision,
+            simulated_network_index: networkIndex,
+            network_fingerprint: createNetworkFingerprint(seed, run.id, userIndex, networkIndex),
+            ...this.identityFields(identity),
+            ...(product.product_id === 'prod_entrance_controller' ? {
+                access_pin: encrypt(
+                    deterministicInteger(
+                        seed,
+                        `run:${run.id}:user:${userIndex}:device:${deviceIndex}:access-pin`,
+                        0,
+                        999999,
+                    ).toString().padStart(6, '0'),
+                ),
+            } : {}),
+            provisioning_state: 'planned',
+            runtime_state: 'offline',
+            desired_state: run.config.auto_start
+                && deterministicUnit(seed, `user:${userIndex}:device:${deviceIndex}:online`)
+                    >= run.config.initial_offline_rate / 100
+                ? 'online'
+                : 'offline',
+            seq: 0,
+            retention_policy: run.config.cleanup_policy === 'auto_24h' ? 'ttl' : 'permanent',
+            created_at: now,
+            updated_at: now,
+        };
+    }
+
+    private identityFields(identity: MockDeviceIdentity) {
+        return {
+            mac: identity.mac,
+            secret: encrypt(identity.rawSecret),
+            mqtt_secret: encrypt(identity.mqttPassword),
+            factory: identity.factory,
+            credential_private_key: encrypt(identity.credentialPrivateKeyPem),
+            credential_public_key_pem: identity.credentialPublicKeyPem,
+        };
+    }
+
+    /** A MAC already used by another record of the registry gets a new identity before insertion. */
+    private async avoidRegistryCollisions(
+        run: SimulationRun,
+        user: SimulatedUserRecord,
+        devices: SimulatedDeviceRecord[],
+    ): Promise<void> {
+        const seed = run.config.random_seed || run.id;
+        const collection = this.registryDb().collection<SimulatedDeviceRecord>('simulated_devices');
+        for (let attempt = 1; attempt <= MAX_IDENTITY_ATTEMPTS; attempt += 1) {
+            const seen = new Set<string>();
+            const duplicated = new Set(devices.filter(device => seen.has(device.mac) || !seen.add(device.mac)).map(device => device.mac));
+            const taken = new Set((await collection
+                .find({ mac: { $in: devices.map(device => device.mac) } }, { projection: { mac: 1 } })
+                .toArray()).map(device => device.mac));
+            const colliding = devices.filter(device => taken.has(device.mac) || duplicated.has(device.mac));
+            if (colliding.length === 0) return;
+            for (const device of colliding) {
+                Object.assign(device, this.identityFields(
+                    await createMockDeviceIdentity(seed, this.identityScope(run, user, device.generation_index, attempt)),
+                ));
+            }
+        }
+        throw new Error('Unable to allocate a collision-free virtual MAC address');
+    }
+
+    /**
+     * Registers the user's new devices with the factory API in one call.
+     * 'created' and 'exists' (an earlier attempt got through) both mean the
+     * device is ready to be claimed. A MAC that belongs to another device of
+     * the system ('conflict') gets a new identity and is sent again.
+     */
+    private async provisionDevices(
+        run: SimulationRun,
+        accountId: string,
+        devices: SimulatedDeviceRecord[],
+        options: RequestOptions,
+    ): Promise<void> {
+        const collection = this.registryDb().collection<SimulatedDeviceRecord>('simulated_devices');
+        const seed = run.config.random_seed || run.id;
+        let pending = devices.filter(device => ['planned', 'failed'].includes(device.provisioning_state));
+        for (let attempt = 1; pending.length > 0; attempt += 1) {
+            if (attempt > MAX_IDENTITY_ATTEMPTS) throw new Error('Unable to allocate a collision-free virtual MAC address');
+            const bodies = await Promise.all(pending.map(async device => factoryBody(await resolveDeviceProduct(device), {
+                mac: device.mac,
+                credentialPublicKeyPem: device.credential_public_key_pem,
+                factory: device.factory,
+            })));
+            const statuses = await provisionMockDevices(bodies, options);
+            const ready = pending.filter(device => ['created', 'exists'].includes(statuses.get(device.mac) ?? ''));
+            const unknown = pending.filter(device => statuses.get(device.mac) === 'product_unknown');
+            const conflicts = pending.filter(device => statuses.get(device.mac) === 'conflict');
+            if (unknown.length > 0) {
+                throw new Error(`PRODUCT_NOT_PUBLISHED: ${unknown[0].product_id}@${unknown[0].catalog_revision} is not in the system's catalog`);
+            }
+            if (ready.length > 0) {
+                await collection.updateMany(
+                    { mac: { $in: ready.map(device => device.mac) }, provisioning_state: { $in: ['planned', 'failed'] } },
+                    { $set: { provisioning_state: 'provisioned', last_error: null, updated_at: new Date() } },
+                );
+                for (const device of ready) {
+                    device.provisioning_state = 'provisioned';
+                    await this.safeEvent({
+                        type: 'device.provisioned',
+                        severity: 'info',
+                        run_id: run.id,
+                        account_id: accountId,
+                        mac: device.mac,
+                        message: `Provisioned virtual factory device ${device.mac}`,
+                    });
+                }
+            }
+            for (const device of conflicts) {
+                const previousMac = device.mac;
+                const fields = this.identityFields(await createMockDeviceIdentity(
+                    seed,
+                    `run:${run.id}:account:${accountId}:device:${device.generation_index}:conflict:${attempt}`,
+                ));
+                await collection.updateOne(
+                    { mac: previousMac, provisioning_state: { $in: ['planned', 'failed'] } },
+                    { $set: { ...fields, updated_at: new Date() } },
+                );
+                Object.assign(device, fields);
+            }
+            pending = conflicts;
         }
     }
 
-    private async ensureDevice(
+    /**
+     * Claims the device as its user (the app's QR scan). When an earlier
+     * attempt went through but its answer was lost, the device is already in
+     * the user's device list: that is the claim.
+     */
+    private async claimDevice(
         run: SimulationRun,
-        input: {
-            accountId: string;
-            userIndex: number;
-            deviceIndex: number;
-            targetDeviceCount: number;
-            accessToken: string;
-        },
-    ): Promise<void> {
-        const db = this.registryDb();
-        const seed = run.config.random_seed || run.id;
-        const configuredNetworkCount = deterministicInteger(
-            seed,
-            `user:${input.userIndex}:network-count`,
-            run.config.networks_min ?? 1,
-            run.config.networks_max ?? 1,
-        );
-        const networkCount = chooseNetworkCount(
-            input.targetDeviceCount,
-            configuredNetworkCount,
-        );
-        const simulatedNetworkIndex = networkIndexForDevice(
-            input.deviceIndex,
-            networkCount,
-        );
-        const networkFingerprint = createNetworkFingerprint(
-            seed,
-            run.id,
-            input.userIndex,
-            simulatedNetworkIndex,
-        );
-        let device: SimulatedDeviceRecord | null =
-            await db.collection<SimulatedDeviceRecord>('simulated_devices').findOne({
-            run_id: run.id,
-            simulator_user_id: input.accountId,
-            generation_index: input.deviceIndex,
-        });
-
-        if (!device) {
-            const product = this.pickProduct(run, input.userIndex, input.deviceIndex);
-            const identity = await this.createAvailableDeviceIdentity(
-                seed,
-                `run:${run.id}:user:${input.userIndex}:device:${input.deviceIndex}`,
-            );
-            const now = new Date();
-            const desiredState = run.config.auto_start
-                && deterministicUnit(seed, `user:${input.userIndex}:device:${input.deviceIndex}:online`)
-                    >= run.config.initial_offline_rate / 100
-                ? 'online'
-                : 'offline';
-            const record: SimulatedDeviceRecord = {
-                run_id: run.id,
-                simulator_user_id: input.accountId,
-                generation_index: input.deviceIndex,
-                mac: identity.mac,
-                name: `Virtual Device ${input.userIndex + 1}-${input.deviceIndex + 1}`,
-                product_id: product.product_id,
-                catalog_revision: getProduct(product.product_id).catalog_revision,
-                simulated_network_index: simulatedNetworkIndex,
-                network_fingerprint: networkFingerprint,
-                secret: encrypt(identity.rawSecret),
-                ...(product.product_id === 'prod_entrance_controller' ? {
-                    access_pin: encrypt(
-                        deterministicInteger(
-                            seed,
-                            `run:${run.id}:user:${input.userIndex}:device:${input.deviceIndex}:access-pin`,
-                            0,
-                            999999,
-                        ).toString().padStart(6, '0'),
-                    ),
-                } : {}),
-                credential_private_key: encrypt(identity.credentialPrivateKeyPem),
-                credential_public_key_pem: identity.credentialPublicKeyPem,
-                factory_owned: false,
-                provisioning_state: 'planned',
-                runtime_state: 'offline',
-                desired_state: desiredState,
-                seq: 0,
-                retention_policy: run.config.cleanup_policy === 'auto_24h' ? 'ttl' : 'permanent',
-                created_at: now,
-                updated_at: now,
-            };
-            await db.collection<SimulatedDeviceRecord>('simulated_devices').insertOne(record);
-            device = record;
-        } else if (!device.network_fingerprint) {
-            await db.collection<SimulatedDeviceRecord>('simulated_devices').updateOne(
-                { mac: device.mac },
-                {
-                    $set: {
-                        simulated_network_index: simulatedNetworkIndex,
-                        network_fingerprint: networkFingerprint,
-                        updated_at: new Date(),
-                    },
-                },
-            );
-            device.simulated_network_index = simulatedNetworkIndex;
-            device.network_fingerprint = networkFingerprint;
-        }
-        if (!device) throw new Error(`Failed to initialize virtual device ${input.deviceIndex}`);
-
-        // An explicit user unpair must never be undone by restart/generation recovery.
-        if (device.provisioning_state === 'unpaired') return;
-
+        user: SimulatedUserRecord,
+        accountId: string,
+        device: SimulatedDeviceRecord,
+        accessToken: string,
+        options: RequestOptions,
+    ): Promise<string> {
         const rawSecret = decrypt(device.secret.iv, device.secret.encrypted, device.secret.authTag);
-        if (device.provisioning_state === 'planned' || device.provisioning_state === 'failed') {
-            const product = await resolveDeviceProduct(device);
-            await provisionMockDevice(product, {
-                mac: device.mac,
-                rawSecret,
-                credentialPublicKeyPem: device.credential_public_key_pem,
-                credentialPrivateKeyPem: decrypt(
-                    device.credential_private_key.iv,
-                    device.credential_private_key.encrypted,
-                    device.credential_private_key.authTag,
-                ),
-            });
-            await db.collection<SimulatedDeviceRecord>('simulated_devices').updateOne(
-                { mac: device.mac },
-                {
-                    $set: {
-                        provisioning_state: 'provisioned',
-                        factory_owned: true,
-                        last_error: null,
-                        updated_at: new Date(),
-                    },
-                },
-            );
-            device.provisioning_state = 'provisioned';
-            await this.safeEvent({
-                type: 'device.provisioned',
-                severity: 'info',
-                run_id: run.id,
-                account_id: input.accountId,
-                mac: device.mac,
-                message: `Provisioned virtual factory device ${device.mac}`,
-            });
+        const claimInput = {
+            mac: device.mac,
+            secret_key: rawSecret,
+            name: device.name,
+            network_fingerprint: device.network_fingerprint,
+        };
+        let token = accessToken;
+        let claimed: ClaimedDevice | null = null;
+        let failure: unknown = null;
+        try {
+            claimed = await apiGateway.claimDevice(token, claimInput, options);
+        } catch (error) {
+            failure = error;
         }
-
-        if (device.provisioning_state !== 'claimed') {
-            let claimedDevice: ClaimedDevice | null = null;
+        if (!claimed && errorStatus(failure) === 401) {
+            // The access token expired between two devices: a new session, then once more.
+            token = await this.sessions.accessToken(user, options, { forceNew: true });
             try {
-                await this.pacer.claim(input.accountId, this.tasks.signal(run.id));
-                claimedDevice = await apiGateway.claimDevice(input.accessToken, {
-                    mac: device.mac,
-                    secret_key: rawSecret,
-                    name: device.name,
-                    network_fingerprint: device.network_fingerprint,
-                }, this.requestOptions(run.id, input.accountId));
+                claimed = await apiGateway.claimDevice(token, claimInput, options);
             } catch (error) {
-                const existing = await getPgPool().query(
-                    `SELECT d.id, d.mac, d.owner_id, d.product_id, d.catalog_revision, d.network_id,
-                            d.join_rank, n.active_hub_device_id,
-                            n.topology_epoch, n.topology_state,
-                            hub.mac AS active_hub_mac,
-                            CASE
-                                WHEN d.id = n.active_hub_device_id THEN 'hub'
-                                ELSE 'node'
-                            END AS topology_role
-                     FROM device_metadata AS d
-                     LEFT JOIN device_networks AS n ON n.id = d.network_id
-                     LEFT JOIN device_metadata AS hub
-                            ON hub.id = n.active_hub_device_id
-                     WHERE d.owner_id = $1 AND d.mac = $2 AND d.is_active = true`,
-                    [input.accountId, device.mac],
-                );
-                if (existing.rows.length === 0) throw error;
-                claimedDevice = {
-                    id: String(existing.rows[0].id),
-                    mac: String(existing.rows[0].mac),
-                    owner_id: String(existing.rows[0].owner_id),
-                    product_id: String(existing.rows[0].product_id),
-                    catalog_revision: Number(existing.rows[0].catalog_revision),
-                    network_id: existing.rows[0].network_id
-                        ? String(existing.rows[0].network_id)
-                        : null,
-                    join_rank: existing.rows[0].join_rank,
-                    topology_role: existing.rows[0].topology_role,
-                    topology_epoch: existing.rows[0].topology_epoch,
-                    topology_state: existing.rows[0].topology_state,
-                    active_hub_device_id: existing.rows[0].active_hub_device_id
-                        ? String(existing.rows[0].active_hub_device_id)
-                        : null,
-                    active_hub_mac: existing.rows[0].active_hub_mac
-                        ? String(existing.rows[0].active_hub_mac)
-                        : null,
-                };
+                failure = error;
             }
+        }
+        if (!claimed) {
+            // Already claimed (409), timed out or the server failed (5xx): an
+            // earlier attempt may have gone through. Any other refusal is final.
+            const status = errorStatus(failure);
+            if (status !== 409 && status !== 0 && status < 500) throw failure;
+            claimed = (await apiGateway.listDevices(token, options))
+                .find(row => row.mac === device.mac && row.owner_id === accountId) ?? null;
+            if (!claimed) throw failure;
+        }
 
-            assertClaimedProductIdentity(device, claimedDevice);
-            const assignment = assignmentFromClaim(claimedDevice);
-            await db.collection<SimulatedDeviceRecord>('simulated_devices').updateOne(
-                { mac: device.mac },
-                {
-                    $set: {
-                        device_id: claimedDevice.id,
-                        catalog_revision: Number(claimedDevice.catalog_revision),
-                        provisioning_state: 'claimed',
-                        runtime_state: 'claimed',
-                        ...(assignment ? {
-                            network_id: assignment.network_id,
-                            join_rank: assignment.join_rank,
-                            topology_role: assignment.role,
-                            topology_epoch: assignment.topology_epoch,
-                            topology_state: assignment.topology_state,
-                            active_hub_mac: assignment.active_hub_mac,
-                            transport_mode: assignment.transport_mode,
-                        } : {}),
-                        last_error: null,
-                        updated_at: new Date(),
-                    },
+        assertClaimedProductIdentity(device, claimed);
+        const assignment = assignmentFromClaim(claimed);
+        await this.registryDb().collection<SimulatedDeviceRecord>('simulated_devices').updateOne(
+            { mac: device.mac },
+            {
+                $set: {
+                    device_id: claimed.id,
+                    catalog_revision: Number(claimed.catalog_revision),
+                    provisioning_state: 'claimed',
+                    runtime_state: 'claimed',
+                    ...(assignment ? {
+                        network_id: assignment.network_id,
+                        join_rank: assignment.join_rank,
+                        topology_role: assignment.role,
+                        topology_epoch: assignment.topology_epoch,
+                        topology_state: assignment.topology_state,
+                        active_hub_mac: assignment.active_hub_mac,
+                        transport_mode: assignment.transport_mode,
+                    } : {}),
+                    last_error: null,
+                    updated_at: new Date(),
                 },
-            );
-            device.provisioning_state = 'claimed';
-            device.device_id = claimedDevice.id;
-            device.catalog_revision = Number(claimedDevice.catalog_revision);
-            if (assignment) {
-                device.network_id = assignment.network_id;
-                device.join_rank = assignment.join_rank;
-                device.topology_role = assignment.role;
-                device.topology_epoch = assignment.topology_epoch;
-                device.topology_state = assignment.topology_state;
-                device.active_hub_mac = assignment.active_hub_mac;
-                device.transport_mode = assignment.transport_mode;
-            }
-            await this.safeEvent({
-                type: 'device.claimed',
-                severity: 'info',
-                run_id: run.id,
-                account_id: input.accountId,
-                mac: device.mac,
-                message: `Claimed virtual device ${device.mac}`,
-            });
+            },
+        );
+        device.provisioning_state = 'claimed';
+        device.device_id = claimed.id;
+        device.catalog_revision = Number(claimed.catalog_revision);
+        if (assignment) {
+            device.network_id = assignment.network_id;
+            device.join_rank = assignment.join_rank;
+            device.topology_role = assignment.role;
+            device.topology_epoch = assignment.topology_epoch;
+            device.topology_state = assignment.topology_state;
+            device.active_hub_mac = assignment.active_hub_mac;
+            device.transport_mode = assignment.transport_mode;
         }
+        await this.safeEvent({
+            type: 'device.claimed',
+            severity: 'info',
+            run_id: run.id,
+            account_id: accountId,
+            mac: device.mac,
+            message: `Claimed virtual device ${device.mac}`,
+        });
+        return token;
+    }
 
-        if (device.desired_state === 'online' && this.tasks.isActive(run.id)) {
-            if (!await verifyLiveDeviceOwnership(device, getRuntimeManager(this.logger))) return;
-            const product = await resolveDeviceProduct(device);
-            const runtime = getRuntimeManager(this.logger).addDevice(
-                run.id,
-                device.mac,
-                product,
-                run.config.telemetry_interval * 1000,
-                run.config.telemetry_jitter_percent ?? 10,
-                run.config.startup_ramp_seconds ?? 30,
-                device.seq || 0,
-                device.state_snapshot,
-                assignmentFromClaim(device),
-                await ensureAccessPin(device),
-                device.irrigation_session,
-            );
-            await runtime.connect();
-        }
+    /** Builds the runtime and queues its connection; generation does not wait for the CONNACK. */
+    private async startDevice(run: SimulationRun, device: SimulatedDeviceRecord): Promise<void> {
+        const manager = getRuntimeManager(this.logger);
+        const product = await resolveDeviceProduct(device);
+        const runtime = manager.addDevice(
+            run.id,
+            device.mac,
+            product,
+            run.config.telemetry_interval * 1000,
+            run.config.telemetry_jitter_percent ?? 10,
+            run.config.startup_ramp_seconds ?? 30,
+            device.seq || 0,
+            device.state_snapshot,
+            assignmentFromClaim(device),
+            await ensureAccessPin(device),
+            device.irrigation_session,
+        );
+        manager.scheduleConnect(runtime);
     }
 
     private pickProduct(
@@ -745,21 +733,6 @@ export class GenerationQueue {
             if (random <= 0) return product;
         }
         return run.config.products[run.config.products.length - 1];
-    }
-
-    private async createAvailableDeviceIdentity(
-        seed: string,
-        scope: string,
-    ): Promise<Awaited<ReturnType<typeof createMockDeviceIdentity>>> {
-        for (let attempt = 0; attempt < 20; attempt += 1) {
-            const identity = await createMockDeviceIdentity(seed, `${scope}:attempt:${attempt}`);
-            const [factoryRecord, registryRecord] = await Promise.all([
-                getPgPool().query('SELECT 1 FROM factory_devices WHERE mac = $1', [identity.mac]),
-                this.registryDb().collection('simulated_devices').findOne({ mac: identity.mac }),
-            ]);
-            if (factoryRecord.rows.length === 0 && !registryRecord) return identity;
-        }
-        throw new Error('Unable to allocate a collision-free virtual MAC address');
     }
 
     private async syncProgress(runId: string): Promise<void> {

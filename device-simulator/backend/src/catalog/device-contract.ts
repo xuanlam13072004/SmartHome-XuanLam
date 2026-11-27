@@ -1,6 +1,5 @@
 import type { SimulatedDeviceRecord } from '../domain/registry';
 import { getMongoDb } from '../infrastructure/mongodb/client';
-import { getPgPool } from '../infrastructure/postgres/client';
 import {
     getProduct,
     ProductContractUnavailableError,
@@ -37,38 +36,11 @@ export const markDeviceContractError = async (
     );
 };
 
-const recoverLegacyClaimedRevision = async (
-    device: SimulatedDeviceRecord,
-): Promise<number> => {
-    const result = await getPgPool().query<{
-        product_id: string;
-        catalog_revision: number | string;
-    }>(
-        `SELECT product_id, catalog_revision
-         FROM device_metadata
-         WHERE mac = $1 AND is_active = true`,
-        [device.mac],
-    );
-    const claimed = result.rows[0];
-    if (!claimed) {
-        throw new Error(`Claimed metadata for virtual device ${device.mac} is unavailable`);
-    }
-    if (claimed.product_id !== device.product_id) {
-        throw new Error(
-            `Registry Product ${device.product_id} does not match claimed Product ${claimed.product_id} for ${device.mac}`,
-        );
-    }
-    const revision = Number(claimed.catalog_revision);
-    if (!isRevision(revision)) {
-        throw new Error(`Claimed Product revision for ${device.mac} is invalid`);
-    }
-    return revision;
-};
-
 /**
  * Resolve one immutable Product contract before a runtime is constructed.
- * Legacy records are backfilled from the main ownership database, never from
- * the newest Catalog revision, so a restart cannot silently upgrade a device.
+ * Every record carries the revision it was made (and claimed) with, so a
+ * restart never silently upgrades a device; a record without one gets the
+ * current revision once, before it is registered with the factory API.
  */
 export const resolveDeviceProduct = async (
     device: SimulatedDeviceRecord,
@@ -76,9 +48,10 @@ export const resolveDeviceProduct = async (
     try {
         let revision = device.catalog_revision;
         if (!isRevision(revision)) {
-            revision = device.provisioning_state === 'claimed'
-                ? await recoverLegacyClaimedRevision(device)
-                : getProduct(device.product_id).catalog_revision;
+            if (device.provisioning_state === 'claimed') {
+                throw new Error(`Claimed virtual device ${device.mac} has no Product revision in the registry`);
+            }
+            revision = getProduct(device.product_id).catalog_revision;
             await getMongoDb().collection<SimulatedDeviceRecord>('simulated_devices').updateOne(
                 { mac: device.mac },
                 {

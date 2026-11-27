@@ -6,17 +6,12 @@ import fastify, {
 } from 'fastify';
 import { env } from './config/env';
 import {
-    closePostgres,
-    getPgPool,
-    initPostgres,
-} from './infrastructure/postgres/client';
-import {
     closeMongo,
     initMongo,
     pingMongo,
 } from './infrastructure/mongodb/client';
 import { probeMqtt } from './infrastructure/mqtt/client';
-import { closeBrokerIdentityRegistry } from './infrastructure/mqtt/broker-identity';
+import { stopConnectScheduler } from './runtime/connect-scheduler';
 import { apiGateway } from './infrastructure/api-gateway/client';
 import { loadCatalog, getCachedCatalog } from './catalog/loader';
 import { createRunsRoutes } from './api/routes/runs';
@@ -172,7 +167,8 @@ export const buildApp = async (): Promise<{
     app.get('/api/preflight', async (_request, reply) => {
         const checks = {
             api_gateway: await runCheck(() => apiGateway.health()),
-            postgres: await runCheck(() => getPgPool().query('SELECT 1')),
+            // The factory key is right (a status read of a MAC nobody uses).
+            factory_api: await runCheck(() => apiGateway.factoryDeviceStatus(['02:00:00:00:00:00'])),
             mongodb: await runCheck(() => pingMongo()),
             mqtt: await runCheck(() => probeMqtt()),
             catalog: await runCheck(async () => {
@@ -188,7 +184,6 @@ export const buildApp = async (): Promise<{
         });
     });
 
-    await startDependency('PostgreSQL', () => initPostgres(app.log), app.log);
     await startDependency('MongoDB', () => initMongo(app.log), app.log);
     await startDependency('API Gateway Product Catalog', loadCatalog, app.log);
     app.log.info({ productCount: getCachedCatalog().length }, 'Product catalog loaded');
@@ -217,13 +212,13 @@ export const buildApp = async (): Promise<{
         await cleanupJob.stop();
         await getGenerationQueue(app.log).stopAll();
         await runtimeManager.disconnectAll();
+        stopConnectScheduler();
         await getRegistryWriter().stop();
         await flushSimulatorEvents();
-        await closeBrokerIdentityRegistry().catch(() => undefined);
         getTelemetryScheduler().stop();
         stopPresenceHeartbeatScheduler();
         await metricsService.stop();
-        await Promise.all([closeMongo(), closePostgres()]);
+        await closeMongo();
     });
 
     return { app, cleanupJob };
@@ -250,7 +245,7 @@ export const start = async (): Promise<void> => {
 if (require.main === module) {
     start().catch(async (error) => {
         console.error('Device Simulator failed to start:', error);
-        await Promise.allSettled([closeMongo(), closePostgres()]);
+        await closeMongo().catch(() => undefined);
         process.exit(1);
     });
 }

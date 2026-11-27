@@ -34,6 +34,7 @@ import { cameraOperationOutcome, DeviceOperationRejection } from './camera-contr
 import { productHasSecurityCamera, VirtualSecurityCamera } from './security-camera';
 import { getMediaStore } from '../media';
 import { getTelemetryScheduler } from './telemetry-scheduler';
+import { isLoginRefused } from './connect-scheduler';
 import { getRegistryWriter } from './registry-writer';
 import {
     registerPresenceHeartbeat,
@@ -99,19 +100,14 @@ export interface RuntimeTransportCoordinator {
     deliverRelayedOperation(hubMac: string, rawPayload: Buffer): Promise<void>;
     onBrokerAvailable(device: DeviceRuntime): void;
     onBrokerUnavailable(device: DeviceRuntime): void;
-    /** Factory-issued broker credentials of this device (username = MAC). */
-    resolveBrokerCredentials(mac: string): Promise<BrokerCredentials>;
-    /** Registers the stored identity again after the broker refused it. */
-    repairBrokerIdentity(mac: string): Promise<BrokerCredentials>;
+    /** The device's own broker login (username = MAC), from its registry record. */
+    brokerCredentials(mac: string): Promise<BrokerCredentials>;
+    /** The broker refused the login of a device that was connected (retired, password changed). */
+    onBrokerLoginRefused(mac: string, error: unknown): void;
     /** Retained assignment received on this device's own topology topic. */
     onTopologyMessage(mac: string, payload: Buffer): Promise<void>;
 }
 
-/** CONNACK "bad user name or password" / "not authorized" (MQTT 3.1.1 and 5). */
-const isBrokerAuthRejection = (error: unknown): boolean => {
-    const code = Number((error as { code?: unknown })?.code);
-    return [4, 5, 134, 135].includes(code);
-};
 
 export interface DeviceRuntimeOptions {
     /** Factory device without an owner: stay in pairing mode until claimed. */
@@ -149,6 +145,8 @@ export class DeviceRuntime {
     private pendingIrrigationEvents: DeviceEventDraft[] = [];
     private readonly bootedAt = Date.now();
     private disposed = false;
+    private lastPacket: Record<string, unknown> | null = null;
+    private loginRefused = false;
     private stateMutationQueue: Promise<void> = Promise.resolve();
     private readonly operationResults = new Map<string, OperationResult>();
     private readonly logger: FastifyBaseLogger;
@@ -254,6 +252,24 @@ export class DeviceRuntime {
         return Boolean(this.mqttClient?.connected);
     }
 
+    /** False once disposed or refused by the broker: queued connection attempts are dropped (connect scheduler). */
+    get canConnect(): boolean {
+        return !this.disposed && !this.loginRefused;
+    }
+
+    /** The broker refused this device's login: it stays off (no telemetry, no retries) until reconnected by hand. */
+    markLoginRefused(): void {
+        this.loginRefused = true;
+        this.stopTelemetry();
+        this.stopPresenceHeartbeat();
+        void this.updateRuntimeState('auth_rejected');
+    }
+
+    /** The last telemetry packet this device published (what "MQTT gần nhất" shows). */
+    get lastTelemetryPacket(): Record<string, unknown> | null {
+        return this.lastPacket;
+    }
+
     /** Live state; the registry copy is written in batches and may lag. */
     get stateSnapshot(): DeviceState {
         return this.state;
@@ -265,6 +281,7 @@ export class DeviceRuntime {
 
     /** Runtime state as the registry would record it now. */
     get liveRuntimeState(): SimulatedDeviceRecord['runtime_state'] {
+        if (this.loginRefused) return 'auth_rejected';
         if (this.isPaused) return 'paused';
         if (this.awaitingClaim) return this.brokerConnected ? 'awaiting_claim' : 'offline';
         return this.connected ? 'online' : 'offline';
@@ -299,6 +316,7 @@ export class DeviceRuntime {
     async connect(): Promise<void> {
         if (this.disposed) throw new Error('Virtual device runtime has been disposed');
         this.desiredOnline = true;
+        this.loginRefused = false;
         this.resumeRoofMotionFromState();
         await this.reconcileTransport();
     }
@@ -724,15 +742,10 @@ export class DeviceRuntime {
         if (this.mqttClient?.connected) return;
         if (this.connectPromise) return this.connectPromise;
 
-        const connecting = this.transportCoordinator.resolveBrokerCredentials(this.mac)
-            .then(credentials => this.openBrokerConnection(credentials))
-            .catch(async (error) => {
-                if (!isBrokerAuthRejection(error)) throw error;
-                this.logger.warn('Broker refused the device identity; registering it again');
-                return this.openBrokerConnection(
-                    await this.transportCoordinator.repairBrokerIdentity(this.mac),
-                );
-            });
+        // A refused login is not retried here: the connect scheduler reports it
+        // and the device stays off until someone looks at it.
+        const connecting = this.transportCoordinator.brokerCredentials(this.mac)
+            .then(credentials => this.openBrokerConnection(credentials));
         this.connectPromise = connecting;
         connecting.catch(() => {
             if (this.connectPromise === connecting) this.connectPromise = null;
@@ -744,6 +757,7 @@ export class DeviceRuntime {
         return new Promise<void>((resolve, reject) => {
             const client = createDeviceMqttClient(this.mac, credentials);
             this.mqttClient = client;
+            let established = false;
             void this.updateRuntimeState('connecting');
 
             const onInitialError = (error: Error) => {
@@ -755,6 +769,7 @@ export class DeviceRuntime {
             };
             const onInitialConnect = () => {
                 client.off('error', onInitialError);
+                established = true;
                 this.connectPromise = null;
                 resolve();
             };
@@ -801,6 +816,16 @@ export class DeviceRuntime {
             });
 
             client.on('error', (error) => {
+                if (established && isLoginRefused(error)) {
+                    // The login worked before and is refused now: the device was
+                    // retired or its password changed. Reconnecting would only
+                    // knock on the broker every few seconds, forever.
+                    client.end(true);
+                    if (this.mqttClient === client) this.mqttClient = null;
+                    this.markLoginRefused();
+                    this.transportCoordinator.onBrokerLoginRefused(this.mac, error);
+                    return;
+                }
                 this.logger.error({ err: error }, 'Virtual device MQTT error');
                 getRunMetricsService(this.logger).record(this.simulationRunId, {
                     mqtt_errors: 1,
@@ -949,6 +974,7 @@ export class DeviceRuntime {
             await this.transportCoordinator.publishDeviceMessage(this, 'telemetry', payload);
 
             this.lastTelemetryAt = timestamp;
+            this.lastPacket = payload;
             getRunMetricsService(this.logger).record(this.simulationRunId, {
                 telemetry_published: 1,
                 telemetry_bytes: Buffer.byteLength(serializedPayload),
@@ -1186,7 +1212,10 @@ export class DeviceRuntime {
                 message: 'Virtual device rejected an operation',
                 data: {
                     operation_id: operation?.operation_id,
+                    instance_id: operation?.instance_id,
                     operation_name: operation?.operation_name,
+                    input: operation?.input,
+                    reason_code: error instanceof DeviceOperationRejection ? error.reasonCode : 'DEVICE_OPERATION_REJECTED',
                     error: message,
                 },
             }).catch(() => undefined);

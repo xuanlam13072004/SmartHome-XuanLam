@@ -4,11 +4,9 @@ import { env } from '../config/env';
 import type { SimulatedDeviceRecord, SimulatedUserRecord } from '../domain/registry';
 import { apiGateway } from '../infrastructure/api-gateway/client';
 import { getMongoDb } from '../infrastructure/mongodb/client';
-import { getPgPool } from '../infrastructure/postgres/client';
 import { getRunMetricsService } from '../metrics/service';
 import { getRuntimeManager } from '../runtime/manager';
-import { decryptAccessToken, decryptRefreshToken, encryptAuthSession } from '../security/auth-session';
-import { decrypt } from '../security/crypto';
+import { accessTokenFor } from '../security/user-session';
 import {
     pickProbeCommand,
     type ProbeDeps,
@@ -26,16 +24,6 @@ import {
 
 const COLLECTION = 'load_probes';
 const KEEP_RESULTS = 50;
-
-/** Seconds left on a JWT access token (0 when unreadable). */
-export function tokenSecondsLeft(token: string, now = Date.now()): number {
-    try {
-        const payload = JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8'));
-        return typeof payload.exp === 'number' ? payload.exp - Math.floor(now / 1000) : 0;
-    } catch {
-        return 0;
-    }
-}
 
 export class ProbeService {
     private current: ProbeRun | null = null;
@@ -92,7 +80,11 @@ export class ProbeService {
     private deps(): ProbeDeps {
         return {
             users: (kind, limit) => this.users(kind, limit),
-            accessToken: accountId => this.accessToken(accountId),
+            accessToken: async (accountId) => {
+                const token = await accessTokenFor(accountId);
+                if (!token) throw new Error('Simulated user not found');
+                return token;
+            },
             request: async (path, init) => {
                 const response = await fetch(`${env.API_GATEWAY_URL.replace(/\/$/, '')}${path}`, {
                     method: init.method,
@@ -105,14 +97,7 @@ export class ProbeService {
                 });
                 return { status: response.status, body: await response.json().catch(() => null) };
             },
-            finished: async (ids) => {
-                const result = await getPgPool().query(
-                    `SELECT id, status, accepted_at, completed_at FROM device_operations
-                     WHERE id = ANY($1::uuid[]) AND completed_at IS NOT NULL`,
-                    [ids],
-                );
-                return result.rows;
-            },
+            operation: (token, mac, id) => apiGateway.deviceOperation(token, mac, id),
             context: () => {
                 const runtime = getRuntimeManager(this.log).getGlobalStats();
                 return {
@@ -156,37 +141,6 @@ export class ProbeService {
             if (users.length >= limit) break;
         }
         return users;
-    }
-
-    /** The stored session's access token, refreshed or signed in again when needed. */
-    private async accessToken(accountId: string): Promise<string> {
-        const users = getMongoDb().collection<SimulatedUserRecord>('simulated_users');
-        const user = await users.findOne({ account_id: accountId });
-        if (!user) throw new Error('Simulated user not found');
-        if (user.auth_session) {
-            const token = decryptAccessToken(user.auth_session);
-            if (tokenSecondsLeft(token) > 120) return token;
-        }
-        let session;
-        if (user.auth_session) {
-            try {
-                session = await apiGateway.refreshSession({
-                    sessionId: user.auth_session.session_id,
-                    refreshToken: decryptRefreshToken(user.auth_session),
-                });
-            } catch {
-                session = undefined;
-            }
-        }
-        session ??= await apiGateway.login({
-            email: user.email,
-            password: decrypt(user.credential.iv, user.credential.encrypted, user.credential.authTag),
-        });
-        await users.updateOne(
-            { account_id: accountId },
-            { $set: { auth_session: encryptAuthSession(session), updated_at: new Date() } },
-        );
-        return session.accessToken;
     }
 }
 

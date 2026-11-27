@@ -14,11 +14,6 @@ const booleanValue = (defaultValue: boolean) =>
     z.enum(['true', 'false']).default(String(defaultValue) as 'true' | 'false')
         .transform((value) => value === 'true');
 
-const optionalString = z.preprocess(
-    (value) => typeof value === 'string' && value.trim() === '' ? undefined : value,
-    z.string().optional(),
-);
-
 const envSchema = z.object({
     PORT: z.coerce.number().int().min(1).max(65535).default(4001),
     HOST: z.string().default('0.0.0.0'),
@@ -30,7 +25,15 @@ const envSchema = z.object({
     ADMIN_CORS_ORIGINS: z.string().default('http://localhost:4000,http://localhost:5173'),
     CREDENTIAL_ENCRYPTION_KEY: z.string().regex(/^[a-fA-F0-9]{64}$/, 'must be a 32-byte hex key'),
 
+    /**
+     * The system is reached only through its public doors (docs/architecture/
+     * load-testing.md): the API Gateway (the app's API and the factory API)
+     * and the MQTT broker. One machine: http://host.docker.internal:3000;
+     * two machines: the system machine's address.
+     */
     API_GATEWAY_URL: z.string().url(),
+    /** X-Factory-Key of the factory API: the same value as FACTORY_API_KEY in the system's root .env. */
+    FACTORY_API_KEY: z.string().min(32),
     API_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120000).default(15000),
     STARTUP_RETRY_ATTEMPTS: z.coerce.number().int().min(1).max(120).default(30),
     STARTUP_RETRY_DELAY_MS: z.coerce.number().int().min(100).max(60000).default(2000),
@@ -43,8 +46,17 @@ const envSchema = z.object({
     GATEWAY_REGISTER_PER_MINUTE: z.coerce.number().int().min(1).max(100000).default(20),
     GATEWAY_LOGIN_PER_MINUTE: z.coerce.number().int().min(1).max(100000).default(100),
     GATEWAY_CLAIM_PER_ACCOUNT_PER_MINUTE: z.coerce.number().int().min(1).max(10000).default(10),
-    /** Simulated users generated at the same time. */
-    GENERATION_CONCURRENCY: z.coerce.number().int().min(1).max(256).default(16),
+    /** Simulated users generated at the same time (each registers, signs in, claims its devices). */
+    GENERATION_CONCURRENCY: z.coerce.number().int().min(1).max(256).default(8),
+    /**
+     * MQTT connections opened per second, whatever creates them (generation,
+     * "Bật lại thiết bị", a restart), and how many may wait for their CONNACK
+     * at once. A failed connection is retried later; it never fails its user.
+     */
+    MQTT_CONNECTS_PER_SECOND: z.coerce.number().int().min(1).max(5000).default(50),
+    MQTT_CONNECT_CONCURRENCY: z.coerce.number().int().min(1).max(5000).default(200),
+    /** Simulated users cleaned at the same time (unpair their devices, delete the account). */
+    CLEANUP_CONCURRENCY: z.coerce.number().int().min(1).max(64).default(8),
     MAX_USERS_PER_RUN: z.coerce.number().int().min(1).max(100000).default(10000),
     MAX_DEVICES_PER_RUN: z.coerce.number().int().min(1).max(1000000).default(40000),
     MAX_ACTIVE_DEVICES: z.coerce.number().int().min(1).max(1000000).default(40000),
@@ -57,29 +69,14 @@ const envSchema = z.object({
     /** Message sequence numbers reserved per registry write. */
     SEQUENCE_LEASE_SIZE: z.coerce.number().int().min(1).max(100000).default(500),
 
-    POSTGRES_USER: z.string(),
-    POSTGRES_PASSWORD: z.string(),
-    POSTGRES_DB: z.string(),
-    POSTGRES_HOST: z.string(),
-    POSTGRES_PORT: z.coerce.number().int().min(1).max(65535).default(5432),
-
+    /** The Simulator's own registry (its MongoDB, never the system's). */
     MONGODB_URI: z.string().url(),
     SIMULATOR_MONGO_DB_NAME: z.string().default('DeviceSimulatorDB'),
-    MAIN_MONGODB_URI: optionalString,
-    MAIN_MONGO_DB_NAME: z.string().default('SmartHomeDB'),
-    MAIN_MONGO_DEVICE_SHADOWS_COLLECTION: z.string().default('device_shadows'),
-    MAIN_MONGO_TELEMETRY_COLLECTION: z.string().default('device_telemetry'),
-    MAIN_MONGO_INGEST_RECEIPTS_COLLECTION: z.string().default('telemetry_ingest_receipts'),
-    MAIN_MONGO_DEVICE_EVENTS_COLLECTION: z.string().default('device_events'),
 
+    /** The system's MQTT broker, as a device sees it. */
     MQTT_HOST: z.string(),
     MQTT_PORT: z.coerce.number().int().min(1).max(65535).default(1883),
-    // The Simulator is the factory for virtual devices: this broker identity
-    // registers each device's own MQTT credentials (docs/architecture/mqtt-security.md).
-    MQTT_FACTORY_USERNAME: z.string().default('device-factory'),
-    MQTT_FACTORY_PASSWORD: optionalString,
-    MQTT_IDENTITY_BATCH_MS: z.coerce.number().int().min(0).max(5000).default(250),
-    MQTT_CONNECT_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(10000),
+    MQTT_CONNECT_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120000).default(30000),
     MQTT_CONTROL_TOPIC: z.string().default('smarthome/{device_id}/control'),
     MQTT_HUB_CONTROL_TOPIC: z.string().default('smarthome/{hub_id}/hub/control'),
     MQTT_TELEMETRY_TOPIC: z.string().default('smarthome/{device_id}/telemetry'),

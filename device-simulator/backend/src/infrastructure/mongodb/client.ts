@@ -2,24 +2,23 @@ import { MongoClient, Db } from 'mongodb';
 import { env } from '../../config/env';
 import type { FastifyBaseLogger } from 'fastify';
 
+/**
+ * The Simulator's own database (its registry of runs, users and devices). The
+ * Simulator never opens the system's databases: everything it reads or changes
+ * there goes through the public API, the factory API or MQTT
+ * (docs/architecture/load-testing.md).
+ */
 let registryClient: MongoClient | null = null;
-let mainClient: MongoClient | null = null;
 let registryDb: Db | null = null;
-let mainDb: Db | null = null;
 
 export const initMongo = async (logger: FastifyBaseLogger): Promise<void> => {
     await closeMongo();
     registryClient = new MongoClient(env.MONGODB_URI);
-    mainClient = new MongoClient(env.MAIN_MONGODB_URI || env.MONGODB_URI);
 
     try {
-        await Promise.all([registryClient.connect(), mainClient.connect()]);
+        await registryClient.connect();
         registryDb = registryClient.db(env.SIMULATOR_MONGO_DB_NAME);
-        mainDb = mainClient.db(env.MAIN_MONGO_DB_NAME);
-        logger.info({
-            registryDatabase: env.SIMULATOR_MONGO_DB_NAME,
-            mainDatabase: env.MAIN_MONGO_DB_NAME,
-        }, 'Connected to MongoDB databases');
+        logger.info({ registryDatabase: env.SIMULATOR_MONGO_DB_NAME }, 'Connected to the simulator MongoDB');
 
         await setupCollections(logger);
     } catch (err) {
@@ -122,25 +121,13 @@ export const getMongoDb = (): Db => {
     return registryDb;
 };
 
-export const getMainMongoDb = (): Db => {
-    if (!mainDb) {
-        throw new Error('Main MongoDB has not been initialized');
-    }
-    return mainDb;
-};
-
 export const pingMongo = async (): Promise<void> => {
-    await Promise.all([
-        getMongoDb().command({ ping: 1 }),
-        getMainMongoDb().command({ ping: 1 }),
-    ]);
+    await getMongoDb().command({ ping: 1 });
 };
 
 export const closeMongo = async (): Promise<void> => {
-    const clients = new Set([registryClient, mainClient].filter(Boolean) as MongoClient[]);
-    await Promise.all([...clients].map((mongoClient) => mongoClient.close()));
+    const client = registryClient;
     registryClient = null;
-    mainClient = null;
     registryDb = null;
-    mainDb = null;
+    await client?.close();
 };

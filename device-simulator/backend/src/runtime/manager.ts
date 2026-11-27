@@ -3,14 +3,11 @@ import type { ProductCatalog } from '../catalog/loader';
 import { env } from '../config/env';
 import type { DeviceState } from '../generation/telemetry-generator';
 import type { EncryptedValue, SimulatedDeviceRecord } from '../domain/registry';
-import {
-    type BrokerIdentityRegistry,
-    generateDeviceMqttPassword,
-    getBrokerIdentityRegistry,
-} from '../infrastructure/mqtt/broker-identity';
 import { probeMqtt, type BrokerCredentials } from '../infrastructure/mqtt/client';
 import { getMongoDb } from '../infrastructure/mongodb/client';
-import { decrypt, encrypt } from '../security/crypto';
+import { recordSimulatorEvent } from '../events/service';
+import { decrypt } from '../security/crypto';
+import { getConnectScheduler, type ConnectScheduler } from './connect-scheduler';
 import type { RuntimeMetricStats } from '../metrics/service';
 import {
     type BrokerMessageKind,
@@ -61,77 +58,87 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
     private readonly assignmentTasks = new Map<string, Promise<void>>();
     private readonly stoppingRuns = new Set<string>();
     private logger: FastifyBaseLogger;
-    private readonly brokerCredentials = new Map<string, Promise<BrokerCredentials>>();
+    private readonly brokerLogins = new Map<string, Promise<BrokerCredentials>>();
     private shuttingDown = false;
     private factoryListener: FactoryLifecycleListener | null = null;
 
     constructor(
         logger: FastifyBaseLogger,
         private readonly registryDb = getMongoDb,
-        private readonly brokerIdentities: () => Pick<
-            BrokerIdentityRegistry,
-            'ensureDeviceIdentity' | 'revokeDeviceIdentity'
-        > = getBrokerIdentityRegistry,
+        private readonly connects: () => Pick<ConnectScheduler, 'submit' | 'forget' | 'setRefusedListener'>
+            = () => getConnectScheduler(logger),
     ) {
         this.logger = logger.child({ module: 'RuntimeManager' });
     }
 
     /**
-     * Verifies that the broker accepts the factory identity. Virtual devices
-     * then connect with their own credentials and subscribe only to their own
-     * topics, exactly like physical devices; there is no shared wildcard
-     * subscription (docs/architecture/mqtt-security.md).
+     * Checks that the broker's port answers. Virtual devices then connect with
+     * their own login and subscribe only to their own topics, exactly like
+     * physical devices (docs/architecture/mqtt-security.md).
      */
     async start(): Promise<void> {
         this.shuttingDown = false;
+        this.connects().setRefusedListener((mac, error) => {
+            this.devices.get(normalizeMac(mac))?.markLoginRefused();
+            this.onBrokerLoginRefused(mac, error);
+        });
         await probeMqtt();
     }
 
     /**
-     * Returns the device's factory-issued broker credentials. A device without
-     * credentials is "flashed" here and registered on the broker. Existing
-     * identities are not re-registered on every start (30 000 Dynamic Security
-     * rewrites at each restart); a device whose login is refused calls
-     * `repairBrokerIdentity`, which heals a reset broker database.
+     * The device's broker login, made at the factory with the device and kept
+     * in its registry record (username = MAC). Nothing is created here: a
+     * device without one was never registered with the factory API.
      */
-    resolveBrokerCredentials(macInput: string): Promise<BrokerCredentials> {
+    brokerCredentials(macInput: string): Promise<BrokerCredentials> {
         const mac = normalizeMac(macInput);
-        const cached = this.brokerCredentials.get(mac);
+        const cached = this.brokerLogins.get(mac);
         if (cached) return cached;
         const resolved = (async () => {
-            const devices = this.registryDb().collection<SimulatedDeviceRecord>('simulated_devices');
-            const record = await devices.findOne({ mac }, { projection: { mqtt_secret: 1 } });
-            if (record?.mqtt_secret) return { username: mac, password: decryptSecret(record.mqtt_secret) };
-            const password = generateDeviceMqttPassword();
-            await devices.updateOne({ mac }, { $set: { mqtt_secret: encrypt(password) } });
-            await this.brokerIdentities().ensureDeviceIdentity(mac, password);
-            return { username: mac, password };
+            const record = await this.registryDb().collection<SimulatedDeviceRecord>('simulated_devices')
+                .findOne({ mac }, { projection: { mqtt_secret: 1 } });
+            if (!record?.mqtt_secret) throw new Error(`Virtual device ${mac} has no MQTT login`);
+            return { username: mac, password: decryptSecret(record.mqtt_secret) };
         })();
-        this.brokerCredentials.set(mac, resolved);
+        this.brokerLogins.set(mac, resolved);
         resolved.catch(() => {
-            if (this.brokerCredentials.get(mac) === resolved) this.brokerCredentials.delete(mac);
+            if (this.brokerLogins.get(mac) === resolved) this.brokerLogins.delete(mac);
         });
         return resolved;
     }
 
+    /** Reported once per refusal; the device stays off until someone reconnects it. */
+    onBrokerLoginRefused(macInput: string, error: unknown): void {
+        const mac = normalizeMac(macInput);
+        this.brokerLogins.delete(mac);
+        const runId = this.devices.get(mac)?.runId;
+        void recordSimulatorEvent({
+            type: 'device.mqtt_login_refused',
+            severity: 'error',
+            ...(runId ? { run_id: runId } : {}),
+            mac,
+            message: 'Broker từ chối đăng nhập của thiết bị ảo (thiết bị đã bị hủy ở xưởng hoặc mật khẩu MQTT không khớp).',
+            data: { error: error instanceof Error ? error.message : String(error) },
+        }).catch(() => undefined);
+    }
+
+    /**
+     * Queues the device's connection with the connect scheduler instead of
+     * opening it now: generation, restore and restarts connect thousands of
+     * devices at a steady rate (MQTT_CONNECTS_PER_SECOND) and a device that
+     * cannot connect is retried later without failing anything else.
+     */
+    scheduleConnect(device: DeviceRuntime): void {
+        const mac = device.id;
+        this.connects().submit({
+            mac,
+            connect: () => device.connect(),
+            wantsConnection: () => !this.shuttingDown && this.devices.get(mac) === device && device.canConnect,
+        });
+    }
+
     setFactoryLifecycleListener(listener: FactoryLifecycleListener | null): void {
         this.factoryListener = listener;
-    }
-
-    /** Re-registers the stored identity after the broker refused the device's login. */
-    async repairBrokerIdentity(macInput: string): Promise<BrokerCredentials> {
-        const mac = normalizeMac(macInput);
-        this.brokerCredentials.delete(mac);
-        const credentials = await this.resolveBrokerCredentials(mac);
-        await this.brokerIdentities().ensureDeviceIdentity(mac, credentials.password);
-        return credentials;
-    }
-
-    /** Factory retirement: the broker deletes the identity and drops its session. */
-    async revokeBrokerIdentity(macInput: string): Promise<void> {
-        const mac = normalizeMac(macInput);
-        this.brokerCredentials.delete(mac);
-        await this.brokerIdentities().revokeDeviceIdentity(mac);
     }
 
     addDevice(
@@ -205,6 +212,8 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
 
     async removeDevice(macInput: string): Promise<void> {
         const mac = normalizeMac(macInput);
+        this.connects().forget(mac);
+        this.brokerLogins.delete(mac);
         const device = this.devices.get(mac);
         if (device) await device.dispose();
         this.devices.delete(mac);
@@ -308,6 +317,7 @@ export class RuntimeManager implements RuntimeTransportCoordinator {
         const devices = [...this.devices.entries()].filter(
             ([, device]) => device.runId === runId,
         );
+        for (const [mac] of devices) this.connects().forget(mac);
         await Promise.allSettled(devices.map(([, device]) => device.dispose()));
         for (const [mac] of devices) this.devices.delete(mac);
         this.stoppingRuns.delete(runId);

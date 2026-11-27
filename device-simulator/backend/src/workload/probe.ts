@@ -6,11 +6,14 @@ import os from 'node:os';
  * Simulated users act like app users through the public API Gateway:
  * - `commands`: send a harmless command to one of their online devices and
  *   measure from the request until the device's result is recorded (the
- *   operation's `completed_at`), and inside the backend from `accepted_at`;
+ *   operation's `completed_at`, read back as the user does with
+ *   GET /devices/:mac/operations/:id), and inside the backend from its
+ *   `created_at`. Both ends are the backend's clock except the start: on
+ *   two machines their clocks must be synchronized;
  * - `app_reads`: open the app's main lists (devices, badges, notifications)
  *   and measure each request.
  * Everything goes through the same API, MQTT and database as a real phone;
- * nothing here is a shortcut into the backend except reading the timestamps.
+ * nothing here is a shortcut into the backend.
  */
 
 export type ProbeKind = 'commands' | 'app_reads';
@@ -172,15 +175,19 @@ export interface ProbeDeps {
     accessToken(accountId: string): Promise<string>;
     /** One request to the API Gateway, timed by the caller; never retried. */
     request(path: string, init: { method: string; token: string; body?: unknown }): Promise<{ status: number; body: any }>;
-    /** Results of finished operations among [ids], from the operation table. */
-    finished(ids: string[]): Promise<Array<{ id: string; status: string; accepted_at: Date; completed_at: Date }>>;
+    /** The operation as its user reads it back; null (or no completed_at) while it is not finished. */
+    operation(token: string, mac: string, id: string): Promise<{
+        status: string;
+        created_at: Date | string;
+        completed_at?: Date | string | null;
+    } | null>;
     context(): Record<string, number>;
     now(): number;
     sleep(ms: number): Promise<void>;
 }
 
 const OPERATION_TIMEOUT_MS = 30_000;
-const POLL_MS = 150;
+const POLL_MS = 300;
 const READS = ['/devices', '/me/badges', '/me/notifications?limit=20'];
 
 export class ProbeRun {
@@ -188,7 +195,7 @@ export class ProbeRun {
     private stopped = false;
     private stoppedByUser = false;
     private workDone = false;
-    private waiting = new Map<string, { started: number; resolve: (value: ProbeSample) => void }>();
+    private waiting = new Map<string, { started: number; mac: string; token: string; resolve: (value: ProbeSample) => void }>();
     private started = 0;
 
     constructor(private readonly deps: ProbeDeps, params: ProbeParams, id = crypto.randomUUID()) {
@@ -309,34 +316,40 @@ export class ProbeRun {
                 this.record({ at, ms: this.deps.now() - started, ok: false, code });
                 continue;
             }
-            const sample = await new Promise<ProbeSample>(resolve => this.waiting.set(operationId, { started, resolve }));
+            const sample = await new Promise<ProbeSample>(resolve => this.waiting.set(operationId, {
+                started, mac: device.mac, token, resolve,
+            }));
             this.record({ ...sample, at });
             // A short pause between one user's commands, like a person tapping.
             await this.deps.sleep(200);
         }
     }
 
-    /** Resolves waiting commands from the operation table until the probe ends. */
+    /**
+     * Resolves waiting commands until the probe ends, reading each one back
+     * as its user. At most one command per user waits at a time, so this is
+     * one small read per user every POLL_MS; the timing itself comes from the
+     * backend's timestamps, not from when the read happened.
+     */
     private async watch() {
         // Until every user is done and nothing is waiting (a stop still lets in-flight commands finish).
         while (!this.workDone || this.waiting.size > 0) {
             await this.deps.sleep(POLL_MS);
-            const ids = [...this.waiting.keys()];
-            if (ids.length === 0) continue;
-            const finished = await this.deps.finished(ids).catch(() => []);
-            for (const row of finished) {
-                const waiter = this.waiting.get(row.id);
-                if (!waiter) continue;
-                this.waiting.delete(row.id);
+            const entries = [...this.waiting];
+            if (entries.length === 0) continue;
+            await Promise.all(entries.map(async ([id, waiter]) => {
+                const row = await this.deps.operation(waiter.token, waiter.mac, id).catch(() => null);
+                if (!row?.completed_at || this.waiting.get(id) !== waiter) return;
+                this.waiting.delete(id);
                 const completed = new Date(row.completed_at).getTime();
                 waiter.resolve({
                     at: 0,
                     ms: Math.max(0, completed - waiter.started),
-                    server_ms: Math.max(0, completed - new Date(row.accepted_at).getTime()),
+                    server_ms: Math.max(0, completed - new Date(row.created_at).getTime()),
                     ok: row.status === 'succeeded',
                     ...(row.status === 'succeeded' ? {} : { code: row.status }),
                 });
-            }
+            }));
             const now = this.deps.now();
             for (const [id, waiter] of this.waiting) {
                 if (now - waiter.started < OPERATION_TIMEOUT_MS) continue;

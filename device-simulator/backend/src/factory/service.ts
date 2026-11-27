@@ -5,10 +5,16 @@ import { getProduct } from '../catalog/loader';
 import { resolveDeviceProduct } from '../catalog/device-contract';
 import type { SimulatedDeviceRecord } from '../domain/registry';
 import { recordSimulatorEvent } from '../events/service';
-import { getMainMongoDb, getMongoDb } from '../infrastructure/mongodb/client';
-import { getPgPool } from '../infrastructure/postgres/client';
+import { apiGateway } from '../infrastructure/api-gateway/client';
+import { getMongoDb } from '../infrastructure/mongodb/client';
 import { getMediaStore } from '../media';
-import { createMockDeviceIdentity, provisionMockDevice } from '../provisioning/factory';
+import {
+    createMockDeviceIdentity,
+    factoryBody,
+    provisionMockDevices,
+    retireMockDevices,
+} from '../provisioning/factory';
+import { verifyLiveOwnershipBatch } from '../provisioning/ownership';
 import { getRuntimeManager, type RuntimeManager } from '../runtime/manager';
 import type { DeviceRuntime } from '../runtime/device-runtime';
 import { assignmentFromClaim } from '../runtime/topology';
@@ -40,10 +46,14 @@ export interface FactoryBatchView extends Omit<FactoryBatchRecord, 'created_at'>
     powered_on: number;
 }
 
+/**
+ * What the factory knows about a sold device: that it was claimed, when, and
+ * its id in the system (from the claim assignment the device received). Who
+ * bought it stays in the system: the Simulator, like a real factory, never
+ * reads the buyer's account.
+ */
 export interface DeviceOwnerView {
-    device_id: string;
-    device_name: string;
-    account_email: string | null;
+    device_id: string | null;
     claimed_at: string | null;
 }
 
@@ -85,21 +95,31 @@ const iso = (value?: Date | string | null): string | null => (
     value ? new Date(value).toISOString() : null
 );
 
+const ownerOf = (record: Pick<SimulatedDeviceRecord, 'provisioning_state' | 'device_id' | 'claimed_at'>): DeviceOwnerView | null => (
+    record.provisioning_state === 'claimed'
+        ? { device_id: record.device_id ?? null, claimed_at: iso(record.claimed_at) }
+        : null
+);
+
 const factoryDependencies = {
     registryDb: getMongoDb,
-    mainDb: getMainMongoDb,
-    pgPool: getPgPool,
     runtimeManager: getRuntimeManager,
     mediaStore: getMediaStore,
     event: recordSimulatorEvent,
+    gateway: apiGateway as Pick<typeof apiGateway, 'factoryDeviceStatus'>,
+    provision: provisionMockDevices,
+    retire: retireMockDevices,
 };
 
+const MAX_IDENTITY_ATTEMPTS = 20;
+
 /**
- * The simulator factory "manufactures" blank devices: each one gets a factory
- * identity in PostgreSQL (`factory_devices`), its own broker account and a QR
- * label, but no owner. A powered-on blank device holds a broker session in
- * pairing mode and becomes a normal device the moment someone claims it from
- * the app, exactly like a physical product taken out of its box.
+ * The simulator factory "manufactures" blank devices: each one gets an
+ * identity (MAC, claim secret, MQTT password, key pair) kept in the
+ * Simulator's registry, is registered with the system's factory API (hashes
+ * only) and gets a QR label, but no owner. A powered-on blank device holds a
+ * broker session in pairing mode and becomes a normal device the moment
+ * someone claims it from the app, exactly like a physical product.
  */
 export class FactoryService {
     private readonly logger: FastifyBaseLogger;
@@ -186,33 +206,29 @@ export class FactoryService {
         };
         await this.batches().insertOne({ ...batch });
 
+        // 1. Identities, kept in the registry before anything leaves the Simulator.
         const displayName = product.presentation?.display_name || product.model_name;
-        const macs: string[] = [];
+        const records: SimulatedDeviceRecord[] = [];
         for (let index = 0; index < input.quantity; index += 1) {
             const sequence = await this.nextSequence('serial');
             const serial = formatSerialNumber(product.product_id, manufacturedAt, sequence);
-            const identity = await this.createAvailableIdentity();
             const now = new Date();
-            const record: SimulatedDeviceRecord = {
+            records.push({
                 run_id: FACTORY_RUN_ID,
                 simulator_user_id: '',
                 origin: 'factory',
                 factory_batch_id: batch.id,
                 serial_number: serial,
                 generation_index: sequence,
-                mac: identity.mac,
+                ...await this.freeIdentity(),
                 name: `${displayName} ${serial.slice(-4)}`,
                 product_id: product.product_id,
                 catalog_revision: product.catalog_revision,
                 simulated_network_index: 0,
                 network_fingerprint: '',
-                secret: encrypt(identity.rawSecret),
                 ...(product.product_id === ENTRANCE_PRODUCT_ID
                     ? { access_pin: encrypt(generateAccessPin()) }
                     : {}),
-                credential_private_key: encrypt(identity.credentialPrivateKeyPem),
-                credential_public_key_pem: identity.credentialPublicKeyPem,
-                factory_owned: false,
                 provisioning_state: 'planned',
                 runtime_state: 'offline',
                 desired_state: input.power_on ? 'online' : 'offline',
@@ -220,17 +236,39 @@ export class FactoryService {
                 retention_policy: 'permanent',
                 created_at: now,
                 updated_at: now,
-            };
-            await this.devices().insertOne(record);
-            await provisionMockDevice(product, identity);
-            await this.devices().updateOne(
-                { mac: identity.mac },
-                { $set: { provisioning_state: 'provisioned', factory_owned: true, updated_at: new Date() } },
-            );
-            // The broker account is flashed at the factory, before the first power-on.
-            await this.manager.resolveBrokerCredentials(identity.mac);
-            macs.push(identity.mac);
+            });
         }
+        await this.devices().insertMany(records.map((record) => ({ ...record })));
+
+        // 2. The factory API, 200 per call; a MAC the system already has gets a new identity.
+        let pending = records;
+        for (let attempt = 1; pending.length > 0; attempt += 1) {
+            if (attempt > MAX_IDENTITY_ATTEMPTS) throw new Error('Could not allocate a free MAC address for a factory device');
+            const statuses = await this.dependencies.provision(pending.map((record) => factoryBody(product, {
+                mac: record.mac,
+                credentialPublicKeyPem: record.credential_public_key_pem,
+                factory: record.factory,
+            })));
+            const ready = pending.filter((record) => ['created', 'exists'].includes(statuses.get(record.mac) ?? ''));
+            if (pending.some((record) => statuses.get(record.mac) === 'product_unknown')) {
+                throw httpError(409, 'PRODUCT_NOT_PUBLISHED', 'The system does not publish this Product revision');
+            }
+            if (ready.length > 0) {
+                await this.devices().updateMany(
+                    { mac: { $in: ready.map((record) => record.mac) } },
+                    { $set: { provisioning_state: 'provisioned', updated_at: new Date() } },
+                );
+            }
+            const conflicts = pending.filter((record) => statuses.get(record.mac) === 'conflict');
+            for (const record of conflicts) {
+                const previousMac = record.mac;
+                const identity = await this.freeIdentity();
+                await this.devices().updateOne({ mac: previousMac }, { $set: { ...identity, updated_at: new Date() } });
+                Object.assign(record, identity);
+            }
+            pending = conflicts;
+        }
+        const macs = records.map((record) => record.mac);
 
         await this.dependencies.event({
             type: 'factory.batch_manufactured',
@@ -241,9 +279,11 @@ export class FactoryService {
         }).catch(() => undefined);
 
         if (input.power_on) {
-            await Promise.allSettled(macs.map((mac) => this.startRuntime(mac).catch((error) => {
-                this.logger.warn({ err: error, mac }, 'Factory device could not power on after manufacturing');
-            })));
+            for (const mac of macs) {
+                await this.startRuntime(mac, { queued: true }).catch((error) => {
+                    this.logger.warn({ err: error, mac }, 'Factory device could not power on after manufacturing');
+                });
+            }
         }
         const [view] = await this.listBatches(batch.id);
         return { batch: view, devices: await this.listDevices({ batchId: batch.id, includePairing: true }) };
@@ -294,6 +334,7 @@ export class FactoryService {
                         access_pin: 0,
                         credential_private_key: 0,
                         mqtt_secret: 0,
+                        factory: 0,
                         pending_device_events: 0,
                         state_snapshot: 0,
                         irrigation_session: 0,
@@ -304,7 +345,6 @@ export class FactoryService {
             .sort({ generation_index: -1 })
             .limit(500)
             .toArray();
-        const owners = await this.loadOwners(records.map((record) => record.mac));
         if (options.includePairing && records.length > 0) {
             await this.dependencies.event({
                 type: 'security.pairing_labels_viewed',
@@ -322,10 +362,10 @@ export class FactoryService {
             catalog_revision: record.catalog_revision ?? null,
             factory_batch_id: record.factory_batch_id || null,
             provisioning_state: record.provisioning_state,
-            runtime_state: record.runtime_state,
+            runtime_state: this.manager.getDevice(record.mac)?.liveRuntimeState ?? record.runtime_state,
             desired_state: record.desired_state,
             created_at: new Date(record.created_at).toISOString(),
-            owner: owners.get(record.mac) || null,
+            owner: ownerOf(record),
             ...(options.includePairing && record.secret ? {
                 pairing_payload: encodePairingPayload(buildPairingPayload(
                     record.mac,
@@ -340,13 +380,7 @@ export class FactoryService {
         const mac = normalizeMac(macInput);
         const record = await this.devices().findOne({ mac });
         if (!record) throw httpError(404, 'DEVICE_NOT_FOUND', 'Device not found');
-        const [owners, factory] = await Promise.all([
-            this.loadOwners([mac]),
-            this.dependencies.pgPool().query<{ is_claimed: boolean }>(
-                'SELECT is_claimed FROM factory_devices WHERE mac = $1',
-                [mac],
-            ),
-        ]);
+        const [status] = await this.dependencies.gateway.factoryDeviceStatus([mac]);
         await this.dependencies.event({
             type: 'security.pairing_label_viewed',
             severity: 'info',
@@ -364,8 +398,8 @@ export class FactoryService {
                 mac,
                 decrypt(record.secret.iv, record.secret.encrypted, record.secret.authTag),
             )),
-            claimable: factory.rows[0]?.is_claimed === false,
-            owner: owners.get(mac) || null,
+            claimable: status?.exists === true && status.claimed === false,
+            owner: status?.claimed ? (ownerOf(record) ?? { device_id: null, claimed_at: null }) : null,
         };
     }
 
@@ -377,10 +411,10 @@ export class FactoryService {
             { mac },
             { $set: { desired_state: 'online', updated_at: new Date() } },
         );
-        if (record.provisioning_state === 'claimed' && !await this.hasActiveOwner(mac)) {
+        if (record.provisioning_state === 'claimed') {
             // Unpaired while switched off: the retained assignment is gone, so
-            // the device would never learn it on its own. Reset it now.
-            await this.manager.revokeDeviceOwnership(mac);
+            // the device would never learn it on its own. verifyLive… resets it.
+            await verifyLiveOwnershipBatch([record], this.manager, this.status());
         }
         return this.startRuntime(mac);
     }
@@ -416,110 +450,99 @@ export class FactoryService {
     }
 
     /**
-     * Destroys an unsold device: its factory identity, broker account, registry
+     * Destroys an unsold device: retired with the factory API (its factory
+     * record, MQTT login and the system's data about it), then its registry
      * record and recordings. A device somebody owns cannot be scrapped.
      */
     async scrap(macInput: string): Promise<void> {
         const mac = normalizeMac(macInput);
         const record = await this.requireFactoryDevice(mac);
-        await this.manager.removeDevice(mac);
-        let deleted = 0;
-        try {
-            const result = await this.dependencies.pgPool().query(
-                'DELETE FROM factory_devices WHERE mac = $1 AND is_claimed = false RETURNING mac',
-                [mac],
-            );
-            deleted = result.rowCount || 0;
-            if (deleted === 0) {
-                const exists = await this.dependencies.pgPool().query(
-                    'SELECT 1 FROM factory_devices WHERE mac = $1',
-                    [mac],
-                );
-                if (exists.rows.length === 0) deleted = 1;
-            }
-        } catch (error) {
-            this.logger.warn({ err: error, mac }, 'Factory identity could not be deleted');
-        }
-        if (deleted === 0) {
-            if (record.desired_state === 'online') await this.startRuntime(mac).catch(() => undefined);
+        const { scrapped } = await this.scrapRecords([record]);
+        if (scrapped === 0) {
             throw httpError(409, 'DEVICE_OWNED', 'The device belongs to an account; it must be unpaired in the app first');
         }
-        await this.manager.revokeBrokerIdentity(mac).catch((error) => this.logger.warn(
-            { err: error, mac },
-            'Broker identity of a scrapped device could not be revoked',
-        ));
-        await this.dependencies.mediaStore().wipeCamera(FACTORY_RUN_ID, mac).catch(() => undefined);
-        const mainDb = this.dependencies.mainDb();
-        await Promise.allSettled([
-            mainDb.collection<{ _id: string }>(env.MAIN_MONGO_DEVICE_SHADOWS_COLLECTION).deleteMany({ _id: mac }),
-            mainDb.collection(env.MAIN_MONGO_TELEMETRY_COLLECTION).deleteMany({ 'metadata.device_id': mac }),
-            mainDb.collection('active_operations').deleteMany({ device_id: mac }),
-            mainDb.collection(env.MAIN_MONGO_DEVICE_EVENTS_COLLECTION).deleteMany({ device_id: mac }),
-            mainDb.collection('device_incidents').deleteMany({ device_id: mac }),
-            mainDb.collection(env.MAIN_MONGO_INGEST_RECEIPTS_COLLECTION).deleteMany({ device_id: mac }),
-        ]);
-        await this.devices().deleteOne({ mac, origin: 'factory' });
-        await this.dependencies.event({
-            type: 'factory.device_scrapped',
-            severity: 'warning',
-            run_id: FACTORY_RUN_ID,
-            mac,
-            message: 'Unsold factory device was scrapped',
-            data: { serial_number: record.serial_number || null, batch_id: record.factory_batch_id || null },
-        }).catch(() => undefined);
     }
 
     /** Scraps every device of a lot that nobody owns; removes the lot when it is empty. */
     async scrapUnclaimed(batchId: string): Promise<{ scrapped: number; kept: number }> {
-        const records = await this.devices()
-            .find({ origin: 'factory', factory_batch_id: batchId }, { projection: { mac: 1, provisioning_state: 1 } })
-            .toArray();
+        const records = await this.devices().find({ origin: 'factory', factory_batch_id: batchId }).toArray();
         if (records.length === 0 && !await this.batches().findOne({ id: batchId })) {
             throw httpError(404, 'BATCH_NOT_FOUND', 'Production lot not found');
         }
-        let scrapped = 0;
-        let kept = 0;
-        for (const record of records) {
-            if (record.provisioning_state === 'claimed') {
-                kept += 1;
-                continue;
-            }
-            try {
-                await this.scrap(record.mac);
-                scrapped += 1;
-            } catch {
-                kept += 1;
-            }
-        }
+        const unclaimed = records.filter((record) => record.provisioning_state !== 'claimed');
+        const { scrapped } = await this.scrapRecords(unclaimed);
+        const kept = records.length - scrapped;
         if (kept === 0) await this.batches().deleteOne({ id: batchId });
         return { scrapped, kept };
     }
 
-    /** Powers on factory devices whose switch was on before the simulator restarted. */
+    private async scrapRecords(records: SimulatedDeviceRecord[]): Promise<{ scrapped: number }> {
+        if (records.length === 0) return { scrapped: 0 };
+        for (const record of records) await this.manager.removeDevice(record.mac);
+        const statuses = await this.dependencies.retire(records.map((record) => record.mac));
+        let scrapped = 0;
+        for (const record of records) {
+            if (statuses.get(record.mac) === 'claimed') {
+                // Someone owns it after all: switch it back on as it was.
+                if (record.desired_state === 'online') await this.startRuntime(record.mac).catch(() => undefined);
+                continue;
+            }
+            await this.dependencies.mediaStore().wipeCamera(FACTORY_RUN_ID, record.mac).catch(() => undefined);
+            await this.devices().deleteOne({ mac: record.mac, origin: 'factory' });
+            scrapped += 1;
+            await this.dependencies.event({
+                type: 'factory.device_scrapped',
+                severity: 'warning',
+                run_id: FACTORY_RUN_ID,
+                mac: record.mac,
+                message: 'Unsold factory device was scrapped',
+                data: { serial_number: record.serial_number || null, batch_id: record.factory_batch_id || null },
+            }).catch(() => undefined);
+        }
+        return { scrapped };
+    }
+
+    /**
+     * Powers on factory devices whose switch was on before the simulator
+     * restarted: ownership checked in batches, connections queued with the
+     * connect scheduler.
+     */
     async recover(): Promise<number> {
         const records = await this.devices()
-            .find({ origin: 'factory', desired_state: 'online' }, { projection: { mac: 1 } })
+            .find({ origin: 'factory', desired_state: 'online', provisioning_state: { $ne: 'planned' } })
             .toArray();
+        if (records.length === 0) return 0;
+        const claimed = records.filter((record) => record.provisioning_state === 'claimed');
+        if (claimed.length > 0) await verifyLiveOwnershipBatch(claimed, this.manager, this.status());
         let started = 0;
         for (const record of records) {
             try {
-                if (await this.powerOn(record.mac)) started += 1;
+                if (await this.startRuntime(record.mac, { queued: true })) started += 1;
             } catch (error) {
                 this.logger.warn({ err: error, mac: record.mac }, 'Factory device could not be powered on after restart');
             }
         }
-        if (records.length > 0) this.logger.info({ started, total: records.length }, 'Factory devices recovered');
+        this.logger.info({ started, total: records.length }, 'Factory devices recovered');
         return started;
     }
 
-    /** Starts the firmware of a device whose power switch is on. */
-    async startRuntime(macInput: string): Promise<DeviceRuntime | null> {
+    /**
+     * Starts the firmware of a device whose power switch is on. By hand (the
+     * Console's power button) the answer waits for the connection; in bulk
+     * (manufacture, restart) the connection is queued.
+     */
+    async startRuntime(macInput: string, { queued = false }: { queued?: boolean } = {}): Promise<DeviceRuntime | null> {
         const mac = normalizeMac(macInput);
         const record = await this.devices().findOne({ mac, origin: 'factory' });
         if (!record || record.desired_state !== 'online' || record.provisioning_state === 'planned') return null;
         const runtime = await this.runtimeFor(record);
-        await runtime.connect();
+        if (queued) this.manager.scheduleConnect(runtime);
+        else await runtime.connect();
         return runtime;
+    }
+
+    private status() {
+        return (macs: string[]) => this.dependencies.gateway.factoryDeviceStatus(macs);
     }
 
     private async requireFactoryDevice(mac: string): Promise<SimulatedDeviceRecord> {
@@ -528,45 +551,20 @@ export class FactoryService {
         return record;
     }
 
-    private async hasActiveOwner(mac: string): Promise<boolean> {
-        const result = await this.dependencies.pgPool().query(
-            'SELECT 1 FROM device_metadata WHERE mac = $1 AND is_active = true',
-            [mac],
-        );
-        return result.rows.length > 0;
-    }
-
-    private async loadOwners(macs: string[]): Promise<Map<string, DeviceOwnerView>> {
-        if (macs.length === 0) return new Map();
-        const result = await this.dependencies.pgPool().query<{
-            mac: string;
-            id: string;
-            name: string;
-            email: string | null;
-            claimed_at: Date | null;
-        }>(
-            `SELECT device.mac, device.id::text AS id, device.name, account.email, device.claimed_at
-             FROM device_metadata AS device
-             LEFT JOIN accounts AS account ON account.id = device.owner_id
-             WHERE device.mac = ANY($1::text[]) AND device.is_active = true`,
-            [macs],
-        );
-        return new Map(result.rows.map((row) => [row.mac, {
-            device_id: row.id,
-            device_name: row.name,
-            account_email: row.email,
-            claimed_at: iso(row.claimed_at),
-        }]));
-    }
-
-    private async createAvailableIdentity() {
-        for (let attempt = 0; attempt < 20; attempt += 1) {
+    /** A new identity whose MAC no record of the registry uses (the factory API catches the system's). */
+    private async freeIdentity() {
+        for (let attempt = 0; attempt < MAX_IDENTITY_ATTEMPTS; attempt += 1) {
             const identity = await createMockDeviceIdentity(crypto.randomUUID(), 'factory');
-            const [factoryRecord, registryRecord] = await Promise.all([
-                this.dependencies.pgPool().query('SELECT 1 FROM factory_devices WHERE mac = $1', [identity.mac]),
-                this.devices().findOne({ mac: identity.mac }, { projection: { _id: 1 } }),
-            ]);
-            if (factoryRecord.rows.length === 0 && !registryRecord) return identity;
+            if (!await this.devices().findOne({ mac: identity.mac }, { projection: { _id: 1 } })) {
+                return {
+                    mac: identity.mac,
+                    secret: encrypt(identity.rawSecret),
+                    mqtt_secret: encrypt(identity.mqttPassword),
+                    factory: identity.factory,
+                    credential_private_key: encrypt(identity.credentialPrivateKeyPem),
+                    credential_public_key_pem: identity.credentialPublicKeyPem,
+                };
+            }
         }
         throw new Error('Could not allocate a free MAC address for a factory device');
     }

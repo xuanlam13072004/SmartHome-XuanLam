@@ -6,8 +6,7 @@ import type {
     SimulatedUserRecord,
 } from '../../domain/registry';
 import type { SimulationRun } from '../../domain/simulation-run';
-import { getMainMongoDb, getMongoDb } from '../../infrastructure/mongodb/client';
-import { getPgPool } from '../../infrastructure/postgres/client';
+import { getMongoDb } from '../../infrastructure/mongodb/client';
 import { apiGateway } from '../../infrastructure/api-gateway/client';
 import { decrypt } from '../../security/crypto';
 import {
@@ -80,31 +79,7 @@ export const createUsersRoutes = (cleanupJob: CleanupCronjob): FastifyPluginAsyn
                 .find({ simulator_user_id: accountId }, { projection: deviceProjection })
                 .sort({ generation_index: 1 })
                 .toArray();
-            const macs = devices.map((device) => device.mac);
-            const [telemetry, operations] = await Promise.all([
-                macs.length === 0
-                    ? []
-                    : getMainMongoDb().collection(env.MAIN_MONGO_TELEMETRY_COLLECTION)
-                        .find({ 'metadata.device_id': { $in: macs } })
-                        .sort({ observed_at: -1 })
-                        .limit(100)
-                        .toArray(),
-                getPgPool().query(
-                    `SELECT operation.id::text, device.mac, operation.status,
-                            operation.instance_id, operation.operation_name,
-                            operation.input, operation.risk, operation.reason_code,
-                            operation.catalog_revision, operation.accepted_at,
-                            operation.completed_at, operation.created_at,
-                            operation.updated_at
-                     FROM device_operations AS operation
-                     JOIN device_metadata AS device ON device.id = operation.device_id
-                     WHERE operation.actor_account_id = $1
-                     ORDER BY operation.created_at DESC
-                     LIMIT 100`,
-                    [accountId],
-                ).then((result) => result.rows),
-            ]);
-            return { success: true, user, devices, telemetry, operations };
+            return { success: true, user, devices };
         });
 
         app.post('/api/users/:accountId/relogin', async (request, reply) => {

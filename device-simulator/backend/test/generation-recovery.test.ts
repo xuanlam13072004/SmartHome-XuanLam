@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { GenerationQueue } from '../src/generation/queue';
-import { apiGateway } from '../src/infrastructure/api-gateway/client';
 import { encrypt } from '../src/security/crypto';
 
 const logger = { child: () => logger, info() {}, warn() {}, error() {} } as any;
@@ -24,7 +23,7 @@ const update = (row: any, change: any) => {
     for (const [key, value] of Object.entries(change.$inc || {})) row[key] = (row[key] || 0) + Number(value);
 };
 
-test('retry fills the missing 11 of 19 devices, skips completed users and clears partial despite historical errors', async t => {
+test('retry fills the missing 11 of 19 devices, skips completed users and clears partial despite historical errors', async () => {
     const run: any = { id: 'run', status: 'queued', config: { user_count: 6, cleanup_policy: 'manual' }, total_errors: 3, last_error: '429' };
     const users = [3, 5, 3, 3, 2, 3].map((target, index) => ({
         run_id: 'run', generation_index: index, account_id: `user${index}`,
@@ -48,23 +47,38 @@ test('retry fills the missing 11 of 19 devices, skips completed users and clears
                 : { devices_requested: devices.length, devices_provisioned: devices.length, devices_claimed: devices.length } }),
         };
     } } as any;
-    const logins: string[] = [];
-    t.mock.method(apiGateway, 'login', async (input: any) => {
-        logins.push(input.email);
-        return { accessToken: 'test-access', refreshToken: 'test-refresh', sessionId: 'test-session' };
-    });
-    const queue = new GenerationQueue(logger, () => db);
-    // Only external provisioning/event persistence are substituted; queue/resume logic runs unchanged.
+    const sessions: string[] = [];
+    const queue = new GenerationQueue(logger, () => db, 8, undefined, {
+        accessToken: async (user: any) => { sessions.push(user.email); return 'test-access'; },
+        signIn: async () => { throw new Error('accounts already exist: no sign-in for recovery'); },
+    } as any);
+    // Only the steps that talk to the system are substituted; queue/resume logic runs unchanged.
     (queue as any).safeEvent = async () => {};
-    (queue as any).ensureDevice = async (_run: any, input: any) => {
-        if (!devices.some(d => d.simulator_user_id === input.accountId && d.generation_index === input.deviceIndex)) {
-            devices.push({ run_id: 'run', simulator_user_id: input.accountId, generation_index: input.deviceIndex, provisioning_state: 'claimed' });
+    (queue as any).planDevices = async (_run: any, user: any, accountId: string) => {
+        for (let index = 0; index < user.target_device_count; index += 1) {
+            if (!devices.some(d => d.simulator_user_id === accountId && d.generation_index === index)) {
+                devices.push({ run_id: 'run', simulator_user_id: accountId, generation_index: index, provisioning_state: 'planned', mac: `${accountId}-${index}` });
+            }
+        }
+        return devices.filter(d => d.simulator_user_id === accountId);
+    };
+    let provisioned = 0;
+    (queue as any).provisionDevices = async (_run: any, _account: string, list: any[]) => {
+        for (const device of list.filter(d => d.provisioning_state === 'planned')) {
+            device.provisioning_state = 'provisioned';
+            provisioned += 1;
         }
     };
+    (queue as any).claimDevice = async (_run: any, _user: any, _account: string, device: any, token: string) => {
+        device.provisioning_state = 'claimed';
+        return token;
+    };
     await queue.startRun(run);
-    // Users are generated in parallel lanes; only the set of logins matters.
-    assert.deepEqual([...logins].sort(), ['user0@example.test', 'user1@example.test', 'user2@example.test']);
+    // Users are generated in parallel lanes; only the set of signed-in users matters.
+    assert.deepEqual([...sessions].sort(), ['user0@example.test', 'user1@example.test', 'user2@example.test']);
+    assert.equal(provisioned, 11);
     assert.equal(devices.length, 19);
+    assert.ok(devices.every(device => device.provisioning_state === 'claimed'));
     assert.ok(originalDevices.every(device => devices.includes(device)));
     assert.equal(run.status, 'completed');
     assert.equal(run.last_error, null);
@@ -75,5 +89,33 @@ test('retry fills the missing 11 of 19 devices, skips completed users and clears
     run.status = 'paused';
     await queue.startRun(run);
     assert.equal(run.status, 'paused');
-    assert.equal(logins.length, 3);
+    assert.equal(sessions.length, 3);
+});
+
+test('a lost registration answer is recovered by signing in with the password only the Simulator holds', async (t) => {
+    const { apiGateway } = await import('../src/infrastructure/api-gateway/client');
+    const user: any = { run_id: 'run', generation_index: 0, email: 'Sim_0@example.test', full_name: 'Sim', credential: encrypt('random-password') };
+    const writes: any[] = [];
+    const db = { collection: () => ({ updateOne: async (_filter: any, change: any) => { writes.push(change.$set); } }) } as any;
+    const pacer = { register: { take: async () => undefined }, login: { take: async () => undefined }, claim: async () => undefined } as any;
+    let signIns = 0;
+    const queue = new GenerationQueue(logger, () => db, 1, pacer, {
+        accessToken: async () => 'unused',
+        signIn: async () => { signIns += 1; return { accessToken: 'recovered', refreshToken: 'r', sessionId: 's' }; },
+    } as any);
+    (queue as any).safeEvent = async () => {};
+    t.mock.method(apiGateway, 'register', async () => { throw Object.assign(new Error('exists'), { statusCode: 409, code: 'ACCOUNT_EXISTS' }); });
+    t.mock.method(apiGateway, 'getCurrentUser', async () => ({ id: 'account-42', email: 'sim_0@example.test' }));
+    const accountId = await (queue as any).registerAccount({ id: 'run' }, user, {});
+    assert.equal(accountId, 'account-42');
+    assert.equal(signIns, 1);
+    assert.equal(writes[0].account_provenance, 'recovered_after_register');
+    assert.equal(writes[0].account_created_by_simulator, true);
+
+    // Someone else's account under the same e-mail: the password does not work.
+    const stranger = new GenerationQueue(logger, () => db, 1, pacer, {
+        accessToken: async () => 'unused',
+        signIn: async () => { throw Object.assign(new Error('Invalid credentials'), { statusCode: 401 }); },
+    } as any);
+    await assert.rejects((stranger as any).registerAccount({ id: 'run' }, { ...user }, {}), /ACCOUNT_IDENTITY_COLLISION/);
 });
