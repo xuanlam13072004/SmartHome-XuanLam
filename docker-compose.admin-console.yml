@@ -1,16 +1,17 @@
 name: admin-console
 
 # The company's tools (docs/architecture/admin.md), apart from the smart home
-# system itself: the Admin Console (staff sign in at http://localhost:4000) and
-# the Device Simulator's backend, which has no web page of its own (its pages
-# are the "Simulator" section of the Console).
+# system itself: the Admin Console (staff sign in at http://localhost:4000).
+# The Device Simulator, whose pages are the "Simulator" section of the
+# Console, is its own group: docker-compose.simulator.yml, on this computer or
+# on a second one (docs/architecture/load-testing.md).
 #
-# Its own group in Docker ("admin-console"), started after the system:
+# Started after the system:
 #   docker compose up -d                                          (the system)
 #   docker compose -f docker-compose.admin-console.yml up -d --build
 # This file sits at the repository root so Compose reads the root .env
-# (ADMIN_API_KEY, SIMULATOR_ADMIN_TOKEN). Both containers join the system's
-# Docker network; neither is ever routed through Cloudflare Tunnel.
+# (ADMIN_API_KEY, SIMULATOR_ADMIN_TOKEN, SIMULATOR_URL). The Console joins the
+# system's Docker network; it is never routed through Cloudflare Tunnel.
 
 services:
   admin-console:
@@ -21,39 +22,18 @@ services:
       GATEWAY_URL: http://api-gateway:3000
       # Empty = the Console starts and says what to set (503 CONSOLE_NOT_CONFIGURED).
       ADMIN_API_KEY: ${ADMIN_API_KEY:-}
-      SIMULATOR_URL: http://simulator-backend:4001
+      # Where the Simulator's backend listens: this computer by default; on two
+      # machines http://<IP of the Simulator computer>:4001.
+      SIMULATOR_URL: ${SIMULATOR_URL:-http://host.docker.internal:4001}
       # The Simulator's ADMIN_TOKEN (device-simulator/.env.docker); empty = no Simulator section.
       SIMULATOR_TOKEN: ${SIMULATOR_ADMIN_TOKEN:-}
       COOKIE_SECURE: ${ADMIN_CONSOLE_COOKIE_SECURE:-false}
+    extra_hosts:
+      # Docker Desktop defines it already; this also covers Docker on Linux.
+      - "host.docker.internal:host-gateway"
     ports:
       # 127.0.0.1: this computer only; ADMIN_CONSOLE_HOST=0.0.0.0 opens it to the LAN.
       - "${ADMIN_CONSOLE_HOST:-127.0.0.1}:4000:4000"
-    networks:
-      - smarthome_net
-    restart: unless-stopped
-
-  # Creates virtual users and devices through the public API, runs load tests
-  # (device-simulator/README.md). Only the Console calls it; its port is
-  # published on this computer alone, for debugging.
-  simulator-backend:
-    build:
-      context: ./device-simulator/backend
-    container_name: simulator-backend
-    env_file:
-      - path: ./device-simulator/.env.docker
-        required: false
-    environment:
-      # Virtual SD card of the virtual cameras (camera contract, section 9).
-      SIMULATOR_MEDIA_ROOT: /var/lib/simulator-media
-    volumes:
-      - "${SIMULATOR_MEDIA_HOST_DIR:-E:/smarthome_data/device-simulator/media}:/var/lib/simulator-media"
-    ports:
-      - "127.0.0.1:4001:4001"
-    # One MQTT connection per directly connected virtual device.
-    ulimits:
-      nofile:
-        soft: 65536
-        hard: 65536
     networks:
       - smarthome_net
     restart: unless-stopped

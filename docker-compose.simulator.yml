@@ -1,0 +1,82 @@
+name: simulator
+
+# The Device Simulator (device-simulator/README.md): virtual users and devices
+# for load tests, through the system's official doors only — the public API
+# and the factory API on port 3000, MQTT on port 1883. It has its own MongoDB
+# (its registry) and never opens the system's databases.
+#
+# One computer (the system runs here too):
+#   docker compose -f docker-compose.simulator.yml up -d --build
+# Two computers (docs/architecture/load-testing.md, "Hai máy"): on the
+# Simulator's computer, a root .env with SMARTHOME_SYSTEM_HOST=<IP of the
+# system's computer> and SIMULATOR_PUBLISH_HOST=0.0.0.0, then the same command.
+#
+# Settings and secrets: device-simulator/.env.docker (from docker.env.example).
+# Data: Docker named volumes (Docker Desktop's disk image, on drive E:).
+
+services:
+  simulator-mongodb:
+    image: mongo:8.0
+    container_name: simulator-mongodb
+    volumes:
+      - simulator_mongodb_data:/data/db
+      - simulator_mongodb_config:/data/configdb
+    ports:
+      # Only this computer (database tools); the backend uses simulator-mongodb:27017.
+      - "127.0.0.1:27019:27017"
+    networks:
+      - simulator_net
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  simulator-backend:
+    build:
+      context: ./device-simulator/backend
+    container_name: simulator-backend
+    env_file:
+      - path: ./device-simulator/.env.docker
+        required: true
+    environment:
+      MONGODB_URI: mongodb://simulator-mongodb:27017
+      # The system, as a device or a phone sees it ("smarthome-system" below).
+      API_GATEWAY_URL: http://smarthome-system:3000
+      MQTT_HOST: smarthome-system
+      MQTT_PORT: 1883
+      # Virtual SD card of the virtual cameras (camera contract, section 9).
+      SIMULATOR_MEDIA_ROOT: /var/lib/simulator-media
+    extra_hosts:
+      # The system's computer: this one (host-gateway) or SMARTHOME_SYSTEM_HOST.
+      - "smarthome-system:${SMARTHOME_SYSTEM_HOST:-host-gateway}"
+      # Virtual cameras stream to the address the API gives them
+      # (MEDIA_INGEST_URL, ws://media-relay-service:8090 by default).
+      - "media-relay-service:${SMARTHOME_SYSTEM_HOST:-host-gateway}"
+    volumes:
+      - simulator_media:/var/lib/simulator-media
+    ports:
+      # The Console calls it here. Two computers: SIMULATOR_PUBLISH_HOST=0.0.0.0
+      # and a firewall rule that lets only the system's computer in.
+      - "${SIMULATOR_PUBLISH_HOST:-127.0.0.1}:4001:4001"
+    # One MQTT connection per directly connected virtual device.
+    ulimits:
+      nofile:
+        soft: 131072
+        hard: 131072
+    networks:
+      - simulator_net
+    depends_on:
+      simulator-mongodb:
+        condition: service_healthy
+    restart: unless-stopped
+
+networks:
+  simulator_net:
+    driver: bridge
+
+volumes:
+  simulator_mongodb_data:
+  simulator_mongodb_config:
+  simulator_media:

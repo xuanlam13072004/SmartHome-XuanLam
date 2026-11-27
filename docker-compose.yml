@@ -1,3 +1,10 @@
+# The smart home system (machine A in a two-machine load test). Data lives in
+# Docker named volumes (bottom of this file), inside Docker Desktop's disk
+# image: put that image on drive E: in Docker Desktop → Settings → Resources →
+# Advanced → Disk image location. Backups: scripts/backup.ps1 writes to
+# E:/smarthome_data/backups. Other groups: docker-compose.admin-console.yml
+# (the Console) and docker-compose.simulator.yml (the Device Simulator, on this
+# computer or another one); see docs/architecture/load-testing.md.
 
 networks:
   smarthome_net:
@@ -20,7 +27,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: smarthome
     volumes:
-      - "E:/smarthome_data/postgresql:/var/lib/postgresql"
+      - postgres_data:/var/lib/postgresql
     ports:
       # Only this computer (database tools); containers use postgres:5432.
       - "127.0.0.1:5433:5432"
@@ -54,8 +61,8 @@ services:
       # Only this computer (database tools); containers use mongodb:27017.
       - "127.0.0.1:27017:27017"
     volumes:
-      - "E:/smarthome_data/mongodb:/data/db"
-      - "E:/smarthome_data/mongodb-config:/data/configdb"
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
     networks:
       - smarthome_net
     healthcheck:
@@ -65,49 +72,48 @@ services:
       retries: 5
 
 
-  mosquitto:
-    # 2.1+ is required: Dynamic Security %u ACL patterns (docs/architecture/mqtt-security.md).
-    image: eclipse-mosquitto:2.1.2-alpine
-    container_name: mosquitto
+  # MQTT broker (docs/architecture/mqtt-security.md). Logins are rows of the
+  # PostgreSQL table mqtt_accounts, read with the read-only role emqx_auth that
+  # db-initialize creates; adding a device adds one row, nothing is rewritten.
+  emqx:
+    image: emqx/emqx:5.8.9
+    container_name: emqx
+    hostname: emqx
     environment:
-      # Applied only when dynamic-security.json is created for the first time.
-      MOSQUITTO_DYNSEC_PASSWORD: ${MQTT_ADMIN_PASSWORD:?Set MQTT_ADMIN_PASSWORD in the root .env (see .env.example)}
+      # One node with a fixed name: its data directory stays valid across restarts.
+      EMQX_NODE__NAME: emqx@127.0.0.1
+      EMQX_NODE__COOKIE: ${EMQX_NODE_COOKIE:?Set EMQX_NODE_COOKIE in the root .env (see .env.example)}
+      # Read-only database login of the broker (same value given to db-initialize).
+      EMQX_AUTHENTICATION__1__PASSWORD: ${EMQX_AUTH_DB_PASSWORD:?Set EMQX_AUTH_DB_PASSWORD in the root .env}
+      # First password of the dashboard user "admin" (http://localhost:18083).
+      EMQX_DASHBOARD__DEFAULT_PASSWORD: ${EMQX_DASHBOARD_PASSWORD:?Set EMQX_DASHBOARD_PASSWORD in the root .env}
+    volumes:
+      - ./emqx/emqx.conf:/opt/emqx/etc/emqx.conf:ro
+      - ./emqx/acl.conf:/opt/emqx/etc/acl.conf:ro
+      - emqx_data:/opt/emqx/data
     ports:
-      - "1883:1883"
+      # Devices (physical ones on the LAN, the Simulator on another computer).
+      - "${MQTT_PUBLISH_HOST:-0.0.0.0}:1883:1883"
+      # Dashboard: this computer only.
+      - "127.0.0.1:18083:18083"
     # Each device holds its own MQTT session; tens of thousands of sockets.
     ulimits:
       nofile:
-        soft: 65536
-        hard: 65536
-    volumes:
-      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
-      - "E:/smarthome_data/mosquitto:/mosquitto/data"
-    networks:
-      - smarthome_net
-    healthcheck:
-      test: [ "CMD-SHELL", "mosquitto_sub -u admin -P \"$$MOSQUITTO_DYNSEC_PASSWORD\" -t '$$SYS/broker/uptime' -C 1 -W 5 || exit 1" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  mqtt-initialize:
-    # Idempotent: creates broker roles/ACLs and the worker/factory identities.
-    build:
-      context: .
-      dockerfile: mqtt-worker-service/Dockerfile
-    container_name: mqtt-initialize
-    environment:
-      MQTT_BROKER_URL: mqtt://mosquitto:1883
-      MQTT_ADMIN_PASSWORD: ${MQTT_ADMIN_PASSWORD:?Set MQTT_ADMIN_PASSWORD in the root .env}
-      MQTT_WORKER_PASSWORD: ${MQTT_WORKER_PASSWORD:?Set MQTT_WORKER_PASSWORD in the root .env}
-      MQTT_FACTORY_PASSWORD: ${MQTT_FACTORY_PASSWORD:?Set MQTT_FACTORY_PASSWORD in the root .env}
-    command: [ "node", "src/tools/initializeBroker.js" ]
+        soft: 262144
+        hard: 262144
     networks:
       - smarthome_net
     depends_on:
-      mosquitto:
-        condition: service_healthy
-    restart: "no"
+      # The login table and the emqx_auth role exist before the first login.
+      db-initialize:
+        condition: service_completed_successfully
+    healthcheck:
+      test: [ "CMD", "/opt/emqx/bin/emqx", "ctl", "status" ]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
 
   db-initialize:
     build:
@@ -120,6 +126,10 @@ services:
       ALLOW_V2_DATABASE_INITIALIZATION: "true"
       ALLOW_CATALOG_PUBLISH: "true"
       NODE_PATH: "/app/api-gateway/node_modules"
+      # MQTT logins (docs/architecture/mqtt-security.md): the broker's read-only
+      # database role and the backend's own broker account.
+      EMQX_AUTH_DB_PASSWORD: ${EMQX_AUTH_DB_PASSWORD:?Set EMQX_AUTH_DB_PASSWORD in the root .env}
+      MQTT_WORKER_PASSWORD: ${MQTT_WORKER_PASSWORD:?Set MQTT_WORKER_PASSWORD in the root .env}
     command: [ "node", "/app/database/initialize_v2.js" ]
     networks:
       - smarthome_net
@@ -173,6 +183,14 @@ services:
       # Administration API, called only by the Admin Console (docs/architecture/admin.md),
       # which gets the same variable. Empty = off.
       ADMIN_API_KEY: ${ADMIN_API_KEY:-}
+      # Factory API (docs/architecture/mqtt-security.md): how the Device Simulator
+      # registers the virtual devices it makes. Empty = off (404).
+      FACTORY_API_KEY: ${FACTORY_API_KEY:-}
+      # Registrations and sign-ins per client address and minute. Raise both (e.g.
+      # 1200) in the root .env only while a load test creates its users, together
+      # with the Simulator's GATEWAY_*_PER_MINUTE (docs/architecture/load-testing.md).
+      RATE_LIMIT_REGISTER_PER_IP_PER_MINUTE: ${RATE_LIMIT_REGISTER_PER_IP_PER_MINUTE:-20}
+      RATE_LIMIT_LOGIN_PER_IP_PER_MINUTE: ${RATE_LIMIT_LOGIN_PER_IP_PER_MINUTE:-100}
     volumes:
       - ./secrets:/run/smarthome-secrets:ro
     ports:
@@ -205,7 +223,7 @@ services:
       VOICE_MAX_CONCURRENCY: ${VOICE_MAX_CONCURRENCY:-2}
     volumes:
       # cohort.npy for score normalization (python -m tools.build_cohort).
-      - "E:/smarthome_data/voice:/data"
+      - voice_data:/data
     networks:
       - smarthome_net
     depends_on:
@@ -264,6 +282,7 @@ services:
     env_file:
       - mqtt-worker-service/.env.docker
     environment:
+      MQTT_BROKER_URL: mqtt://emqx:1883
       MQTT_USERNAME: mqtt-worker-service
       MQTT_PASSWORD: ${MQTT_WORKER_PASSWORD:?Set MQTT_WORKER_PASSWORD in the root .env}
     networks:
@@ -271,17 +290,16 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      mosquitto:
+      emqx:
         condition: service_healthy
-      mqtt-initialize:
-        condition: service_completed_successfully
       mongodb:
         condition: service_healthy
       db-initialize:
         condition: service_completed_successfully
 
-  # The Admin Console and the Device Simulator run as their own group,
-  # "admin-console": docker-compose.admin-console.yml (docs/architecture/admin.md).
+  # The Admin Console runs as its own group: docker-compose.admin-console.yml
+  # (docs/architecture/admin.md). The Device Simulator too, on this computer or
+  # another: docker-compose.simulator.yml (docs/architecture/load-testing.md).
 
   # Cloudflare Tunnel (docs/cloudflare-tunnel.md): api-datn / ws-datn public
   # hostnames and the private route to the media relay for WARP phones.
@@ -347,5 +365,13 @@ services:
       - prometheus
     restart: unless-stopped
 
+# Named volumes: stored by Docker (its disk image, put on drive E:), not in
+# folders of this computer. `docker compose down` keeps them; only
+# `docker compose down -v` deletes them.
 volumes:
+  postgres_data:
+  mongodb_data:
+  mongodb_config:
+  emqx_data:
+  voice_data:
   prometheus_data:

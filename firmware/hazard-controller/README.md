@@ -54,13 +54,14 @@ Broker bắt buộc xác thực (`docs/architecture/mqtt-security.md`). Firmware
 factory:
 
 ```powershell
-cd mqtt-worker-service
-$env:MQTT_BROKER_URL="mqtt://192.168.1.10:1883"; $env:MQTT_FACTORY_PASSWORD="<root .env>"
-node src/tools/provisionDeviceIdentity.js AA:BB:CC:DD:EE:FF
+docker compose exec api-gateway node dist/tools/factory.js mqtt-password AA:BB:CC:DD:EE:FF
 ```
 
-Ghi giá trị `mqttPassword` in ra vào NVS namespace `factory`, key
-`mqttPassword`. Chạy lại lệnh sẽ xoay mật khẩu; thêm `--revoke` để thu hồi.
+Thiết bị phải có bản ghi xưởng (`factory_devices`) trước. Ghi giá trị
+`mqttPassword` in ra vào NVS namespace `factory`, key `mqttPassword`; mật khẩu
+chỉ in một lần, hệ thống chỉ giữ hash (bảng `mqtt_accounts`, EMQX kiểm tra khi
+thiết bị đăng nhập). Chạy lại lệnh sẽ xoay mật khẩu; `mqtt-revoke` thay cho
+`mqtt-password` để thu hồi.
 Riêng mạng lab có thể dùng `-D SMARTHOME_MQTT_PASSWORD=\"...\"` làm dự phòng
 khi NVS chưa có giá trị. Kết nối chưa có TLS nên chỉ dùng trong mạng tin cậy.
 
